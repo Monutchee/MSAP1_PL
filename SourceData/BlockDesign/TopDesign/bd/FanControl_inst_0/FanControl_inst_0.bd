@@ -1,0 +1,66 @@
+{
+  "design": {
+    "design_info": {
+      "boundary_crc": "0xE40FEFDD6E99672F",
+      "design_src": "/opt/monutchee/project/msap1/MSAP1_PL/SourceData/BlockDesign/FanControl/FanControl.bd",
+      "device": "xck26-sfvc784-2LV-c",
+      "name": "FanControl_inst_0",
+      "rev_ctrl_bd_flag": "RevCtrlBdOff",
+      "synth_flow_mode": "Hierarchical",
+      "tool_version": "2025.2",
+      "validated": "true",
+      "variant": "true"
+    },
+    "design_tree": {
+      "ilslice_0": ""
+    },
+    "ports": {
+      "Din_0": {
+        "direction": "I",
+        "left": "2",
+        "right": "0"
+      },
+      "Fan_PWM": {
+        "direction": "O",
+        "left": "0",
+        "right": "0",
+        "parameters": {
+          "PortWidth": {
+            "value": "1",
+            "value_src": "default"
+          }
+        }
+      }
+    },
+    "components": {
+      "ilslice_0": {
+        "vlnv": "xilinx.com:inline_hdl:ilslice:1.0",
+        "parameters": {
+          "DIN_FROM": {
+            "value": "2"
+          },
+          "DIN_TO": {
+            "value": "2"
+          },
+          "DIN_WIDTH": {
+            "value": "3"
+          }
+        }
+      }
+    },
+    "nets": {
+      "Din_0_1": {
+        "ports": [
+          "Din_0",
+          "ilslice_0/Din"
+        ]
+      },
+      "ilslice_0_Dout": {
+        "ports": [
+          "ilslice_0/Dout",
+          "Fan_PWM"
+        ]
+      }
+    }
+  }
+}
