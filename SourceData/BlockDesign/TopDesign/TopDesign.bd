@@ -1072,6 +1072,9 @@
           "PSU__GEM__TSU__ENABLE": {
             "value": "0"
           },
+          "PSU__GEN_IPI_7__MASTER": {
+            "value": "APU"
+          },
           "PSU__GPIO0_MIO__IO": {
             "value": "MIO 0 .. 25"
           },
