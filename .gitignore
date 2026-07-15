@@ -78,3 +78,4 @@ SourceData/BlockDesign/**/*_stub.v
 SourceData/BlockDesign/**/*_stub.vhdl
 SourceData/BlockDesign/**/*_sv.sv
 SourceData/BlockDesign/**/*_sv.sveo
+xsim.dir/

@@ -8,6 +8,7 @@
       "rev_ctrl_bd_flag": "RevCtrlBdOff",
       "synth_flow_mode": "Hierarchical",
       "tool_version": "2025.2",
+      "validated": "true",
       "variant": "true"
     },
     "design_tree": {
@@ -406,7 +407,7 @@
             "segments": {
               "SEG_axi_gpio_0_Reg": {
                 "address_block": "/axi_gpio_0/S_AXI/Reg",
-                "offset": "0xB0000000",
+                "offset": "0x0000",
                 "range": "64K"
               },
               "SEG_axi_gpio_0_Reg_1": {
