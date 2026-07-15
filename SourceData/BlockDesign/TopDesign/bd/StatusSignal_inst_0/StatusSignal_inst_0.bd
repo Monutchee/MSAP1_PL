@@ -8,7 +8,6 @@
       "rev_ctrl_bd_flag": "RevCtrlBdOff",
       "synth_flow_mode": "Hierarchical",
       "tool_version": "2025.2",
-      "validated": "true",
       "variant": "true"
     },
     "design_tree": {
@@ -114,7 +113,7 @@
           },
           "MAX_BURST_LENGTH": {
             "value": "1",
-            "value_src": "default_prop"
+            "value_src": "user_prop"
           },
           "NUM_READ_OUTSTANDING": {
             "value": "8",
@@ -154,7 +153,7 @@
           },
           "SUPPORTS_NARROW_BURST": {
             "value": "0",
-            "value_src": "default_prop"
+            "value_src": "user_prop"
           },
           "WUSER_BITS_PER_BYTE": {
             "value": "0",
@@ -174,7 +173,7 @@
         "bd_attributes": {
           "TYPE": {
             "value": "END_POINT",
-            "value_src": "default"
+            "value_src": "auto"
           }
         },
         "hdl_attributes": {
@@ -407,7 +406,7 @@
             "segments": {
               "SEG_axi_gpio_0_Reg": {
                 "address_block": "/axi_gpio_0/S_AXI/Reg",
-                "offset": "0x0000",
+                "offset": "0xB0000000",
                 "range": "64K"
               },
               "SEG_axi_gpio_0_Reg_1": {
