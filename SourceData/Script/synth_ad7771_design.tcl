@@ -3,10 +3,6 @@
 set script_dir [file dirname [file normalize [info script]]]
 set repo_dir [file normalize [file join $script_dir ../..]]
 open_project [file join $repo_dir vivado_gen MSAP1_PL.xpr]
-set_property ip_repo_paths \
-    [list [file join $repo_dir SourceData DesignFile Ad7771Capture]] \
-    [current_project]
-update_ip_catalog
 
 reset_run synth_1
 launch_runs synth_1 -jobs 8

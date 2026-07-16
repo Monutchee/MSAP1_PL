@@ -1,7 +1,8 @@
-# AD7771 capture IP
+# AD7771 capture module
 
-`monutchee.com:user:ad7771_capture:1.0` receives the AD7771 four-DOUT data
-interface and exposes packetized samples to an AXI DMA.
+`Ad7771Capture_Wrapper` is added to `AdcSubSystem.bd` as a Vivado module
+reference. It receives the AD7771 four-DOUT data interface and exposes
+packetized samples to an AXI DMA.
 
 ## Data path
 
@@ -17,6 +18,18 @@ AD7771 DCLK + DRDY + DOUT[3:0]
 The receiver verifies the three-bit channel ID in every header, sign-extends
 the sample to 32 bits, and counts frames, FIFO overflows, header errors, and
 AD7771 alert headers. A 256-frame packet is 2048 AXI beats or 8192 bytes.
+
+## DRDY framing
+
+The board signal retains the legacy name `ADC_DRDY_N`. In the standalone DOUT
+interface, the AD7771 drives it low for most of the conversion interval, pulses
+it high before the next output frame, and then drives it low as the new frame
+starts. The receiver detects that high-to-low transition and samples the header
+MSB on the following DCLK falling edge.
+
+Do not treat the low level as a persistent frame-valid indication. Doing so
+causes the receiver to deserialize repeated LSB data continuously between real
+frames and destroys header alignment.
 
 ## AXI-Lite register map
 
@@ -40,10 +53,9 @@ normal software synchronization uses the AD7771 `SPI_SYNC` register bit.
 
 ## Project scripts
 
-- `package_ad7771_capture_ip.tcl` packages the RTL.
-- `integrate_ad7771_capture.tcl` connects it inside `AdcSubSystem.bd` and to
-  the top-level S2MM DMA.
-- `verify_ad7771_design.tcl` validates the BD and regenerates output products.
+- `verify_ad7771_design.tcl` refreshes the module reference, maintains its
+  AXI-Lite address assignment, validates the BD, and regenerates output
+  products.
 - `synth_ad7771_design.tcl` runs full top-level synthesis and focused reports.
 - `implement_ad7771_design.tcl` places/routes the design, writes the bitstream,
   produces timing/CDC/DRC/I/O reports, and exports the XSA used by Vitis.

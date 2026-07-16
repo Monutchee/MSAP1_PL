@@ -2,8 +2,10 @@
 
 // AD7771 four-DOUT receiver.
 //
-// The converter drives DOUT0..3 and DRDY_N synchronously to DCLK.  In the
-// selected four-lane format each lane carries two 32-bit channel words:
+// The converter drives DOUT0..3 and DRDY_N synchronously to DCLK.  DRDY_N is
+// low for most of the conversion interval, pulses high before the next frame,
+// and falls when the new frame starts.  In the selected four-lane format each
+// lane carries two 32-bit channel words:
 //
 //   DOUT0: CH0, CH1    DOUT1: CH2, CH3
 //   DOUT2: CH4, CH5    DOUT3: CH6, CH7
@@ -30,6 +32,7 @@ module ad7771_receiver (
 
     logic [63:0] lane_shift [0:3];
     logic [5:0]  bits_captured;
+    logic        adc_drdy_n_previous;
 
     logic [63:0] lane_next [0:3];
     logic [31:0] channel_word [0:7];
@@ -84,6 +87,7 @@ module ad7771_receiver (
             for (int lane = 0; lane < 4; lane = lane + 1)
                 lane_shift[lane] <= 64'b0;
             bits_captured     <= 6'b0;
+            adc_drdy_n_previous <= 1'b0;
             frame_valid       <= 1'b0;
             frame_data        <= 256'b0;
             receiver_busy     <= 1'b0;
@@ -92,15 +96,21 @@ module ad7771_receiver (
             header_error_count <= 32'b0;
             alert_count       <= 32'b0;
         end else begin
+            adc_drdy_n_previous <= adc_drdy_n;
             frame_valid <= 1'b0;
 
             if (!capture_enable) begin
                 bits_captured <= 6'b0;
                 receiver_busy <= 1'b0;
             end else if (!receiver_busy) begin
-                // DRDY_N falls immediately after a DCLK rising edge and is
-                // observed here on the following falling edge.
-                if (!adc_drdy_n) begin
+                // DOUT changes after the DCLK rising edge on which DRDY_N
+                // falls.  The following DCLK falling edge is therefore the
+                // first safe point at which to sample the new header MSB.
+                //
+                // Detect the edge rather than the low level. DRDY_N remains
+                // low between frames; level detection would continuously
+                // deserialize repeated LSB data and lose frame alignment.
+                if (adc_drdy_n_previous && !adc_drdy_n) begin
                     for (int lane = 0; lane < 4; lane = lane + 1)
                         lane_shift[lane] <= {63'b0, adc_dout[lane]};
                     bits_captured <= 6'd1;

@@ -4,7 +4,7 @@
 
 - This repository contains the Vivado 2025.2 design for the KR260 MSAP1
   platform. Read `README.md` for the version-control workflow.
-- AD7771 RTL, packaging metadata, and its design notes are in
+- AD7771 RTL, its module-reference wrapper, and its design notes are in
   `SourceData/DesignFile/Ad7771Capture/`. Maintained integration and validation
   Tcl lives in `SourceData/Script/`.
 - `TopDesign.bd` is the implementation top. `AdcSubSystem.bd` is a block-design
@@ -15,9 +15,11 @@
 
 ## AD7771 hardware contract
 
-- The receiver accepts `ADC_DCLK`, active-low `ADC_DRDY_N`, and four DOUT lanes,
-  validates channel headers, sign-extends 24-bit samples, and emits 32-bit
-  AXI4-Stream beats in channel order 0 through 7.
+- The receiver accepts `ADC_DCLK`, the legacy-named `ADC_DRDY_N`, and four DOUT
+  lanes, validates channel headers, sign-extends 24-bit samples, and emits
+  32-bit AXI4-Stream beats in channel order 0 through 7. Frame capture starts
+  only on the `ADC_DRDY_N` high-to-low transition; the low level must not be
+  treated as a persistent frame-valid indication.
 - Assert `TLAST` after the configured packet count. The default is 256 frames,
   2048 AXI beats, or 8192 bytes per DMA packet.
 - AXI Quad SPI is the RPU-owned control path. The capture AXI-Lite registers and

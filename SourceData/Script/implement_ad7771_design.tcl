@@ -8,10 +8,6 @@ set project_file [file join $pl_repo_dir vivado_gen MSAP1_PL.xpr]
 set xsa_file [file join $workspace_dir runtime-generated bin_file MSAP1_PL.xsa]
 
 open_project $project_file
-set_property ip_repo_paths \
-    [list [file join $pl_repo_dir SourceData DesignFile Ad7771Capture]] \
-    [current_project]
-update_ip_catalog
 
 set synth_status [get_property STATUS [get_runs synth_1]]
 if {![string match "*Complete*" $synth_status]} {

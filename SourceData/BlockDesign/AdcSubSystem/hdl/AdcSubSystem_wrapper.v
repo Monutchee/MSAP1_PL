@@ -2,15 +2,15 @@
 //Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
 //--------------------------------------------------------------------------------
 //Tool Version: Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
-//Date        : Wed Jul 15 13:30:25 2026
+//Date        : Thu Jul 16 13:29:31 2026
 //Host        : mnc1 running 64-bit Ubuntu 24.04.4 LTS
-//Command     : generate_target AdcSubSystem_inst_2_wrapper.bd
-//Design      : AdcSubSystem_inst_2_wrapper
+//Command     : generate_target AdcSubSystem_wrapper.bd
+//Design      : AdcSubSystem_wrapper
 //Purpose     : IP block netlist
 //--------------------------------------------------------------------------------
 `timescale 1 ps / 1 ps
 
-module AdcSubSystem_inst_2_wrapper
+module AdcSubSystem_wrapper
    (ADC_CONVST_SAR,
     ADC_DCLK,
     ADC_DOUT,
@@ -35,7 +35,6 @@ module AdcSubSystem_inst_2_wrapper
     S00_AXI_0_arqos,
     S00_AXI_0_arready,
     S00_AXI_0_arsize,
-    S00_AXI_0_aruser,
     S00_AXI_0_arvalid,
     S00_AXI_0_awaddr,
     S00_AXI_0_awburst,
@@ -46,7 +45,6 @@ module AdcSubSystem_inst_2_wrapper
     S00_AXI_0_awqos,
     S00_AXI_0_awready,
     S00_AXI_0_awsize,
-    S00_AXI_0_awuser,
     S00_AXI_0_awvalid,
     S00_AXI_0_bready,
     S00_AXI_0_bresp,
@@ -88,7 +86,6 @@ module AdcSubSystem_inst_2_wrapper
   input [3:0]S00_AXI_0_arqos;
   output S00_AXI_0_arready;
   input [2:0]S00_AXI_0_arsize;
-  input [15:0]S00_AXI_0_aruser;
   input S00_AXI_0_arvalid;
   input [31:0]S00_AXI_0_awaddr;
   input [1:0]S00_AXI_0_awburst;
@@ -99,7 +96,6 @@ module AdcSubSystem_inst_2_wrapper
   input [3:0]S00_AXI_0_awqos;
   output S00_AXI_0_awready;
   input [2:0]S00_AXI_0_awsize;
-  input [15:0]S00_AXI_0_awuser;
   input S00_AXI_0_awvalid;
   input S00_AXI_0_bready;
   output [1:0]S00_AXI_0_bresp;
@@ -154,7 +150,6 @@ module AdcSubSystem_inst_2_wrapper
   wire [3:0]S00_AXI_0_arqos;
   wire S00_AXI_0_arready;
   wire [2:0]S00_AXI_0_arsize;
-  wire [15:0]S00_AXI_0_aruser;
   wire S00_AXI_0_arvalid;
   wire [31:0]S00_AXI_0_awaddr;
   wire [1:0]S00_AXI_0_awburst;
@@ -165,7 +160,6 @@ module AdcSubSystem_inst_2_wrapper
   wire [3:0]S00_AXI_0_awqos;
   wire S00_AXI_0_awready;
   wire [2:0]S00_AXI_0_awsize;
-  wire [15:0]S00_AXI_0_awuser;
   wire S00_AXI_0_awvalid;
   wire S00_AXI_0_bready;
   wire [1:0]S00_AXI_0_bresp;
@@ -204,7 +198,7 @@ module AdcSubSystem_inst_2_wrapper
         .IO(ADC_SPI_ss_io[0]),
         .O(ADC_SPI_ss_i_0),
         .T(ADC_SPI_ss_t));
-  AdcSubSystem_inst_2 AdcSubSystem_inst_2_i
+  AdcSubSystem AdcSubSystem_i
        (.ADC_CONVST_SAR(ADC_CONVST_SAR),
         .ADC_DCLK(ADC_DCLK),
         .ADC_DOUT(ADC_DOUT),
@@ -237,7 +231,6 @@ module AdcSubSystem_inst_2_wrapper
         .S00_AXI_0_arqos(S00_AXI_0_arqos),
         .S00_AXI_0_arready(S00_AXI_0_arready),
         .S00_AXI_0_arsize(S00_AXI_0_arsize),
-        .S00_AXI_0_aruser(S00_AXI_0_aruser),
         .S00_AXI_0_arvalid(S00_AXI_0_arvalid),
         .S00_AXI_0_awaddr(S00_AXI_0_awaddr),
         .S00_AXI_0_awburst(S00_AXI_0_awburst),
@@ -248,7 +241,6 @@ module AdcSubSystem_inst_2_wrapper
         .S00_AXI_0_awqos(S00_AXI_0_awqos),
         .S00_AXI_0_awready(S00_AXI_0_awready),
         .S00_AXI_0_awsize(S00_AXI_0_awsize),
-        .S00_AXI_0_awuser(S00_AXI_0_awuser),
         .S00_AXI_0_awvalid(S00_AXI_0_awvalid),
         .S00_AXI_0_bready(S00_AXI_0_bready),
         .S00_AXI_0_bresp(S00_AXI_0_bresp),

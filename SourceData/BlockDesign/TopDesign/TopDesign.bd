@@ -2615,7 +2615,7 @@
             "bd_attributes": {
               "TYPE": {
                 "value": "END_POINT",
-                "value_src": "default"
+                "value_src": "auto"
               }
             },
             "hdl_attributes": {
@@ -2800,13 +2800,13 @@
                 "direction": "I"
               },
               "ARUSER": {
-                "physical_name": "S00_AXI_0_aruser",
+                "physical_name": "S00_AXI_0_aruser_1",
                 "direction": "I",
                 "left": "15",
                 "right": "0"
               },
               "AWUSER": {
-                "physical_name": "S00_AXI_0_awuser",
+                "physical_name": "S00_AXI_0_awuser_1",
                 "direction": "I",
                 "left": "15",
                 "right": "0"
@@ -2910,10 +2910,6 @@
             "type": "clk",
             "direction": "I",
             "parameters": {
-              "ASSOCIATED_BUSIF": {
-                "value": "ADC_SPI",
-                "value_src": "strong"
-              },
               "CLK_DOMAIN": {
                 "value": "TopDesign_zynq_ultra_ps_e_0_0_pl_clk0",
                 "value_src": "default_prop"
@@ -2955,11 +2951,7 @@
             "direction": "I",
             "parameters": {
               "ASSOCIATED_BUSIF": {
-                "value": "M_AXIS_SAMPLES:S00_AXI_0",
-                "value_src": "strong"
-              },
-              "ASSOCIATED_CLKEN": {
-                "value": "s_sc_aclken",
+                "value": "S00_AXI_0:M_AXIS_SAMPLES",
                 "value_src": "strong"
               },
               "ASSOCIATED_RESET": {
@@ -3037,7 +3029,7 @@
         "variant_info": {
           "AdcSubSystem.bd": {
             "scoped_diagram": "AdcSubSystem_inst_1.bd",
-            "design_checksum": "0xD38230EC40BC339A",
+            "design_checksum": "0xB73DDDA140BC339A",
             "ref_name": "AdcSubSystem",
             "ref_subinst_path": "TopDesignAdcSubSystem_1",
             "ref_type": "Block Design",
@@ -3200,10 +3192,10 @@
         "address_spaces": {
           "Data": {
             "segments": {
-              "SEG_ad7771_capture_0_Reg": {
-                "address_block": "/AdcSubSystem_0/ad7771_capture_0/S_AXI/Reg",
-                "offset": "0x00B0020000",
-                "range": "64K"
+              "SEG_Ad7771Capture_Wrapper_0_reg0": {
+                "address_block": "/AdcSubSystem_0/Ad7771Capture_Wrapper_0/S_AXI/reg0",
+                "offset": "0x00A0000000",
+                "range": "4K"
               },
               "SEG_axi_dma_0_Reg": {
                 "address_block": "/axi_dma_0/S_AXI_LITE/Reg",
