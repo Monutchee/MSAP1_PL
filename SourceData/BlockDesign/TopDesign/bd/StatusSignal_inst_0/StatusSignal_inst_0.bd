@@ -114,7 +114,7 @@
           },
           "MAX_BURST_LENGTH": {
             "value": "1",
-            "value_src": "default_prop"
+            "value_src": "user_prop"
           },
           "NUM_READ_OUTSTANDING": {
             "value": "8",
@@ -154,7 +154,7 @@
           },
           "SUPPORTS_NARROW_BURST": {
             "value": "0",
-            "value_src": "default_prop"
+            "value_src": "user_prop"
           },
           "WUSER_BITS_PER_BYTE": {
             "value": "0",
@@ -174,7 +174,7 @@
         "bd_attributes": {
           "TYPE": {
             "value": "END_POINT",
-            "value_src": "default"
+            "value_src": "auto"
           }
         },
         "hdl_attributes": {
