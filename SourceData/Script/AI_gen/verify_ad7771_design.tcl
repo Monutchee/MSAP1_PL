@@ -1,7 +1,7 @@
 # Validate the integrated AD7771 data path and regenerate the managed wrapper.
 
 set script_dir [file dirname [file normalize [info script]]]
-set repo_dir [file normalize [file join $script_dir ../..]]
+set repo_dir [file normalize [file join $script_dir ../../..]]
 set project_file [file join $repo_dir vivado_gen MSAP1_PL.xpr]
 
 open_project $project_file
