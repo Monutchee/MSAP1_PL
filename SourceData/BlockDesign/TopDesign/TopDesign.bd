@@ -2286,7 +2286,7 @@
             "variant_info": {
               "StatusSignal.bd": {
                 "scoped_diagram": "StatusSignal_inst_0.bd",
-                "design_checksum": "0xECCC1B4297A6F646",
+                "design_checksum": "0x6AF1CE9E97A6F646",
                 "ref_name": "StatusSignal",
                 "ref_subinst_path": "TopDesign_StatusSignal_0",
                 "ref_type": "Block Design",
@@ -2752,13 +2752,13 @@
                 "direction": "I"
               },
               "ARUSER": {
-                "physical_name": "S00_AXI_0_aruser",
+                "physical_name": "S00_AXI_0_aruser_1",
                 "direction": "I",
                 "left": "15",
                 "right": "0"
               },
               "AWUSER": {
-                "physical_name": "S00_AXI_0_awuser",
+                "physical_name": "S00_AXI_0_awuser_1",
                 "direction": "I",
                 "left": "15",
                 "right": "0"
@@ -2981,7 +2981,7 @@
         "variant_info": {
           "AdcSubSystem.bd": {
             "scoped_diagram": "AdcSubSystem_inst_1.bd",
-            "design_checksum": "0xD5BE667240BC339A",
+            "design_checksum": "0x36767A9040BC339A",
             "ref_name": "AdcSubSystem",
             "ref_subinst_path": "TopDesignAdcSubSystem_1",
             "ref_type": "Block Design",

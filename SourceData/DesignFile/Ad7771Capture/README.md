@@ -1,8 +1,14 @@
 # AD7771 capture module
 
-`Ad7771Capture_Wrapper` is added to `AdcSubSystem.bd` as a Vivado module
-reference. It receives the AD7771 four-DOUT data interface and exposes
-packetized samples to an AXI DMA.
+`Ad7771Capture_Wrapper` is an ordinary-VHDL integration boundary added to
+`AdcSubSystem.bd` as a Vivado module reference. It carries the Vivado AXI,
+AXI4-Stream, clock, and reset attributes while the receiver, register bank,
+and capture implementation use VHDL-2008. It receives the AD7771 four-DOUT
+data interface and exposes packetized samples to an AXI DMA.
+
+SystemVerilog remains the verification language. The receiver testbench binds
+directly to the VHDL receiver, and the capture testbench verifies the mixed-
+language AXI-Lite, CDC FIFO, backpressure, channel ordering, and TLAST path.
 
 ## Data path
 
@@ -53,9 +59,12 @@ normal software synchronization uses the AD7771 `SPI_SYNC` register bit.
 
 ## Project scripts
 
-- `verify_ad7771_design.tcl` refreshes the module reference, maintains its
-  AXI-Lite address assignment, validates the BD, and regenerates output
-  products.
+- `check_ad7771_capture.tcl` runs both mixed-language testbenches and focused
+  synthesis of the VHDL module-reference hierarchy.
+- `verify_ad7771_design.tcl` replaces legacy project source references,
+  refreshes the module reference, maintains its AXI-Lite address assignment,
+  validates the BD, and regenerates VHDL output products and the managed top
+  wrapper.
 - `synth_ad7771_design.tcl` runs full top-level synthesis and focused reports.
 - `implement_ad7771_design.tcl` places/routes the design, writes the bitstream,
   produces timing/CDC/DRC/I/O reports, and exports the XSA used by Vitis.

@@ -12,8 +12,8 @@
       "variant": "true"
     },
     "design_tree": {
-      "HeatBeat_Wrapper_0": "",
-      "axi_gpio_0": ""
+      "axi_gpio_0": "",
+      "HeatBeat_Wrapper_0": ""
     },
     "interface_ports": {
       "RPU_HeatBeat_Signal": {
@@ -323,24 +323,6 @@
       }
     },
     "components": {
-      "HeatBeat_Wrapper_0": {
-        "vlnv": "xilinx.com:module_ref:HeatBeat_Wrapper:1.0",
-        "ip_revision": "1",
-        "xci_name": "StatusSignal_inst_0_HeatBeat_Wrapper_0_0",
-        "xci_path": "ip/StatusSignal_inst_0_HeatBeat_Wrapper_0_0/StatusSignal_inst_0_HeatBeat_Wrapper_0_0.xci",
-        "inst_hier_path": "HeatBeat_Wrapper_0",
-        "has_run_ip_tcl": "true",
-        "reference_info": {
-          "ref_type": "hdl",
-          "ref_name": "HeatBeat_Wrapper",
-          "boundary_crc": "0x0"
-        },
-        "ports": {
-          "heartbeat": {
-            "direction": "O"
-          }
-        }
-      },
       "axi_gpio_0": {
         "vlnv": "xilinx.com:ip:axi_gpio:2.0",
         "ip_revision": "37",
@@ -360,6 +342,56 @@
           },
           "USE_BOARD_FLOW": {
             "value": "true"
+          }
+        }
+      },
+      "HeatBeat_Wrapper_0": {
+        "vlnv": "xilinx.com:module_ref:HeatBeat_Wrapper:1.0",
+        "ip_revision": "1",
+        "xci_name": "StatusSignal_inst_0_HeatBeat_Wrapper_0_0",
+        "xci_path": "ip/StatusSignal_inst_0_HeatBeat_Wrapper_0_0/StatusSignal_inst_0_HeatBeat_Wrapper_0_0.xci",
+        "inst_hier_path": "HeatBeat_Wrapper_0",
+        "has_run_ip_tcl": "true",
+        "reference_info": {
+          "ref_type": "hdl",
+          "ref_name": "HeatBeat_Wrapper",
+          "boundary_crc": "0x0"
+        },
+        "ports": {
+          "clk": {
+            "type": "clk",
+            "direction": "I",
+            "parameters": {
+              "ASSOCIATED_RESET": {
+                "value": "reset_n",
+                "value_src": "constant"
+              },
+              "FREQ_HZ": {
+                "value": "99999001",
+                "value_src": "constant"
+              },
+              "PHASE": {
+                "value": "0.0",
+                "value_src": "default_prop"
+              },
+              "CLK_DOMAIN": {
+                "value": "TopDesign_zynq_ultra_ps_e_0_0_pl_clk0",
+                "value_src": "default_prop"
+              }
+            }
+          },
+          "reset_n": {
+            "type": "rst",
+            "direction": "I",
+            "parameters": {
+              "POLARITY": {
+                "value": "ACTIVE_LOW",
+                "value_src": "constant"
+              }
+            }
+          },
+          "heartbeat": {
+            "direction": "O"
           }
         }
       }
@@ -388,13 +420,15 @@
       "s_axi_aclk_0_1": {
         "ports": [
           "s_axi_aclk_0",
-          "axi_gpio_0/s_axi_aclk"
+          "axi_gpio_0/s_axi_aclk",
+          "HeatBeat_Wrapper_0/clk"
         ]
       },
       "s_axi_aresetn_0_1": {
         "ports": [
           "s_axi_aresetn_0",
-          "axi_gpio_0/s_axi_aresetn"
+          "axi_gpio_0/s_axi_aresetn",
+          "HeatBeat_Wrapper_0/reset_n"
         ]
       }
     },

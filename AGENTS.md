@@ -4,9 +4,11 @@
 
 - This repository contains the Vivado 2025.2 design for the KR260 MSAP1
   platform. Read `README.md` for the version-control workflow.
-- AD7771 RTL, its module-reference wrapper, and its design notes are in
-  `SourceData/DesignFile/Ad7771Capture/`. Maintained integration and validation
-  Tcl lives in `SourceData/Script/`.
+- AD7771 VHDL RTL, its ordinary-VHDL module-reference wrapper, SystemVerilog
+  testbenches, and design notes are in `SourceData/DesignFile/Ad7771Capture/`.
+  Maintained integration and validation Tcl lives in `SourceData/Script/AI_gen/`.
+- Heartbeat VHDL RTL, its ordinary-VHDL module-reference wrapper, and its
+  SystemVerilog testbench are in `SourceData/DesignFile/HeatBeat_Controller/`.
 - `TopDesign.bd` is the implementation top. `AdcSubSystem.bd` is a block-design
   container for ADC control and capture-facing logic.
 - Treat `SourceData` HDL, constraints, block designs, and maintained Tcl as
@@ -47,10 +49,11 @@
 Run from the repository root, escalating only as the change requires:
 
 ```sh
-vivado -mode batch -source SourceData/Script/check_ad7771_capture.tcl
-vivado -mode batch -source SourceData/Script/verify_ad7771_design.tcl
-vivado -mode batch -source SourceData/Script/synth_ad7771_design.tcl
-vivado -mode batch -source SourceData/Script/implement_ad7771_design.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/check_ad7771_capture.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/check_heartbeat.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/verify_ad7771_design.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/synth_ad7771_design.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/implement_ad7771_design.tcl
 ```
 
 - Run the focused capture check for RTL changes and BD verification for any
