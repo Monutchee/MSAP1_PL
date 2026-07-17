@@ -2,7 +2,7 @@
 # handoff consumed by the RPU Vitis platform.
 
 set script_dir [file dirname [file normalize [info script]]]
-set pl_repo_dir [file normalize [file join $script_dir ../..]]
+set pl_repo_dir [file normalize [file join $script_dir ../../..]]
 set workspace_dir [file normalize [file join $pl_repo_dir ..]]
 set project_file [file join $pl_repo_dir vivado_gen MSAP1_PL.xpr]
 set xsa_file [file join $workspace_dir runtime-generated bin_file MSAP1_PL.xsa]

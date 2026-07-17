@@ -98,7 +98,7 @@
             "value": "0"
           },
           "CLK_DOMAIN": {
-            "value": "AdcSubSystem_aclk_0",
+            "value": "AdcSubSystem_s_axi_aclk",
             "value_src": "default"
           },
           "DATA_WIDTH": {
@@ -383,7 +383,7 @@
         "vlnv": "xilinx.com:interface:axis_rtl:1.0",
         "parameters": {
           "CLK_DOMAIN": {
-            "value": "AdcSubSystem_aclk_0",
+            "value": "AdcSubSystem_s_axi_aclk",
             "value_src": "default"
           },
           "FREQ_HZ": {
@@ -521,7 +521,7 @@
             "value_src": "default"
           },
           "CLK_DOMAIN": {
-            "value": "AdcSubSystem_aclk_0",
+            "value": "AdcSubSystem_s_axi_aclk",
             "value_src": "default"
           },
           "FREQ_HZ": {
@@ -633,6 +633,9 @@
             "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
             "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
             "parameters": {
+              "MAX_BURST_LENGTH": {
+                "value": "1"
+              },
               "NUM_READ_OUTSTANDING": {
                 "value": "1"
               },
@@ -646,6 +649,9 @@
                 "value": "1"
               },
               "RUSER_BITS_PER_BYTE": {
+                "value": "0"
+              },
+              "SUPPORTS_NARROW_BURST": {
                 "value": "0"
               },
               "WUSER_BITS_PER_BYTE": {
@@ -664,6 +670,9 @@
             "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
             "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
             "parameters": {
+              "MAX_BURST_LENGTH": {
+                "value": "1"
+              },
               "NUM_READ_OUTSTANDING": {
                 "value": "1"
               },
@@ -677,6 +686,9 @@
                 "value": "1"
               },
               "RUSER_BITS_PER_BYTE": {
+                "value": "0"
+              },
+              "SUPPORTS_NARROW_BURST": {
                 "value": "0"
               },
               "WUSER_BITS_PER_BYTE": {
@@ -823,7 +835,7 @@
                 "value_src": "auto"
               },
               "CLK_DOMAIN": {
-                "value": "AdcSubSystem_aclk_0",
+                "value": "AdcSubSystem_s_axi_aclk",
                 "value_src": "default_prop"
               },
               "NUM_READ_THREADS": {
@@ -971,7 +983,7 @@
                 "value_src": "constant"
               },
               "CLK_DOMAIN": {
-                "value": "AdcSubSystem_aclk_0",
+                "value": "AdcSubSystem_s_axi_aclk",
                 "value_src": "default_prop"
               }
             },
@@ -1021,7 +1033,7 @@
                 "value_src": "constant"
               },
               "CLK_DOMAIN": {
-                "value": "AdcSubSystem_aclk_0",
+                "value": "AdcSubSystem_s_axi_aclk",
                 "value_src": "default_prop"
               }
             }
@@ -1172,7 +1184,7 @@
               "SEG_Ad7771Capture_Wrapper_0_reg0": {
                 "address_block": "/Ad7771Capture_Wrapper_0/S_AXI/reg0",
                 "offset": "0x44A10000",
-                "range": "64K"
+                "range": "4K"
               },
               "SEG_axi_quad_spi_0_Reg": {
                 "address_block": "/axi_quad_spi_0/AXI_LITE/Reg",

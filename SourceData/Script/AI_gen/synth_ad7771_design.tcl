@@ -1,7 +1,7 @@
 # Run full top-level synthesis and emit focused reports for the AD7771 path.
 
 set script_dir [file dirname [file normalize [info script]]]
-set repo_dir [file normalize [file join $script_dir ../..]]
+set repo_dir [file normalize [file join $script_dir ../../..]]
 open_project [file join $repo_dir vivado_gen MSAP1_PL.xpr]
 
 reset_run synth_1
