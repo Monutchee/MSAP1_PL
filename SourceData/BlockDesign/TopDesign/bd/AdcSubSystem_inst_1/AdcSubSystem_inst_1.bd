@@ -1,7 +1,7 @@
 {
   "design": {
     "design_info": {
-      "boundary_crc": "0xA1144346A04BD7AF",
+      "boundary_crc": "0xEF7F3B4008B41051",
       "design_src": "/opt/monutchee/project/msap1/MSAP1_PL/SourceData/BlockDesign/AdcSubSystem/AdcSubSystem.bd",
       "device": "xck26-sfvc784-2LV-c",
       "name": "AdcSubSystem_inst_1",
@@ -406,13 +406,13 @@
             "direction": "I"
           },
           "ARUSER": {
-            "physical_name": "S00_AXI_0_aruser_1",
+            "physical_name": "S00_AXI_0_aruser",
             "direction": "I",
             "left": "15",
             "right": "0"
           },
           "AWUSER": {
-            "physical_name": "S00_AXI_0_awuser_1",
+            "physical_name": "S00_AXI_0_awuser",
             "direction": "I",
             "left": "15",
             "right": "0"
@@ -669,8 +669,7 @@
                 "value_src": "auto"
               },
               "TYPE": {
-                "value": "interior",
-                "value_src": "default"
+                "value": "interior"
               }
             }
           },
@@ -700,8 +699,7 @@
             },
             "bd_attributes": {
               "TYPE": {
-                "value": "interior",
-                "value_src": "default"
+                "value": "interior"
               }
             }
           },
@@ -731,8 +729,7 @@
             },
             "bd_attributes": {
               "TYPE": {
-                "value": "interior",
-                "value_src": "default"
+                "value": "interior"
               }
             }
           }
