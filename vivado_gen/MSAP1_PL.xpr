@@ -189,7 +189,7 @@
         </FileInfo>
       </File>
       <File Path="$PPRDIR/../SourceData/DesignFile/AdcConversion/adc_conversion.vhd">
-        <FileInfo>
+        <FileInfo SFType="VHDL2008">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
