@@ -2,7 +2,7 @@
 --Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
 ----------------------------------------------------------------------------------
 --Tool Version: Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
---Date        : Fri Jul 17 11:25:34 2026
+--Date        : Sun Jul 19 23:27:03 2026
 --Host        : mnc1 running 64-bit Ubuntu 24.04.4 LTS
 --Command     : generate_target AdcSubSystem_inst_1_wrapper.bd
 --Design      : AdcSubSystem_inst_1_wrapper
@@ -38,7 +38,7 @@ entity AdcSubSystem_inst_1_wrapper is
     S00_AXI_0_arqos : in STD_LOGIC_VECTOR ( 3 downto 0 );
     S00_AXI_0_arready : out STD_LOGIC;
     S00_AXI_0_arsize : in STD_LOGIC_VECTOR ( 2 downto 0 );
-    S00_AXI_0_aruser_1 : in STD_LOGIC_VECTOR ( 15 downto 0 );
+    S00_AXI_0_aruser : in STD_LOGIC_VECTOR ( 15 downto 0 );
     S00_AXI_0_arvalid : in STD_LOGIC;
     S00_AXI_0_awaddr : in STD_LOGIC_VECTOR ( 31 downto 0 );
     S00_AXI_0_awburst : in STD_LOGIC_VECTOR ( 1 downto 0 );
@@ -49,7 +49,7 @@ entity AdcSubSystem_inst_1_wrapper is
     S00_AXI_0_awqos : in STD_LOGIC_VECTOR ( 3 downto 0 );
     S00_AXI_0_awready : out STD_LOGIC;
     S00_AXI_0_awsize : in STD_LOGIC_VECTOR ( 2 downto 0 );
-    S00_AXI_0_awuser_1 : in STD_LOGIC_VECTOR ( 15 downto 0 );
+    S00_AXI_0_awuser : in STD_LOGIC_VECTOR ( 15 downto 0 );
     S00_AXI_0_awvalid : in STD_LOGIC;
     S00_AXI_0_bready : in STD_LOGIC;
     S00_AXI_0_bresp : out STD_LOGIC_VECTOR ( 1 downto 0 );
@@ -64,6 +64,10 @@ entity AdcSubSystem_inst_1_wrapper is
     S00_AXI_0_wready : out STD_LOGIC;
     S00_AXI_0_wstrb : in STD_LOGIC_VECTOR ( 3 downto 0 );
     S00_AXI_0_wvalid : in STD_LOGIC;
+    capture_alert_count_0 : out STD_LOGIC_VECTOR ( 31 downto 0 );
+    capture_frame_count_0 : out STD_LOGIC_VECTOR ( 31 downto 0 );
+    capture_header_errors_0 : out STD_LOGIC_VECTOR ( 31 downto 0 );
+    capture_overflow_count_0 : out STD_LOGIC_VECTOR ( 31 downto 0 );
     ext_spi_clk_0 : in STD_LOGIC;
     s_axi_aclk : in STD_LOGIC;
     s_axi_aresetn_0 : in STD_LOGIC
@@ -118,8 +122,6 @@ architecture STRUCTURE of AdcSubSystem_inst_1_wrapper is
     S00_AXI_0_rlast : out STD_LOGIC;
     S00_AXI_0_rvalid : out STD_LOGIC;
     S00_AXI_0_rready : in STD_LOGIC;
-    S00_AXI_0_aruser_1 : in STD_LOGIC_VECTOR ( 15 downto 0 );
-    S00_AXI_0_awuser_1 : in STD_LOGIC_VECTOR ( 15 downto 0 );
     M_AXIS_SAMPLES_tdata : out STD_LOGIC_VECTOR ( 31 downto 0 );
     M_AXIS_SAMPLES_tkeep : out STD_LOGIC_VECTOR ( 3 downto 0 );
     M_AXIS_SAMPLES_tlast : out STD_LOGIC;
@@ -133,7 +135,13 @@ architecture STRUCTURE of AdcSubSystem_inst_1_wrapper is
     ADC_DOUT : in STD_LOGIC_VECTOR ( 3 downto 0 );
     ADC_RESET_N : out STD_LOGIC;
     ADC_START_N : out STD_LOGIC;
-    ADC_CONVST_SAR : out STD_LOGIC
+    ADC_CONVST_SAR : out STD_LOGIC;
+    capture_frame_count_0 : out STD_LOGIC_VECTOR ( 31 downto 0 );
+    capture_overflow_count_0 : out STD_LOGIC_VECTOR ( 31 downto 0 );
+    capture_header_errors_0 : out STD_LOGIC_VECTOR ( 31 downto 0 );
+    capture_alert_count_0 : out STD_LOGIC_VECTOR ( 31 downto 0 );
+    S00_AXI_0_aruser : in STD_LOGIC_VECTOR ( 15 downto 0 );
+    S00_AXI_0_awuser : in STD_LOGIC_VECTOR ( 15 downto 0 )
   );
   end component AdcSubSystem_inst_1;
   component IOBUF is
@@ -220,7 +228,7 @@ AdcSubSystem_inst_1_i: component AdcSubSystem_inst_1
       S00_AXI_0_arqos(3 downto 0) => S00_AXI_0_arqos(3 downto 0),
       S00_AXI_0_arready => S00_AXI_0_arready,
       S00_AXI_0_arsize(2 downto 0) => S00_AXI_0_arsize(2 downto 0),
-      S00_AXI_0_aruser_1(15 downto 0) => S00_AXI_0_aruser_1(15 downto 0),
+      S00_AXI_0_aruser(15 downto 0) => S00_AXI_0_aruser(15 downto 0),
       S00_AXI_0_arvalid => S00_AXI_0_arvalid,
       S00_AXI_0_awaddr(31 downto 0) => S00_AXI_0_awaddr(31 downto 0),
       S00_AXI_0_awburst(1 downto 0) => S00_AXI_0_awburst(1 downto 0),
@@ -231,7 +239,7 @@ AdcSubSystem_inst_1_i: component AdcSubSystem_inst_1
       S00_AXI_0_awqos(3 downto 0) => S00_AXI_0_awqos(3 downto 0),
       S00_AXI_0_awready => S00_AXI_0_awready,
       S00_AXI_0_awsize(2 downto 0) => S00_AXI_0_awsize(2 downto 0),
-      S00_AXI_0_awuser_1(15 downto 0) => S00_AXI_0_awuser_1(15 downto 0),
+      S00_AXI_0_awuser(15 downto 0) => S00_AXI_0_awuser(15 downto 0),
       S00_AXI_0_awvalid => S00_AXI_0_awvalid,
       S00_AXI_0_bready => S00_AXI_0_bready,
       S00_AXI_0_bresp(1 downto 0) => S00_AXI_0_bresp(1 downto 0),
@@ -246,6 +254,10 @@ AdcSubSystem_inst_1_i: component AdcSubSystem_inst_1
       S00_AXI_0_wready => S00_AXI_0_wready,
       S00_AXI_0_wstrb(3 downto 0) => S00_AXI_0_wstrb(3 downto 0),
       S00_AXI_0_wvalid => S00_AXI_0_wvalid,
+      capture_alert_count_0(31 downto 0) => capture_alert_count_0(31 downto 0),
+      capture_frame_count_0(31 downto 0) => capture_frame_count_0(31 downto 0),
+      capture_header_errors_0(31 downto 0) => capture_header_errors_0(31 downto 0),
+      capture_overflow_count_0(31 downto 0) => capture_overflow_count_0(31 downto 0),
       ext_spi_clk_0 => ext_spi_clk_0,
       s_axi_aclk => s_axi_aclk,
       s_axi_aresetn_0 => s_axi_aresetn_0

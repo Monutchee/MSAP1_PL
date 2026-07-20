@@ -14,6 +14,9 @@ set_property SIMULATOR_LANGUAGE Mixed [current_project]
 # the existing cell instead of deleting and reconnecting it.
 set rtl_dir [file join $repo_dir SourceData DesignFile Ad7771Capture]
 set heartbeat_dir [file join $repo_dir SourceData DesignFile HeatBeat_Controller]
+set meter_common_dir [file join $repo_dir SourceData DesignFile MeterCommon]
+set conversion_dir [file join $repo_dir SourceData DesignFile AdcConversion]
+set processing_dir [file join $repo_dir SourceData DesignFile MeterProcessing]
 set legacy_sources [list \
     [file join $rtl_dir ad7771_receiver.sv] \
     [file join $rtl_dir ad7771_axi_regs.sv] \
@@ -32,7 +35,12 @@ set vhdl2008_sources [list \
     [file join $rtl_dir ad7771_receiver.vhd] \
     [file join $rtl_dir ad7771_axi_regs.vhd] \
     [file join $rtl_dir ad7771_capture.vhd] \
-    [file join $heartbeat_dir HeatBeat_Controller.vhd]]
+    [file join $heartbeat_dir HeatBeat_Controller.vhd] \
+    [file join $meter_common_dir metering_pkg.vhd] \
+    [file join $conversion_dir adc_conversion_axi_regs.vhd] \
+    [file join $conversion_dir adc_conversion.vhd] \
+    [file join $processing_dir meter_processing_axi_regs.vhd] \
+    [file join $processing_dir voltage_rms.vhd]]
 foreach vhdl_source $vhdl2008_sources {
     if {[llength [get_files -quiet $vhdl_source]] == 0} {
         add_files -norecurse $vhdl_source
@@ -42,7 +50,12 @@ foreach vhdl_source $vhdl2008_sources {
 
 set module_reference_sources [list \
     [file join $rtl_dir Ad7771Capture_Wrapper.vhd] \
-    [file join $heartbeat_dir HeatBeat_Wrapper.vhd]]
+    [file join $heartbeat_dir HeatBeat_Wrapper.vhd] \
+    [file join $conversion_dir AdcConversion_Wrapper.vhd] \
+    [file join $processing_dir VoltageRms_Wrapper.vhd] \
+    [file join $processing_dir CurrentRms_Wrapper.vhd] \
+    [file join $processing_dir MeterResultHub_Wrapper.vhd] \
+    [file join $processing_dir MeterPacketizer_Wrapper.vhd]]
 foreach module_reference_source $module_reference_sources {
     if {[llength [get_files -quiet $module_reference_source]] == 0} {
         add_files -norecurse $module_reference_source
@@ -66,12 +79,14 @@ foreach fileset_match [regexp -all -inline {BDFileset="[^"]+"} $bxml_contents] {
     }
 }
 
-foreach stale_fileset [get_filesets -quiet AdcSubSystem_inst_*] {
-    set stale_name [get_property NAME $stale_fileset]
-    if {[lsearch -exact $active_bdc_filesets $stale_name] >= 0} {
-        continue
+foreach bdc_prefix {AdcSubSystem AdcConversion MeterProcessing} {
+    foreach stale_fileset [get_filesets -quiet ${bdc_prefix}_inst_*] {
+        set stale_name [get_property NAME $stale_fileset]
+        if {[lsearch -exact $active_bdc_filesets $stale_name] >= 0} {
+            continue
+        }
+        delete_fileset $stale_fileset
     }
-    delete_fileset $stale_fileset
 }
 
 # Persist the fileset cleanup before opening/generating any BD. If Vivado
@@ -138,6 +153,50 @@ assign_bd_address -offset 0x44A10000 -range 4K \
 validate_bd_design
 save_bd_design
 
+# Refresh and validate both software-configured metering containers. The
+# maintained entity names keep all existing GUI connections intact.
+open_bd_design [get_files AdcConversion.bd]
+current_bd_design AdcConversion
+set conversion_ip [get_ips -quiet AdcConversion_AdcConversion_Wrapper_0_0]
+if {[llength $conversion_ip] != 1} {
+    error "Expected one ADC conversion module-reference IP object, found [llength $conversion_ip]"
+}
+update_module_reference $conversion_ip
+set conversion_clk_port [get_bd_ports -quiet s_axis_aclk_0]
+set conversion_reset_port [get_bd_ports -quiet s_axis_aresetn_0]
+if {[llength $conversion_clk_port] != 1 ||
+    [llength $conversion_reset_port] != 1} {
+    error "AdcConversion external clock/reset ports were not found"
+}
+set_property CONFIG.FREQ_HZ 99999001 $conversion_clk_port
+set_property CONFIG.ASSOCIATED_RESET s_axis_aresetn_0 $conversion_clk_port
+validate_bd_design
+save_bd_design
+
+open_bd_design [get_files MeterProcessing.bd]
+current_bd_design MeterProcessing
+foreach module_ip_pattern {\
+    MeterProcessing_VoltageRms_Wrapper_0_0 \
+    MeterProcessing_CurrentRms_Wrapper_0_0 \
+    MeterProcessing_MeterResultHub* \
+    MeterProcessing_MeterPacketizer*} {
+    set module_ip [get_ips -quiet $module_ip_pattern]
+    if {[llength $module_ip] != 1} {
+        error "Expected one metering module-reference for $module_ip_pattern, found [llength $module_ip]"
+    }
+    update_module_reference $module_ip
+}
+set processing_clk_port [get_bd_ports -quiet aclk_0]
+set processing_reset_port [get_bd_ports -quiet aresetn_0]
+if {[llength $processing_clk_port] != 1 ||
+    [llength $processing_reset_port] != 1} {
+    error "MeterProcessing external clock/reset ports were not found"
+}
+set_property CONFIG.FREQ_HZ 99999001 $processing_clk_port
+set_property CONFIG.ASSOCIATED_RESET aresetn_0 $processing_clk_port
+validate_bd_design
+save_bd_design
+
 open_bd_design [get_files TopDesign.bd]
 current_bd_design TopDesign
 set top_capture_segment [get_bd_addr_segs -quiet \
@@ -148,6 +207,21 @@ if {[llength $top_capture_segment] == 0} {
 assign_bd_address -offset 0xB0020000 -range 4K \
     -target_address_space [get_bd_addr_spaces zynq_ultra_ps_e_0/Data] \
     $top_capture_segment -force
+
+set top_conversion_segment [get_bd_addr_segs -quiet \
+    AdcConversion_0/AdcConversion_Wrapper_0/S_AXI_CONFIG/reg0]
+set top_processing_segment [get_bd_addr_segs -quiet \
+    MeterProcessing_0/VoltageRms_Wrapper_0/S_AXI_CONFIG/reg0]
+if {[llength $top_conversion_segment] != 1 ||
+    [llength $top_processing_segment] != 1} {
+    error "TopDesign metering AXI register segments were not found"
+}
+assign_bd_address -offset 0xB0040000 -range 64K \
+    -target_address_space [get_bd_addr_spaces zynq_ultra_ps_e_0/Data] \
+    $top_conversion_segment -force
+assign_bd_address -offset 0xB0050000 -range 64K \
+    -target_address_space [get_bd_addr_spaces zynq_ultra_ps_e_0/Data] \
+    $top_processing_segment -force
 validate_bd_design
 save_bd_design
 
@@ -158,6 +232,8 @@ save_bd_design
 reset_target all [get_files TopDesign.bd]
 generate_target all [get_files StatusSignal.bd]
 generate_target all [get_files AdcSubSystem.bd]
+generate_target all [get_files AdcConversion.bd]
+generate_target all [get_files MeterProcessing.bd]
 generate_target all [get_files TopDesign.bd]
 
 set old_wrapper [file join $repo_dir SourceData BlockDesign TopDesign hdl TopDesign_wrapper.v]

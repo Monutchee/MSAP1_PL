@@ -34,6 +34,11 @@ entity ad7771_capture is
         m_axis_tready    : in  std_logic;
         m_axis_tlast     : out std_logic;
 
+        capture_frame_count    : out std_logic_vector(31 downto 0);
+        capture_overflow_count : out std_logic_vector(31 downto 0);
+        capture_header_errors  : out std_logic_vector(31 downto 0);
+        capture_alert_count    : out std_logic_vector(31 downto 0);
+
         adc_dclk         : in  std_logic;
         adc_drdy_n       : in  std_logic;
         adc_dout         : in  std_logic_vector(3 downto 0);
@@ -219,6 +224,10 @@ begin
     fifo_read_enable <= m_axis_tvalid_i and m_axis_tready;
     m_axis_tvalid <= m_axis_tvalid_i;
     m_axis_tlast  <= m_axis_tlast_i;
+    capture_frame_count    <= frame_count_axi;
+    capture_overflow_count <= overflow_count_axi;
+    capture_header_errors  <= header_error_count_axi;
+    capture_alert_count    <= alert_count_axi;
 
     count_stream_packets : process(s_axi_aclk)
     begin

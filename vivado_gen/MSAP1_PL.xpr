@@ -124,6 +124,34 @@
           <Proxy FileSetName="AdcSubSystem_axi_quad_spi_0_0"/>
         </CompFileExtendedInfo>
       </File>
+      <File Path="$PPRDIR/../SourceData/BlockDesign/AdcConversion/AdcConversion.bd">
+        <FileInfo>
+          <Attr Name="AutoDisabled" Val="1"/>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/../SourceData/BlockDesign/MeterProcessing/MeterProcessing.bd">
+        <FileInfo>
+          <Attr Name="AutoDisabled" Val="1"/>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/../SourceData/DesignFile/HeatBeat_Controller/HeatBeat_Controller.vhd">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/../SourceData/DesignFile/HeatBeat_Controller/HeatBeat_Wrapper.vhd">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
       <File Path="$PPRDIR/../SourceData/DesignFile/Ad7771Capture/ad7771_receiver.vhd">
         <FileInfo SFType="VHDL2008">
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -148,13 +176,61 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
-      <File Path="$PPRDIR/../SourceData/DesignFile/HeatBeat_Controller/HeatBeat_Controller.vhd">
+      <File Path="$PPRDIR/../SourceData/DesignFile/MeterCommon/metering_pkg.vhd">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
-      <File Path="$PPRDIR/../SourceData/DesignFile/HeatBeat_Controller/HeatBeat_Wrapper.vhd">
+      <File Path="$PPRDIR/../SourceData/DesignFile/AdcConversion/adc_conversion_axi_regs.vhd">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/../SourceData/DesignFile/AdcConversion/adc_conversion.vhd">
+        <FileInfo SFType="VHDL2008">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/../SourceData/DesignFile/AdcConversion/AdcConversion_Wrapper.vhd">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/../SourceData/DesignFile/MeterProcessing/meter_processing_axi_regs.vhd">
+        <FileInfo SFType="VHDL2008">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/../SourceData/DesignFile/MeterProcessing/voltage_rms.vhd">
+        <FileInfo SFType="VHDL2008">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/../SourceData/DesignFile/MeterProcessing/VoltageRms_Wrapper.vhd">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/../SourceData/DesignFile/MeterProcessing/CurrentRms_Wrapper.vhd">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/../SourceData/DesignFile/MeterProcessing/MeterResultHub_Wrapper.vhd">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/../SourceData/DesignFile/MeterProcessing/MeterPacketizer_Wrapper.vhd">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
@@ -166,20 +242,8 @@
           <Attr Name="UsedIn" Val="implementation"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
-        <CompFileExtendedInfo CompFileName="TopDesign.bd" FileRelPathName="ip/TopDesign_axi_dma_0_1/TopDesign_axi_dma_0_1.xci">
-          <Proxy FileSetName="TopDesign_axi_dma_0_1"/>
-        </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="TopDesign.bd" FileRelPathName="ip/TopDesign_proc_sys_reset_0_0/TopDesign_proc_sys_reset_0_0.xci">
-          <Proxy FileSetName="TopDesign_proc_sys_reset_0_0"/>
-        </CompFileExtendedInfo>
         <CompFileExtendedInfo CompFileName="TopDesign.bd" FileRelPathName="ip/TopDesign_smartconnect_0_0/TopDesign_smartconnect_0_0.xci">
           <Proxy FileSetName="TopDesign_smartconnect_0_0"/>
-        </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="TopDesign.bd" FileRelPathName="ip/TopDesign_smartconnect_1_0/TopDesign_smartconnect_1_0.xci">
-          <Proxy FileSetName="TopDesign_smartconnect_1_0"/>
-        </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="TopDesign.bd" FileRelPathName="ip/TopDesign_zynq_ultra_ps_e_0_0/TopDesign_zynq_ultra_ps_e_0_0.xci">
-          <Proxy FileSetName="TopDesign_zynq_ultra_ps_e_0_0"/>
         </CompFileExtendedInfo>
       </File>
       <File Path="$PPRDIR/../SourceData/BlockDesign/TopDesign/hdl/TopDesign_wrapper.vhd">
@@ -270,9 +334,6 @@
         <CompFileExtendedInfo CompFileName="StatusSignal_inst_0.bd" FileRelPathName="ip/StatusSignal_inst_0_HeatBeat_Wrapper_0_0/StatusSignal_inst_0_HeatBeat_Wrapper_0_0.xci">
           <Proxy FileSetName="StatusSignal_inst_0_HeatBeat_Wrapper_0_0"/>
         </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="StatusSignal_inst_0.bd" FileRelPathName="ip/StatusSignal_inst_0_axi_gpio_0_0/StatusSignal_inst_0_axi_gpio_0_0.xci">
-          <Proxy FileSetName="StatusSignal_inst_0_axi_gpio_0_0"/>
-        </CompFileExtendedInfo>
       </File>
       <Config>
         <Option Name="TopModule" Val="StatusSignal_inst_0"/>
@@ -289,12 +350,6 @@
         <CompFileExtendedInfo CompFileName="AdcSubSystem_inst_1.bd" FileRelPathName="ip/AdcSubSystem_inst_1_Ad7771Capture_Wrapper_0_0/AdcSubSystem_inst_1_Ad7771Capture_Wrapper_0_0.xci">
           <Proxy FileSetName="AdcSubSystem_inst_1_Ad7771Capture_Wrapper_0_0"/>
         </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="AdcSubSystem_inst_1.bd" FileRelPathName="ip/AdcSubSystem_inst_1_axi_quad_spi_0_0_1/AdcSubSystem_inst_1_axi_quad_spi_0_0.xci">
-          <Proxy FileSetName="AdcSubSystem_inst_1_axi_quad_spi_0_0"/>
-        </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="AdcSubSystem_inst_1.bd" FileRelPathName="ip/AdcSubSystem_inst_1_smartconnect_0_0_1/AdcSubSystem_inst_1_smartconnect_0_0.xci">
-          <Proxy FileSetName="AdcSubSystem_inst_1_smartconnect_0_0"/>
-        </CompFileExtendedInfo>
       </File>
       <Config>
         <Option Name="TopModule" Val="AdcSubSystem_inst_1"/>
@@ -307,39 +362,9 @@
         <Option Name="UseBlackboxStub" Val="1"/>
       </Config>
     </FileSet>
-    <FileSet Name="TopDesign_axi_dma_0_1" Type="BlockSrcs" RelSrcDir="$PSRCDIR/TopDesign_axi_dma_0_1" RelGenDir="$PGENDIR/TopDesign_axi_dma_0_1">
-      <Config>
-        <Option Name="TopModule" Val="TopDesign_axi_dma_0_1"/>
-        <Option Name="UseBlackboxStub" Val="1"/>
-      </Config>
-    </FileSet>
-    <FileSet Name="TopDesign_smartconnect_1_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/TopDesign_smartconnect_1_0" RelGenDir="$PGENDIR/TopDesign_smartconnect_1_0">
-      <Config>
-        <Option Name="TopModule" Val="TopDesign_smartconnect_1_0"/>
-        <Option Name="UseBlackboxStub" Val="1"/>
-      </Config>
-    </FileSet>
     <FileSet Name="StatusSignal_axi_gpio_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/StatusSignal_axi_gpio_0_0" RelGenDir="$PGENDIR/StatusSignal_axi_gpio_0_0">
       <Config>
         <Option Name="TopModule" Val="StatusSignal_axi_gpio_0_0"/>
-        <Option Name="UseBlackboxStub" Val="1"/>
-      </Config>
-    </FileSet>
-    <FileSet Name="AdcSubSystem_inst_1_axi_quad_spi_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/AdcSubSystem_inst_1_axi_quad_spi_0_0" RelGenDir="$PGENDIR/AdcSubSystem_inst_1_axi_quad_spi_0_0">
-      <Config>
-        <Option Name="TopModule" Val="AdcSubSystem_inst_1_axi_quad_spi_0_0"/>
-        <Option Name="UseBlackboxStub" Val="1"/>
-      </Config>
-    </FileSet>
-    <FileSet Name="AdcSubSystem_inst_1_smartconnect_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/AdcSubSystem_inst_1_smartconnect_0_0" RelGenDir="$PGENDIR/AdcSubSystem_inst_1_smartconnect_0_0">
-      <Config>
-        <Option Name="TopModule" Val="AdcSubSystem_inst_1_smartconnect_0_0"/>
-        <Option Name="UseBlackboxStub" Val="1"/>
-      </Config>
-    </FileSet>
-    <FileSet Name="TopDesign_zynq_ultra_ps_e_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/TopDesign_zynq_ultra_ps_e_0_0" RelGenDir="$PGENDIR/TopDesign_zynq_ultra_ps_e_0_0">
-      <Config>
-        <Option Name="TopModule" Val="TopDesign_zynq_ultra_ps_e_0_0"/>
         <Option Name="UseBlackboxStub" Val="1"/>
       </Config>
     </FileSet>
@@ -349,27 +374,104 @@
         <Option Name="UseBlackboxStub" Val="1"/>
       </Config>
     </FileSet>
-    <FileSet Name="AdcSubSystem_inst_1_Ad7771Capture_Wrapper_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/AdcSubSystem_inst_1_Ad7771Capture_Wrapper_0_0" RelGenDir="$PGENDIR/AdcSubSystem_inst_1_Ad7771Capture_Wrapper_0_0">
-      <Config>
-        <Option Name="TopModule" Val="AdcSubSystem_inst_1_Ad7771Capture_Wrapper_0_0"/>
-        <Option Name="UseBlackboxStub" Val="1"/>
-      </Config>
-    </FileSet>
-    <FileSet Name="TopDesign_proc_sys_reset_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/TopDesign_proc_sys_reset_0_0" RelGenDir="$PGENDIR/TopDesign_proc_sys_reset_0_0">
-      <Config>
-        <Option Name="TopModule" Val="TopDesign_proc_sys_reset_0_0"/>
-        <Option Name="UseBlackboxStub" Val="1"/>
-      </Config>
-    </FileSet>
     <FileSet Name="StatusSignal_inst_0_HeatBeat_Wrapper_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/StatusSignal_inst_0_HeatBeat_Wrapper_0_0" RelGenDir="$PGENDIR/StatusSignal_inst_0_HeatBeat_Wrapper_0_0">
       <Config>
         <Option Name="TopModule" Val="StatusSignal_inst_0_HeatBeat_Wrapper_0_0"/>
         <Option Name="UseBlackboxStub" Val="1"/>
       </Config>
     </FileSet>
-    <FileSet Name="StatusSignal_inst_0_axi_gpio_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/StatusSignal_inst_0_axi_gpio_0_0" RelGenDir="$PGENDIR/StatusSignal_inst_0_axi_gpio_0_0">
+    <FileSet Name="AdcConversion_inst_0" Type="BlockSrcs" RelSrcDir="$PPRDIR/../SourceData/BlockDesign/TopDesign/bd/AdcConversion_inst_0" RelGenDir="$PPRDIR/../SourceData/BlockDesign/TopDesign/bd/AdcConversion_inst_0">
+      <File Path="$PPRDIR/../SourceData/BlockDesign/TopDesign/bd/AdcConversion_inst_0/AdcConversion_inst_0.bd">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+        <CompFileExtendedInfo CompFileName="AdcConversion_inst_0.bd" FileRelPathName="ip/AdcConversion_inst_0_AdcConversion_Wrapper_0_0/AdcConversion_inst_0_AdcConversion_Wrapper_0_0.xci">
+          <Proxy FileSetName="AdcConversion_inst_0_AdcConversion_Wrapper_0_0"/>
+        </CompFileExtendedInfo>
+        <CompFileExtendedInfo CompFileName="AdcConversion_inst_0.bd" FileRelPathName="ip/AdcConversion_inst_0_axis_data_fifo_0_0/AdcConversion_inst_0_axis_data_fifo_0_0.xci">
+          <Proxy FileSetName="AdcConversion_inst_0_axis_data_fifo_0_0"/>
+        </CompFileExtendedInfo>
+      </File>
       <Config>
-        <Option Name="TopModule" Val="StatusSignal_inst_0_axi_gpio_0_0"/>
+        <Option Name="TopModule" Val="AdcConversion_inst_0"/>
+        <Option Name="UseBlackboxStub" Val="1"/>
+      </Config>
+    </FileSet>
+    <FileSet Name="MeterProcessing_inst_0" Type="BlockSrcs" RelSrcDir="$PPRDIR/../SourceData/BlockDesign/TopDesign/bd/MeterProcessing_inst_0" RelGenDir="$PPRDIR/../SourceData/BlockDesign/TopDesign/bd/MeterProcessing_inst_0">
+      <File Path="$PPRDIR/../SourceData/BlockDesign/TopDesign/bd/MeterProcessing_inst_0/MeterProcessing_inst_0.bd">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+        <CompFileExtendedInfo CompFileName="MeterProcessing_inst_0.bd" FileRelPathName="ip/MeterProcessing_inst_0_CurrentRms_Wrapper_0_0/MeterProcessing_inst_0_CurrentRms_Wrapper_0_0.xci">
+          <Proxy FileSetName="MeterProcessing_inst_0_CurrentRms_Wrapper_0_0"/>
+        </CompFileExtendedInfo>
+        <CompFileExtendedInfo CompFileName="MeterProcessing_inst_0.bd" FileRelPathName="ip/MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0/MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0.xci">
+          <Proxy FileSetName="MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0"/>
+        </CompFileExtendedInfo>
+        <CompFileExtendedInfo CompFileName="MeterProcessing_inst_0.bd" FileRelPathName="ip/MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0/MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0.xci">
+          <Proxy FileSetName="MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0"/>
+        </CompFileExtendedInfo>
+        <CompFileExtendedInfo CompFileName="MeterProcessing_inst_0.bd" FileRelPathName="ip/MeterProcessing_inst_0_VoltageRms_Wrapper_0_0/MeterProcessing_inst_0_VoltageRms_Wrapper_0_0.xci">
+          <Proxy FileSetName="MeterProcessing_inst_0_VoltageRms_Wrapper_0_0"/>
+        </CompFileExtendedInfo>
+        <CompFileExtendedInfo CompFileName="MeterProcessing_inst_0.bd" FileRelPathName="ip/MeterProcessing_inst_0_axis_broadcaster_0_0/MeterProcessing_inst_0_axis_broadcaster_0_0.xci">
+          <Proxy FileSetName="MeterProcessing_inst_0_axis_broadcaster_0_0"/>
+        </CompFileExtendedInfo>
+      </File>
+      <Config>
+        <Option Name="TopModule" Val="MeterProcessing_inst_0"/>
+        <Option Name="UseBlackboxStub" Val="1"/>
+      </Config>
+    </FileSet>
+    <FileSet Name="AdcConversion_inst_0_axis_data_fifo_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/AdcConversion_inst_0_axis_data_fifo_0_0" RelGenDir="$PGENDIR/AdcConversion_inst_0_axis_data_fifo_0_0">
+      <Config>
+        <Option Name="TopModule" Val="AdcConversion_inst_0_axis_data_fifo_0_0"/>
+        <Option Name="UseBlackboxStub" Val="1"/>
+      </Config>
+    </FileSet>
+    <FileSet Name="MeterProcessing_inst_0_CurrentRms_Wrapper_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/MeterProcessing_inst_0_CurrentRms_Wrapper_0_0" RelGenDir="$PGENDIR/MeterProcessing_inst_0_CurrentRms_Wrapper_0_0">
+      <Config>
+        <Option Name="TopModule" Val="MeterProcessing_inst_0_CurrentRms_Wrapper_0_0"/>
+        <Option Name="UseBlackboxStub" Val="1"/>
+      </Config>
+    </FileSet>
+    <FileSet Name="AdcSubSystem_inst_1_Ad7771Capture_Wrapper_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/AdcSubSystem_inst_1_Ad7771Capture_Wrapper_0_0" RelGenDir="$PGENDIR/AdcSubSystem_inst_1_Ad7771Capture_Wrapper_0_0">
+      <Config>
+        <Option Name="TopModule" Val="AdcSubSystem_inst_1_Ad7771Capture_Wrapper_0_0"/>
+        <Option Name="UseBlackboxStub" Val="1"/>
+      </Config>
+    </FileSet>
+    <FileSet Name="MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0" RelGenDir="$PGENDIR/MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0">
+      <Config>
+        <Option Name="TopModule" Val="MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0"/>
+        <Option Name="UseBlackboxStub" Val="1"/>
+      </Config>
+    </FileSet>
+    <FileSet Name="MeterProcessing_inst_0_axis_broadcaster_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/MeterProcessing_inst_0_axis_broadcaster_0_0" RelGenDir="$PGENDIR/MeterProcessing_inst_0_axis_broadcaster_0_0">
+      <Config>
+        <Option Name="TopModule" Val="MeterProcessing_inst_0_axis_broadcaster_0_0"/>
+        <Option Name="UseBlackboxStub" Val="1"/>
+      </Config>
+    </FileSet>
+    <FileSet Name="MeterProcessing_inst_0_VoltageRms_Wrapper_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/MeterProcessing_inst_0_VoltageRms_Wrapper_0_0" RelGenDir="$PGENDIR/MeterProcessing_inst_0_VoltageRms_Wrapper_0_0">
+      <Config>
+        <Option Name="TopModule" Val="MeterProcessing_inst_0_VoltageRms_Wrapper_0_0"/>
+        <Option Name="UseBlackboxStub" Val="1"/>
+      </Config>
+    </FileSet>
+    <FileSet Name="MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0" RelGenDir="$PGENDIR/MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0">
+      <Config>
+        <Option Name="TopModule" Val="MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0"/>
+        <Option Name="UseBlackboxStub" Val="1"/>
+      </Config>
+    </FileSet>
+    <FileSet Name="AdcConversion_inst_0_AdcConversion_Wrapper_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/AdcConversion_inst_0_AdcConversion_Wrapper_0_0" RelGenDir="$PGENDIR/AdcConversion_inst_0_AdcConversion_Wrapper_0_0">
+      <Config>
+        <Option Name="TopModule" Val="AdcConversion_inst_0_AdcConversion_Wrapper_0_0"/>
         <Option Name="UseBlackboxStub" Val="1"/>
       </Config>
     </FileSet>
@@ -416,67 +518,9 @@
       <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
       <RQSFiles/>
     </Run>
-    <Run Id="TopDesign_axi_dma_0_1_synth_1" Type="Ft3:Synth" SrcSet="TopDesign_axi_dma_0_1" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_axi_dma_0_1" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/TopDesign_axi_dma_0_1_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_axi_dma_0_1_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_axi_dma_0_1_synth_1" ParallelReportGen="true">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025"/>
-        <Step Id="synth_design"/>
-      </Strategy>
-      <GeneratedRun Dir="$PRUNDIR" File="gen_run.xml"/>
-      <ReportStrategy Name="Vivado Synthesis Default Reports" Flow="Vivado Synthesis 2025"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
-    <Run Id="TopDesign_smartconnect_1_0_synth_1" Type="Ft3:Synth" SrcSet="TopDesign_smartconnect_1_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_smartconnect_1_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/TopDesign_smartconnect_1_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_smartconnect_1_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_smartconnect_1_0_synth_1" ParallelReportGen="true">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025"/>
-        <Step Id="synth_design"/>
-      </Strategy>
-      <GeneratedRun Dir="$PRUNDIR" File="gen_run.xml"/>
-      <ReportStrategy Name="Vivado Synthesis Default Reports" Flow="Vivado Synthesis 2025"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
     <Run Id="StatusSignal_axi_gpio_0_0_synth_1" Type="Ft3:Synth" SrcSet="StatusSignal_axi_gpio_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="StatusSignal_axi_gpio_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/StatusSignal_axi_gpio_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/StatusSignal_axi_gpio_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/StatusSignal_axi_gpio_0_0_synth_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025">
-          <Desc>Vivado Synthesis Defaults</Desc>
-        </StratHandle>
-        <Step Id="synth_design"/>
-      </Strategy>
-      <GeneratedRun Dir="$PRUNDIR" File="gen_run.xml"/>
-      <ReportStrategy Name="Vivado Synthesis Default Reports" Flow="Vivado Synthesis 2025"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
-    <Run Id="AdcSubSystem_inst_1_axi_quad_spi_0_0_synth_1" Type="Ft3:Synth" SrcSet="AdcSubSystem_inst_1_axi_quad_spi_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="AdcSubSystem_inst_1_axi_quad_spi_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/AdcSubSystem_inst_1_axi_quad_spi_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/AdcSubSystem_inst_1_axi_quad_spi_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/AdcSubSystem_inst_1_axi_quad_spi_0_0_synth_1" ParallelReportGen="true">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025">
-          <Desc>Vivado Synthesis Defaults</Desc>
-        </StratHandle>
-        <Step Id="synth_design"/>
-      </Strategy>
-      <GeneratedRun Dir="$PRUNDIR" File="gen_run.xml"/>
-      <ReportStrategy Name="Vivado Synthesis Default Reports" Flow="Vivado Synthesis 2025"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
-    <Run Id="AdcSubSystem_inst_1_smartconnect_0_0_synth_1" Type="Ft3:Synth" SrcSet="AdcSubSystem_inst_1_smartconnect_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="AdcSubSystem_inst_1_smartconnect_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/AdcSubSystem_inst_1_smartconnect_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/AdcSubSystem_inst_1_smartconnect_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/AdcSubSystem_inst_1_smartconnect_0_0_synth_1" ParallelReportGen="true">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025">
-          <Desc>Vivado Synthesis Defaults</Desc>
-        </StratHandle>
-        <Step Id="synth_design"/>
-      </Strategy>
-      <GeneratedRun Dir="$PRUNDIR" File="gen_run.xml"/>
-      <ReportStrategy Name="Vivado Synthesis Default Reports" Flow="Vivado Synthesis 2025"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
-    <Run Id="TopDesign_zynq_ultra_ps_e_0_0_synth_1" Type="Ft3:Synth" SrcSet="TopDesign_zynq_ultra_ps_e_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_zynq_ultra_ps_e_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/TopDesign_zynq_ultra_ps_e_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_zynq_ultra_ps_e_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_zynq_ultra_ps_e_0_0_synth_1" ParallelReportGen="true">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025">
-          <Desc>Vivado Synthesis Defaults</Desc>
-        </StratHandle>
+        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025"/>
         <Step Id="synth_design"/>
       </Strategy>
       <GeneratedRun Dir="$PRUNDIR" File="gen_run.xml"/>
@@ -485,6 +529,38 @@
       <RQSFiles/>
     </Run>
     <Run Id="TopDesign_smartconnect_0_0_synth_1" Type="Ft3:Synth" SrcSet="TopDesign_smartconnect_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_smartconnect_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/TopDesign_smartconnect_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_smartconnect_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_smartconnect_0_0_synth_1" ParallelReportGen="true">
+      <Strategy Version="1" Minor="2">
+        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025"/>
+        <Step Id="synth_design"/>
+      </Strategy>
+      <GeneratedRun Dir="$PRUNDIR" File="gen_run.xml"/>
+      <ReportStrategy Name="Vivado Synthesis Default Reports" Flow="Vivado Synthesis 2025"/>
+      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
+      <RQSFiles/>
+    </Run>
+    <Run Id="StatusSignal_inst_0_HeatBeat_Wrapper_0_0_synth_1" Type="Ft3:Synth" SrcSet="StatusSignal_inst_0_HeatBeat_Wrapper_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="StatusSignal_inst_0_HeatBeat_Wrapper_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/StatusSignal_inst_0_HeatBeat_Wrapper_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/StatusSignal_inst_0_HeatBeat_Wrapper_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/StatusSignal_inst_0_HeatBeat_Wrapper_0_0_synth_1" ParallelReportGen="true">
+      <Strategy Version="1" Minor="2">
+        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025"/>
+        <Step Id="synth_design"/>
+      </Strategy>
+      <GeneratedRun Dir="$PRUNDIR" File="gen_run.xml"/>
+      <ReportStrategy Name="Vivado Synthesis Default Reports" Flow="Vivado Synthesis 2025"/>
+      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
+      <RQSFiles/>
+    </Run>
+    <Run Id="AdcConversion_inst_0_axis_data_fifo_0_0_synth_1" Type="Ft3:Synth" SrcSet="AdcConversion_inst_0_axis_data_fifo_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="AdcConversion_inst_0_axis_data_fifo_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/AdcConversion_inst_0_axis_data_fifo_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/AdcConversion_inst_0_axis_data_fifo_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/AdcConversion_inst_0_axis_data_fifo_0_0_synth_1" ParallelReportGen="true">
+      <Strategy Version="1" Minor="2">
+        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025">
+          <Desc>Vivado Synthesis Defaults</Desc>
+        </StratHandle>
+        <Step Id="synth_design"/>
+      </Strategy>
+      <GeneratedRun Dir="$PRUNDIR" File="gen_run.xml"/>
+      <ReportStrategy Name="Vivado Synthesis Default Reports" Flow="Vivado Synthesis 2025"/>
+      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
+      <RQSFiles/>
+    </Run>
+    <Run Id="MeterProcessing_inst_0_CurrentRms_Wrapper_0_0_synth_1" Type="Ft3:Synth" SrcSet="MeterProcessing_inst_0_CurrentRms_Wrapper_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="MeterProcessing_inst_0_CurrentRms_Wrapper_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/MeterProcessing_inst_0_CurrentRms_Wrapper_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_CurrentRms_Wrapper_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_CurrentRms_Wrapper_0_0_synth_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025">
           <Desc>Vivado Synthesis Defaults</Desc>
@@ -508,7 +584,7 @@
       <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
       <RQSFiles/>
     </Run>
-    <Run Id="TopDesign_proc_sys_reset_0_0_synth_1" Type="Ft3:Synth" SrcSet="TopDesign_proc_sys_reset_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_proc_sys_reset_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/TopDesign_proc_sys_reset_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_proc_sys_reset_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_proc_sys_reset_0_0_synth_1" ParallelReportGen="true">
+    <Run Id="MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0_synth_1" Type="Ft3:Synth" SrcSet="MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0_synth_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025">
           <Desc>Vivado Synthesis Defaults</Desc>
@@ -520,7 +596,7 @@
       <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
       <RQSFiles/>
     </Run>
-    <Run Id="StatusSignal_inst_0_HeatBeat_Wrapper_0_0_synth_1" Type="Ft3:Synth" SrcSet="StatusSignal_inst_0_HeatBeat_Wrapper_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="StatusSignal_inst_0_HeatBeat_Wrapper_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/StatusSignal_inst_0_HeatBeat_Wrapper_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/StatusSignal_inst_0_HeatBeat_Wrapper_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/StatusSignal_inst_0_HeatBeat_Wrapper_0_0_synth_1" ParallelReportGen="true">
+    <Run Id="MeterProcessing_inst_0_axis_broadcaster_0_0_synth_1" Type="Ft3:Synth" SrcSet="MeterProcessing_inst_0_axis_broadcaster_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="MeterProcessing_inst_0_axis_broadcaster_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/MeterProcessing_inst_0_axis_broadcaster_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_axis_broadcaster_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_axis_broadcaster_0_0_synth_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025">
           <Desc>Vivado Synthesis Defaults</Desc>
@@ -532,7 +608,31 @@
       <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
       <RQSFiles/>
     </Run>
-    <Run Id="StatusSignal_inst_0_axi_gpio_0_0_synth_1" Type="Ft3:Synth" SrcSet="StatusSignal_inst_0_axi_gpio_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="StatusSignal_inst_0_axi_gpio_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/StatusSignal_inst_0_axi_gpio_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/StatusSignal_inst_0_axi_gpio_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/StatusSignal_inst_0_axi_gpio_0_0_synth_1" ParallelReportGen="true">
+    <Run Id="MeterProcessing_inst_0_VoltageRms_Wrapper_0_0_synth_1" Type="Ft3:Synth" SrcSet="MeterProcessing_inst_0_VoltageRms_Wrapper_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="MeterProcessing_inst_0_VoltageRms_Wrapper_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/MeterProcessing_inst_0_VoltageRms_Wrapper_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_VoltageRms_Wrapper_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_VoltageRms_Wrapper_0_0_synth_1" ParallelReportGen="true">
+      <Strategy Version="1" Minor="2">
+        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025">
+          <Desc>Vivado Synthesis Defaults</Desc>
+        </StratHandle>
+        <Step Id="synth_design"/>
+      </Strategy>
+      <GeneratedRun Dir="$PRUNDIR" File="gen_run.xml"/>
+      <ReportStrategy Name="Vivado Synthesis Default Reports" Flow="Vivado Synthesis 2025"/>
+      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
+      <RQSFiles/>
+    </Run>
+    <Run Id="MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0_synth_1" Type="Ft3:Synth" SrcSet="MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0_synth_1" ParallelReportGen="true">
+      <Strategy Version="1" Minor="2">
+        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025">
+          <Desc>Vivado Synthesis Defaults</Desc>
+        </StratHandle>
+        <Step Id="synth_design"/>
+      </Strategy>
+      <GeneratedRun Dir="$PRUNDIR" File="gen_run.xml"/>
+      <ReportStrategy Name="Vivado Synthesis Default Reports" Flow="Vivado Synthesis 2025"/>
+      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
+      <RQSFiles/>
+    </Run>
+    <Run Id="AdcConversion_inst_0_AdcConversion_Wrapper_0_0_synth_1" Type="Ft3:Synth" SrcSet="AdcConversion_inst_0_AdcConversion_Wrapper_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="AdcConversion_inst_0_AdcConversion_Wrapper_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/AdcConversion_inst_0_AdcConversion_Wrapper_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/AdcConversion_inst_0_AdcConversion_Wrapper_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/AdcConversion_inst_0_AdcConversion_Wrapper_0_0_synth_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025">
           <Desc>Vivado Synthesis Defaults</Desc>
@@ -579,40 +679,6 @@
       <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
       <RQSFiles/>
     </Run>
-    <Run Id="TopDesign_axi_dma_0_1_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_axi_dma_0_1" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="TopDesign_axi_dma_0_1_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_axi_dma_0_1_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_axi_dma_0_1_impl_1" ParallelReportGen="true">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025"/>
-        <Step Id="init_design"/>
-        <Step Id="opt_design"/>
-        <Step Id="power_opt_design"/>
-        <Step Id="place_design"/>
-        <Step Id="post_place_power_opt_design"/>
-        <Step Id="phys_opt_design"/>
-        <Step Id="route_design"/>
-        <Step Id="post_route_phys_opt_design"/>
-        <Step Id="write_bitstream"/>
-      </Strategy>
-      <ReportStrategy Name="Vivado Implementation Default Reports" Flow="Vivado Implementation 2025"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
-    <Run Id="TopDesign_smartconnect_1_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_smartconnect_1_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="TopDesign_smartconnect_1_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_smartconnect_1_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_smartconnect_1_0_impl_1" ParallelReportGen="true">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025"/>
-        <Step Id="init_design"/>
-        <Step Id="opt_design"/>
-        <Step Id="power_opt_design"/>
-        <Step Id="place_design"/>
-        <Step Id="post_place_power_opt_design"/>
-        <Step Id="phys_opt_design"/>
-        <Step Id="route_design"/>
-        <Step Id="post_route_phys_opt_design"/>
-        <Step Id="write_bitstream"/>
-      </Strategy>
-      <ReportStrategy Name="Vivado Implementation Default Reports" Flow="Vivado Implementation 2025"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
     <Run Id="impl_1_copy_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="constrs_1" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="synth_1" IncludeInArchive="true" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/impl_1/impl_1_copy_1" AutoRQSDir="$PSRCDIR/utils_1/imports/impl_1/impl_1_copy_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025"/>
@@ -627,116 +693,116 @@
         <Step Id="write_bitstream"/>
       </Strategy>
       <ReportStrategy Name="Vivado Implementation Default Reports" Flow="Vivado Implementation 2025" CtrlBit="true">
-        <ReportConfig DisplayName="Timing Summary - Design Initialization" Name="impl_1_copy_1_init_report_timing_summary_0" Spec="report_timing_summary" RunStep="init_design" ReportFile="HeatBeat_Wrapper_timing_summary_init.rpt" Version="1" Minor="0" IsDisabled="true">
+        <ReportConfig DisplayName="Timing Summary - Design Initialization" Name="impl_1_copy_1_init_report_timing_summary_0" Spec="report_timing_summary" RunStep="init_design" ReportFile="TopDesign_wrapper_timing_summary_init.rpt" Version="1" Minor="0" IsDisabled="true">
           <ReportConfigOption Name="max_paths" Type="" Value="10"/>
           <ReportConfigOption Name="report_unconstrained" Type="" Value="true"/>
           <ReportConfigOutputOption Name="pb" Type="string" Value=""/>
           <ReportConfigOutputOption Name="rpx" Type="string" Value=""/>
         </ReportConfig>
-        <ReportConfig DisplayName="DRC - Opt Design" Name="impl_1_copy_1_opt_report_drc_0" Spec="report_drc" RunStep="opt_design" ReportFile="HeatBeat_Wrapper_drc_opted.rpt" Version="1" Minor="0">
+        <ReportConfig DisplayName="DRC - Opt Design" Name="impl_1_copy_1_opt_report_drc_0" Spec="report_drc" RunStep="opt_design" ReportFile="TopDesign_wrapper_drc_opted.rpt" Version="1" Minor="0">
           <ReportConfigOption Name="dummy_option" Type="string"/>
           <ReportConfigOutputOption Name="pb" Type="string" Value=""/>
           <ReportConfigOutputOption Name="rpx" Type="string" Value=""/>
         </ReportConfig>
-        <ReportConfig DisplayName="Timing Summary - Opt Design" Name="impl_1_copy_1_opt_report_timing_summary_0" Spec="report_timing_summary" RunStep="opt_design" ReportFile="HeatBeat_Wrapper_timing_summary_opted.rpt" Version="1" Minor="0" IsDisabled="true">
+        <ReportConfig DisplayName="Timing Summary - Opt Design" Name="impl_1_copy_1_opt_report_timing_summary_0" Spec="report_timing_summary" RunStep="opt_design" ReportFile="TopDesign_wrapper_timing_summary_opted.rpt" Version="1" Minor="0" IsDisabled="true">
           <ReportConfigOption Name="max_paths" Type="" Value="10"/>
           <ReportConfigOption Name="report_unconstrained" Type="" Value="true"/>
           <ReportConfigOutputOption Name="pb" Type="string" Value=""/>
           <ReportConfigOutputOption Name="rpx" Type="string" Value=""/>
         </ReportConfig>
-        <ReportConfig DisplayName="Timing Summary - Power Opt Design" Name="impl_1_copy_1_power_opt_report_timing_summary_0" Spec="report_timing_summary" RunStep="power_opt_design" ReportFile="HeatBeat_Wrapper_timing_summary_pwropted.rpt" Version="1" Minor="0" IsDisabled="true">
+        <ReportConfig DisplayName="Timing Summary - Power Opt Design" Name="impl_1_copy_1_power_opt_report_timing_summary_0" Spec="report_timing_summary" RunStep="power_opt_design" ReportFile="TopDesign_wrapper_timing_summary_pwropted.rpt" Version="1" Minor="0" IsDisabled="true">
           <ReportConfigOption Name="max_paths" Type="" Value="10"/>
           <ReportConfigOption Name="report_unconstrained" Type="" Value="true"/>
           <ReportConfigOutputOption Name="pb" Type="string" Value=""/>
           <ReportConfigOutputOption Name="rpx" Type="string" Value=""/>
         </ReportConfig>
-        <ReportConfig DisplayName="IO - Place Design" Name="impl_1_copy_1_place_report_io_0" Spec="report_io" RunStep="place_design" ReportFile="HeatBeat_Wrapper_io_placed.rpt" Version="1" Minor="0">
+        <ReportConfig DisplayName="IO - Place Design" Name="impl_1_copy_1_place_report_io_0" Spec="report_io" RunStep="place_design" ReportFile="TopDesign_wrapper_io_placed.rpt" Version="1" Minor="0">
           <ReportConfigOption Name="dummy_option" Type="string"/>
         </ReportConfig>
-        <ReportConfig DisplayName="Utilization - Place Design" Name="impl_1_copy_1_place_report_utilization_0" Spec="report_utilization" RunStep="place_design" ReportFile="HeatBeat_Wrapper_utilization_placed.rpt" Version="1" Minor="0">
+        <ReportConfig DisplayName="Utilization - Place Design" Name="impl_1_copy_1_place_report_utilization_0" Spec="report_utilization" RunStep="place_design" ReportFile="TopDesign_wrapper_utilization_placed.rpt" Version="1" Minor="0">
           <ReportConfigOption Name="dummy_option" Type="string"/>
           <ReportConfigOutputOption Name="pb" Type="string" Value=""/>
         </ReportConfig>
-        <ReportConfig DisplayName="Control Sets - Place Design" Name="impl_1_copy_1_place_report_control_sets_0" Spec="report_control_sets" RunStep="place_design" ReportFile="HeatBeat_Wrapper_control_sets_placed.rpt" Version="1" Minor="0">
+        <ReportConfig DisplayName="Control Sets - Place Design" Name="impl_1_copy_1_place_report_control_sets_0" Spec="report_control_sets" RunStep="place_design" ReportFile="TopDesign_wrapper_control_sets_placed.rpt" Version="1" Minor="0">
           <ReportConfigOption Name="verbose" Type="" Value="true"/>
         </ReportConfig>
-        <ReportConfig DisplayName="Incremental Reuse - Place Design" Name="impl_1_copy_1_place_report_incremental_reuse_0" Spec="report_incremental_reuse" RunStep="place_design" ReportFile="HeatBeat_Wrapper_incremental_reuse_pre_placed.rpt.rpt" Version="1" Minor="0" IsDisabled="true">
+        <ReportConfig DisplayName="Incremental Reuse - Place Design" Name="impl_1_copy_1_place_report_incremental_reuse_0" Spec="report_incremental_reuse" RunStep="place_design" ReportFile="TopDesign_wrapper_incremental_reuse_pre_placed.rpt.rpt" Version="1" Minor="0" IsDisabled="true">
           <ReportConfigOption Name="dummy_option" Type="string"/>
         </ReportConfig>
-        <ReportConfig DisplayName="Incremental Reuse - Place Design" Name="impl_1_copy_1_place_report_incremental_reuse_1" Spec="report_incremental_reuse" RunStep="place_design" ReportFile="HeatBeat_Wrapper_incremental_reuse_placed.rpt" Version="1" Minor="0" IsDisabled="true">
+        <ReportConfig DisplayName="Incremental Reuse - Place Design" Name="impl_1_copy_1_place_report_incremental_reuse_1" Spec="report_incremental_reuse" RunStep="place_design" ReportFile="TopDesign_wrapper_incremental_reuse_placed.rpt" Version="1" Minor="0" IsDisabled="true">
           <ReportConfigOption Name="dummy_option" Type="string"/>
         </ReportConfig>
-        <ReportConfig DisplayName="Timing Summary - Place Design" Name="impl_1_copy_1_place_report_timing_summary_0" Spec="report_timing_summary" RunStep="place_design" ReportFile="HeatBeat_Wrapper_timing_summary_placed.rpt" Version="1" Minor="0" IsDisabled="true">
+        <ReportConfig DisplayName="Timing Summary - Place Design" Name="impl_1_copy_1_place_report_timing_summary_0" Spec="report_timing_summary" RunStep="place_design" ReportFile="TopDesign_wrapper_timing_summary_placed.rpt" Version="1" Minor="0" IsDisabled="true">
           <ReportConfigOption Name="max_paths" Type="" Value="10"/>
           <ReportConfigOption Name="report_unconstrained" Type="" Value="true"/>
           <ReportConfigOutputOption Name="pb" Type="string" Value=""/>
           <ReportConfigOutputOption Name="rpx" Type="string" Value=""/>
         </ReportConfig>
-        <ReportConfig DisplayName="Timing Summary - Post-Place Power Opt Design" Name="impl_1_copy_1_post_place_power_opt_report_timing_summary_0" Spec="report_timing_summary" RunStep="post_place_power_opt_design" ReportFile="HeatBeat_Wrapper_timing_summary_postplace_pwropted.rpt" Version="1" Minor="0" IsDisabled="true">
+        <ReportConfig DisplayName="Timing Summary - Post-Place Power Opt Design" Name="impl_1_copy_1_post_place_power_opt_report_timing_summary_0" Spec="report_timing_summary" RunStep="post_place_power_opt_design" ReportFile="TopDesign_wrapper_timing_summary_postplace_pwropted.rpt" Version="1" Minor="0" IsDisabled="true">
           <ReportConfigOption Name="max_paths" Type="" Value="10"/>
           <ReportConfigOption Name="report_unconstrained" Type="" Value="true"/>
           <ReportConfigOutputOption Name="pb" Type="string" Value=""/>
           <ReportConfigOutputOption Name="rpx" Type="string" Value=""/>
         </ReportConfig>
-        <ReportConfig DisplayName="Timing Summary - Post-Place Phys Opt Design" Name="impl_1_copy_1_phys_opt_report_timing_summary_0" Spec="report_timing_summary" RunStep="phys_opt_design" ReportFile="HeatBeat_Wrapper_timing_summary_physopted.rpt" Version="1" Minor="0" IsDisabled="true">
+        <ReportConfig DisplayName="Timing Summary - Post-Place Phys Opt Design" Name="impl_1_copy_1_phys_opt_report_timing_summary_0" Spec="report_timing_summary" RunStep="phys_opt_design" ReportFile="TopDesign_wrapper_timing_summary_physopted.rpt" Version="1" Minor="0" IsDisabled="true">
           <ReportConfigOption Name="max_paths" Type="" Value="10"/>
           <ReportConfigOption Name="report_unconstrained" Type="" Value="true"/>
           <ReportConfigOutputOption Name="pb" Type="string" Value=""/>
           <ReportConfigOutputOption Name="rpx" Type="string" Value=""/>
         </ReportConfig>
-        <ReportConfig DisplayName="implementation_log" Name="impl_1_copy_1_route_implementation_log_0" Spec="" RunStep="route_design" ReportFile="HeatBeat_Wrapper.vdi">
+        <ReportConfig DisplayName="implementation_log" Name="impl_1_copy_1_route_implementation_log_0" Spec="" RunStep="route_design" ReportFile="TopDesign_wrapper.vdi">
           <ReportConfigOption Name="dummy_option" Type="string"/>
         </ReportConfig>
-        <ReportConfig DisplayName="DRC - Route Design" Name="impl_1_copy_1_route_report_drc_0" Spec="report_drc" RunStep="route_design" ReportFile="HeatBeat_Wrapper_drc_routed.rpt" Version="1" Minor="0">
-          <ReportConfigOption Name="dummy_option" Type="string"/>
-          <ReportConfigOutputOption Name="pb" Type="string" Value=""/>
-          <ReportConfigOutputOption Name="rpx" Type="string" Value=""/>
-        </ReportConfig>
-        <ReportConfig DisplayName="Methodology - Route Design" Name="impl_1_copy_1_route_report_methodology_0" Spec="report_methodology" RunStep="route_design" ReportFile="HeatBeat_Wrapper_methodology_drc_routed.rpt" Version="1" Minor="0">
+        <ReportConfig DisplayName="DRC - Route Design" Name="impl_1_copy_1_route_report_drc_0" Spec="report_drc" RunStep="route_design" ReportFile="TopDesign_wrapper_drc_routed.rpt" Version="1" Minor="0">
           <ReportConfigOption Name="dummy_option" Type="string"/>
           <ReportConfigOutputOption Name="pb" Type="string" Value=""/>
           <ReportConfigOutputOption Name="rpx" Type="string" Value=""/>
         </ReportConfig>
-        <ReportConfig DisplayName="Power - Route Design" Name="impl_1_copy_1_route_report_power_0" Spec="report_power" RunStep="route_design" ReportFile="HeatBeat_Wrapper_power_routed.rpt" Version="1" Minor="0">
+        <ReportConfig DisplayName="Methodology - Route Design" Name="impl_1_copy_1_route_report_methodology_0" Spec="report_methodology" RunStep="route_design" ReportFile="TopDesign_wrapper_methodology_drc_routed.rpt" Version="1" Minor="0">
           <ReportConfigOption Name="dummy_option" Type="string"/>
           <ReportConfigOutputOption Name="pb" Type="string" Value=""/>
           <ReportConfigOutputOption Name="rpx" Type="string" Value=""/>
         </ReportConfig>
-        <ReportConfig DisplayName="Route Status - Route Design" Name="impl_1_copy_1_route_report_route_status_0" Spec="report_route_status" RunStep="route_design" ReportFile="HeatBeat_Wrapper_route_status.rpt" Version="1" Minor="0">
+        <ReportConfig DisplayName="Power - Route Design" Name="impl_1_copy_1_route_report_power_0" Spec="report_power" RunStep="route_design" ReportFile="TopDesign_wrapper_power_routed.rpt" Version="1" Minor="0">
+          <ReportConfigOption Name="dummy_option" Type="string"/>
+          <ReportConfigOutputOption Name="pb" Type="string" Value=""/>
+          <ReportConfigOutputOption Name="rpx" Type="string" Value=""/>
+        </ReportConfig>
+        <ReportConfig DisplayName="Route Status - Route Design" Name="impl_1_copy_1_route_report_route_status_0" Spec="report_route_status" RunStep="route_design" ReportFile="TopDesign_wrapper_route_status.rpt" Version="1" Minor="0">
           <ReportConfigOption Name="dummy_option" Type="string"/>
           <ReportConfigOutputOption Name="pb" Type="string" Value=""/>
         </ReportConfig>
-        <ReportConfig DisplayName="Timing Summary - Route Design" Name="impl_1_copy_1_route_report_timing_summary_0" Spec="report_timing_summary" RunStep="route_design" ReportFile="HeatBeat_Wrapper_timing_summary_routed.rpt" Version="1" Minor="0">
+        <ReportConfig DisplayName="Timing Summary - Route Design" Name="impl_1_copy_1_route_report_timing_summary_0" Spec="report_timing_summary" RunStep="route_design" ReportFile="TopDesign_wrapper_timing_summary_routed.rpt" Version="1" Minor="0">
           <ReportConfigOption Name="max_paths" Type="" Value="10"/>
           <ReportConfigOption Name="routable_nets" Type="" Value="true"/>
           <ReportConfigOption Name="report_unconstrained" Type="" Value="true"/>
           <ReportConfigOutputOption Name="pb" Type="string" Value=""/>
           <ReportConfigOutputOption Name="rpx" Type="string" Value=""/>
         </ReportConfig>
-        <ReportConfig DisplayName="Incremental Reuse - Route Design" Name="impl_1_copy_1_route_report_incremental_reuse_0" Spec="report_incremental_reuse" RunStep="route_design" ReportFile="HeatBeat_Wrapper_incremental_reuse_routed.rpt" Version="1" Minor="0">
+        <ReportConfig DisplayName="Incremental Reuse - Route Design" Name="impl_1_copy_1_route_report_incremental_reuse_0" Spec="report_incremental_reuse" RunStep="route_design" ReportFile="TopDesign_wrapper_incremental_reuse_routed.rpt" Version="1" Minor="0">
           <ReportConfigOption Name="dummy_option" Type="string"/>
         </ReportConfig>
-        <ReportConfig DisplayName="Clock Utilization - Route Design" Name="impl_1_copy_1_route_report_clock_utilization_0" Spec="report_clock_utilization" RunStep="route_design" ReportFile="HeatBeat_Wrapper_clock_utilization_routed.rpt" Version="1" Minor="0">
+        <ReportConfig DisplayName="Clock Utilization - Route Design" Name="impl_1_copy_1_route_report_clock_utilization_0" Spec="report_clock_utilization" RunStep="route_design" ReportFile="TopDesign_wrapper_clock_utilization_routed.rpt" Version="1" Minor="0">
           <ReportConfigOption Name="dummy_option" Type="string"/>
         </ReportConfig>
-        <ReportConfig DisplayName="Bus Skew - Route Design" Name="impl_1_copy_1_route_report_bus_skew_0" Spec="report_bus_skew" RunStep="route_design" ReportFile="HeatBeat_Wrapper_bus_skew_routed.rpt" Version="1" Minor="1">
+        <ReportConfig DisplayName="Bus Skew - Route Design" Name="impl_1_copy_1_route_report_bus_skew_0" Spec="report_bus_skew" RunStep="route_design" ReportFile="TopDesign_wrapper_bus_skew_routed.rpt" Version="1" Minor="1">
           <ReportConfigOption Name="warn_on_violation" Type="" Value="true"/>
           <ReportConfigOutputOption Name="pb" Type="string" Value=""/>
           <ReportConfigOutputOption Name="rpx" Type="string" Value=""/>
         </ReportConfig>
-        <ReportConfig DisplayName="Timing Summary - Post-Route Phys Opt Design" Name="impl_1_copy_1_post_route_phys_opt_report_timing_summary_0" Spec="report_timing_summary" RunStep="post_route_phys_opt_design" ReportFile="HeatBeat_Wrapper_timing_summary_postroute_physopted.rpt" Version="1" Minor="0">
+        <ReportConfig DisplayName="Timing Summary - Post-Route Phys Opt Design" Name="impl_1_copy_1_post_route_phys_opt_report_timing_summary_0" Spec="report_timing_summary" RunStep="post_route_phys_opt_design" ReportFile="TopDesign_wrapper_timing_summary_postroute_physopted.rpt" Version="1" Minor="0">
           <ReportConfigOption Name="max_paths" Type="" Value="10"/>
           <ReportConfigOption Name="report_unconstrained" Type="" Value="true"/>
           <ReportConfigOption Name="warn_on_violation" Type="" Value="true"/>
           <ReportConfigOutputOption Name="pb" Type="string" Value=""/>
           <ReportConfigOutputOption Name="rpx" Type="string" Value=""/>
         </ReportConfig>
-        <ReportConfig DisplayName="Bus Skew - Post-Route Phys Opt Design" Name="impl_1_copy_1_post_route_phys_opt_report_bus_skew_0" Spec="report_bus_skew" RunStep="post_route_phys_opt_design" ReportFile="HeatBeat_Wrapper_bus_skew_postroute_physopted.rpt" Version="1" Minor="1">
+        <ReportConfig DisplayName="Bus Skew - Post-Route Phys Opt Design" Name="impl_1_copy_1_post_route_phys_opt_report_bus_skew_0" Spec="report_bus_skew" RunStep="post_route_phys_opt_design" ReportFile="TopDesign_wrapper_bus_skew_postroute_physopted.rpt" Version="1" Minor="1">
           <ReportConfigOption Name="warn_on_violation" Type="" Value="true"/>
           <ReportConfigOutputOption Name="pb" Type="string" Value=""/>
           <ReportConfigOutputOption Name="rpx" Type="string" Value=""/>
         </ReportConfig>
-        <ReportConfig DisplayName="implementation_log" Name="impl_1_copy_1_bitstream_implementation_log_0" Spec="" RunStep="write_bitstream" ReportFile="HeatBeat_Wrapper.vdi">
+        <ReportConfig DisplayName="implementation_log" Name="impl_1_copy_1_bitstream_implementation_log_0" Spec="" RunStep="write_bitstream" ReportFile="TopDesign_wrapper.vdi">
           <ReportConfigOption Name="dummy_option" Type="string"/>
         </ReportConfig>
       </ReportStrategy>
@@ -745,66 +811,7 @@
     </Run>
     <Run Id="StatusSignal_axi_gpio_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="StatusSignal_axi_gpio_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="StatusSignal_axi_gpio_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/StatusSignal_axi_gpio_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/StatusSignal_axi_gpio_0_0_impl_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025">
-          <Desc>Default settings for Implementation.</Desc>
-        </StratHandle>
-        <Step Id="init_design"/>
-        <Step Id="opt_design"/>
-        <Step Id="power_opt_design"/>
-        <Step Id="place_design"/>
-        <Step Id="post_place_power_opt_design"/>
-        <Step Id="phys_opt_design"/>
-        <Step Id="route_design"/>
-        <Step Id="post_route_phys_opt_design"/>
-        <Step Id="write_bitstream"/>
-      </Strategy>
-      <ReportStrategy Name="Vivado Implementation Default Reports" Flow="Vivado Implementation 2025"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
-    <Run Id="AdcSubSystem_inst_1_axi_quad_spi_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="AdcSubSystem_inst_1_axi_quad_spi_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="AdcSubSystem_inst_1_axi_quad_spi_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/AdcSubSystem_inst_1_axi_quad_spi_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/AdcSubSystem_inst_1_axi_quad_spi_0_0_impl_1" ParallelReportGen="true">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025">
-          <Desc>Default settings for Implementation.</Desc>
-        </StratHandle>
-        <Step Id="init_design"/>
-        <Step Id="opt_design"/>
-        <Step Id="power_opt_design"/>
-        <Step Id="place_design"/>
-        <Step Id="post_place_power_opt_design"/>
-        <Step Id="phys_opt_design"/>
-        <Step Id="route_design"/>
-        <Step Id="post_route_phys_opt_design"/>
-        <Step Id="write_bitstream"/>
-      </Strategy>
-      <ReportStrategy Name="Vivado Implementation Default Reports" Flow="Vivado Implementation 2025"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
-    <Run Id="AdcSubSystem_inst_1_smartconnect_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="AdcSubSystem_inst_1_smartconnect_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="AdcSubSystem_inst_1_smartconnect_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/AdcSubSystem_inst_1_smartconnect_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/AdcSubSystem_inst_1_smartconnect_0_0_impl_1" ParallelReportGen="true">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025">
-          <Desc>Default settings for Implementation.</Desc>
-        </StratHandle>
-        <Step Id="init_design"/>
-        <Step Id="opt_design"/>
-        <Step Id="power_opt_design"/>
-        <Step Id="place_design"/>
-        <Step Id="post_place_power_opt_design"/>
-        <Step Id="phys_opt_design"/>
-        <Step Id="route_design"/>
-        <Step Id="post_route_phys_opt_design"/>
-        <Step Id="write_bitstream"/>
-      </Strategy>
-      <ReportStrategy Name="Vivado Implementation Default Reports" Flow="Vivado Implementation 2025"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
-    <Run Id="TopDesign_zynq_ultra_ps_e_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_zynq_ultra_ps_e_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="TopDesign_zynq_ultra_ps_e_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_zynq_ultra_ps_e_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_zynq_ultra_ps_e_0_0_impl_1" ParallelReportGen="true">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025">
-          <Desc>Default settings for Implementation.</Desc>
-        </StratHandle>
+        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025"/>
         <Step Id="init_design"/>
         <Step Id="opt_design"/>
         <Step Id="power_opt_design"/>
@@ -820,6 +827,59 @@
       <RQSFiles/>
     </Run>
     <Run Id="TopDesign_smartconnect_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_smartconnect_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="TopDesign_smartconnect_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_smartconnect_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_smartconnect_0_0_impl_1" ParallelReportGen="true">
+      <Strategy Version="1" Minor="2">
+        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025"/>
+        <Step Id="init_design"/>
+        <Step Id="opt_design"/>
+        <Step Id="power_opt_design"/>
+        <Step Id="place_design"/>
+        <Step Id="post_place_power_opt_design"/>
+        <Step Id="phys_opt_design"/>
+        <Step Id="route_design"/>
+        <Step Id="post_route_phys_opt_design"/>
+        <Step Id="write_bitstream"/>
+      </Strategy>
+      <ReportStrategy Name="Vivado Implementation Default Reports" Flow="Vivado Implementation 2025"/>
+      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
+      <RQSFiles/>
+    </Run>
+    <Run Id="StatusSignal_inst_0_HeatBeat_Wrapper_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="StatusSignal_inst_0_HeatBeat_Wrapper_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="StatusSignal_inst_0_HeatBeat_Wrapper_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/StatusSignal_inst_0_HeatBeat_Wrapper_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/StatusSignal_inst_0_HeatBeat_Wrapper_0_0_impl_1" ParallelReportGen="true">
+      <Strategy Version="1" Minor="2">
+        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025"/>
+        <Step Id="init_design"/>
+        <Step Id="opt_design"/>
+        <Step Id="power_opt_design"/>
+        <Step Id="place_design"/>
+        <Step Id="post_place_power_opt_design"/>
+        <Step Id="phys_opt_design"/>
+        <Step Id="route_design"/>
+        <Step Id="post_route_phys_opt_design"/>
+        <Step Id="write_bitstream"/>
+      </Strategy>
+      <ReportStrategy Name="Vivado Implementation Default Reports" Flow="Vivado Implementation 2025"/>
+      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
+      <RQSFiles/>
+    </Run>
+    <Run Id="AdcConversion_inst_0_axis_data_fifo_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="AdcConversion_inst_0_axis_data_fifo_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="AdcConversion_inst_0_axis_data_fifo_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/AdcConversion_inst_0_axis_data_fifo_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/AdcConversion_inst_0_axis_data_fifo_0_0_impl_1" ParallelReportGen="true">
+      <Strategy Version="1" Minor="2">
+        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025">
+          <Desc>Default settings for Implementation.</Desc>
+        </StratHandle>
+        <Step Id="init_design"/>
+        <Step Id="opt_design"/>
+        <Step Id="power_opt_design"/>
+        <Step Id="place_design"/>
+        <Step Id="post_place_power_opt_design"/>
+        <Step Id="phys_opt_design"/>
+        <Step Id="route_design"/>
+        <Step Id="post_route_phys_opt_design"/>
+        <Step Id="write_bitstream"/>
+      </Strategy>
+      <ReportStrategy Name="Vivado Implementation Default Reports" Flow="Vivado Implementation 2025"/>
+      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
+      <RQSFiles/>
+    </Run>
+    <Run Id="MeterProcessing_inst_0_CurrentRms_Wrapper_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="MeterProcessing_inst_0_CurrentRms_Wrapper_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="MeterProcessing_inst_0_CurrentRms_Wrapper_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_CurrentRms_Wrapper_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_CurrentRms_Wrapper_0_0_impl_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025">
           <Desc>Default settings for Implementation.</Desc>
@@ -857,7 +917,7 @@
       <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
       <RQSFiles/>
     </Run>
-    <Run Id="TopDesign_proc_sys_reset_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_proc_sys_reset_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="TopDesign_proc_sys_reset_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_proc_sys_reset_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_proc_sys_reset_0_0_impl_1" ParallelReportGen="true">
+    <Run Id="MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_MeterResultHub_Wrapp_0_0_impl_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025">
           <Desc>Default settings for Implementation.</Desc>
@@ -876,7 +936,7 @@
       <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
       <RQSFiles/>
     </Run>
-    <Run Id="StatusSignal_inst_0_HeatBeat_Wrapper_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="StatusSignal_inst_0_HeatBeat_Wrapper_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="StatusSignal_inst_0_HeatBeat_Wrapper_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/StatusSignal_inst_0_HeatBeat_Wrapper_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/StatusSignal_inst_0_HeatBeat_Wrapper_0_0_impl_1" ParallelReportGen="true">
+    <Run Id="MeterProcessing_inst_0_axis_broadcaster_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="MeterProcessing_inst_0_axis_broadcaster_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="MeterProcessing_inst_0_axis_broadcaster_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_axis_broadcaster_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_axis_broadcaster_0_0_impl_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025">
           <Desc>Default settings for Implementation.</Desc>
@@ -895,7 +955,45 @@
       <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
       <RQSFiles/>
     </Run>
-    <Run Id="StatusSignal_inst_0_axi_gpio_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="StatusSignal_inst_0_axi_gpio_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="StatusSignal_inst_0_axi_gpio_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/StatusSignal_inst_0_axi_gpio_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/StatusSignal_inst_0_axi_gpio_0_0_impl_1" ParallelReportGen="true">
+    <Run Id="MeterProcessing_inst_0_VoltageRms_Wrapper_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="MeterProcessing_inst_0_VoltageRms_Wrapper_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="MeterProcessing_inst_0_VoltageRms_Wrapper_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_VoltageRms_Wrapper_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_VoltageRms_Wrapper_0_0_impl_1" ParallelReportGen="true">
+      <Strategy Version="1" Minor="2">
+        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025">
+          <Desc>Default settings for Implementation.</Desc>
+        </StratHandle>
+        <Step Id="init_design"/>
+        <Step Id="opt_design"/>
+        <Step Id="power_opt_design"/>
+        <Step Id="place_design"/>
+        <Step Id="post_place_power_opt_design"/>
+        <Step Id="phys_opt_design"/>
+        <Step Id="route_design"/>
+        <Step Id="post_route_phys_opt_design"/>
+        <Step Id="write_bitstream"/>
+      </Strategy>
+      <ReportStrategy Name="Vivado Implementation Default Reports" Flow="Vivado Implementation 2025"/>
+      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
+      <RQSFiles/>
+    </Run>
+    <Run Id="MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/MeterProcessing_inst_0_MeterPacketizer_Wrap_0_0_impl_1" ParallelReportGen="true">
+      <Strategy Version="1" Minor="2">
+        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025">
+          <Desc>Default settings for Implementation.</Desc>
+        </StratHandle>
+        <Step Id="init_design"/>
+        <Step Id="opt_design"/>
+        <Step Id="power_opt_design"/>
+        <Step Id="place_design"/>
+        <Step Id="post_place_power_opt_design"/>
+        <Step Id="phys_opt_design"/>
+        <Step Id="route_design"/>
+        <Step Id="post_route_phys_opt_design"/>
+        <Step Id="write_bitstream"/>
+      </Strategy>
+      <ReportStrategy Name="Vivado Implementation Default Reports" Flow="Vivado Implementation 2025"/>
+      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
+      <RQSFiles/>
+    </Run>
+    <Run Id="AdcConversion_inst_0_AdcConversion_Wrapper_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="AdcConversion_inst_0_AdcConversion_Wrapper_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="AdcConversion_inst_0_AdcConversion_Wrapper_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/AdcConversion_inst_0_AdcConversion_Wrapper_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/AdcConversion_inst_0_AdcConversion_Wrapper_0_0_impl_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025">
           <Desc>Default settings for Implementation.</Desc>

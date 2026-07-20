@@ -1,14 +1,13 @@
 {
   "design": {
     "design_info": {
-      "boundary_crc": "0x4BD37B2312B67EEB",
+      "boundary_crc": "0x4BD37B23ABA1C28B",
       "design_src": "/opt/monutchee/project/msap1/MSAP1_PL/SourceData/BlockDesign/StatusSignal/StatusSignal.bd",
       "device": "xck26-sfvc784-2LV-c",
       "name": "StatusSignal_inst_0",
       "rev_ctrl_bd_flag": "RevCtrlBdOff",
       "synth_flow_mode": "Hierarchical",
       "tool_version": "2025.2",
-      "validated": "true",
       "variant": "true"
     },
     "design_tree": {
@@ -41,7 +40,7 @@
         "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
         "parameters": {
           "ADDR_WIDTH": {
-            "value": "16",
+            "value": "32",
             "value_src": "strong"
           },
           "ARUSER_WIDTH": {
@@ -168,8 +167,8 @@
         "address_space_ref": "S_AXI_0",
         "base_address": {
           "minimum": "0x00000000",
-          "maximum": "0x0000FFFF",
-          "width": "16"
+          "maximum": "0xFFFFFFFF",
+          "width": "32"
         },
         "bd_attributes": {
           "TYPE": {
@@ -436,17 +435,17 @@
       "/": {
         "address_spaces": {
           "S_AXI_0": {
-            "range": "64K",
-            "width": "16",
+            "range": "4G",
+            "width": "32",
             "segments": {
               "SEG_axi_gpio_0_Reg": {
                 "address_block": "/axi_gpio_0/S_AXI/Reg",
-                "offset": "0x0000",
+                "offset": "0xB0000000",
                 "range": "64K"
               },
               "SEG_axi_gpio_0_Reg_1": {
                 "address_block": "/axi_gpio_0/S_AXI/Reg",
-                "offset": "0x0000",
+                "offset": "0xB0000000",
                 "range": "64K"
               }
             }
