@@ -27,7 +27,7 @@
         "parameters": {
           "PortWidth": {
             "value": "1",
-            "value_src": "default"
+            "value_src": "user_prop"
           }
         }
       }

@@ -2,7 +2,7 @@
 --Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
 ----------------------------------------------------------------------------------
 --Tool Version: Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
---Date        : Fri Jul 17 10:48:58 2026
+--Date        : Sun Jul 19 23:18:06 2026
 --Host        : mnc1 running 64-bit Ubuntu 24.04.4 LTS
 --Command     : generate_target AdcSubSystem_wrapper.bd
 --Design      : AdcSubSystem_wrapper
@@ -62,6 +62,10 @@ entity AdcSubSystem_wrapper is
     S00_AXI_0_wready : out STD_LOGIC;
     S00_AXI_0_wstrb : in STD_LOGIC_VECTOR ( 3 downto 0 );
     S00_AXI_0_wvalid : in STD_LOGIC;
+    capture_alert_count_0 : out STD_LOGIC_VECTOR ( 31 downto 0 );
+    capture_frame_count_0 : out STD_LOGIC_VECTOR ( 31 downto 0 );
+    capture_header_errors_0 : out STD_LOGIC_VECTOR ( 31 downto 0 );
+    capture_overflow_count_0 : out STD_LOGIC_VECTOR ( 31 downto 0 );
     ext_spi_clk_0 : in STD_LOGIC;
     s_axi_aclk : in STD_LOGIC;
     s_axi_aresetn_0 : in STD_LOGIC
@@ -129,7 +133,11 @@ architecture STRUCTURE of AdcSubSystem_wrapper is
     ADC_DOUT : in STD_LOGIC_VECTOR ( 3 downto 0 );
     ADC_RESET_N : out STD_LOGIC;
     ADC_START_N : out STD_LOGIC;
-    ADC_CONVST_SAR : out STD_LOGIC
+    ADC_CONVST_SAR : out STD_LOGIC;
+    capture_frame_count_0 : out STD_LOGIC_VECTOR ( 31 downto 0 );
+    capture_overflow_count_0 : out STD_LOGIC_VECTOR ( 31 downto 0 );
+    capture_header_errors_0 : out STD_LOGIC_VECTOR ( 31 downto 0 );
+    capture_alert_count_0 : out STD_LOGIC_VECTOR ( 31 downto 0 )
   );
   end component AdcSubSystem;
   component IOBUF is
@@ -240,6 +248,10 @@ AdcSubSystem_i: component AdcSubSystem
       S00_AXI_0_wready => S00_AXI_0_wready,
       S00_AXI_0_wstrb(3 downto 0) => S00_AXI_0_wstrb(3 downto 0),
       S00_AXI_0_wvalid => S00_AXI_0_wvalid,
+      capture_alert_count_0(31 downto 0) => capture_alert_count_0(31 downto 0),
+      capture_frame_count_0(31 downto 0) => capture_frame_count_0(31 downto 0),
+      capture_header_errors_0(31 downto 0) => capture_header_errors_0(31 downto 0),
+      capture_overflow_count_0(31 downto 0) => capture_overflow_count_0(31 downto 0),
       ext_spi_clk_0 => ext_spi_clk_0,
       s_axi_aclk => s_axi_aclk,
       s_axi_aresetn_0 => s_axi_aresetn_0

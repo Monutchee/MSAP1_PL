@@ -27,6 +27,10 @@ module ad7771_capture_tb;
     logic         m_axis_tvalid;
     logic         m_axis_tready = 1'b0;
     logic         m_axis_tlast;
+    logic [31:0]  capture_frame_count;
+    logic [31:0]  capture_overflow_count;
+    logic [31:0]  capture_header_errors;
+    logic [31:0]  capture_alert_count;
 
     logic         adc_dclk = 1'b0;
     logic         adc_drdy_n = 1'b0;
@@ -73,6 +77,10 @@ module ad7771_capture_tb;
         .m_axis_tvalid,
         .m_axis_tready,
         .m_axis_tlast,
+        .capture_frame_count,
+        .capture_overflow_count,
+        .capture_header_errors,
+        .capture_alert_count,
         .adc_dclk,
         .adc_drdy_n,
         .adc_dout,

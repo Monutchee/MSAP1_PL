@@ -9,8 +9,9 @@
   Maintained integration and validation Tcl lives in `SourceData/Script/AI_gen/`.
 - Heartbeat VHDL RTL, its ordinary-VHDL module-reference wrapper, and its
   SystemVerilog testbench are in `SourceData/DesignFile/HeatBeat_Controller/`.
-- `TopDesign.bd` is the implementation top. `AdcSubSystem.bd` is a block-design
-  container for ADC control and capture-facing logic.
+- `TopDesign.bd` is the implementation top. `AdcSubSystem.bd` owns ADC control
+  and capture; `AdcConversion.bd` converts frames using runtime coefficients;
+  `MeterProcessing.bd` owns RMS engines, result hub, and meter packetizer.
 - Treat `SourceData` HDL, constraints, block designs, and maintained Tcl as
   design inputs. Treat `vivado_gen` runtime products and block-design generated
   HDL/IP products as regenerable unless explicitly tracked by the repository.
@@ -24,11 +25,11 @@
   treated as a persistent frame-valid indication.
 - Assert `TLAST` after the configured packet count. The default is 256 frames,
   2048 AXI beats, or 8192 bytes per DMA packet.
-- AXI Quad SPI is the RPU-owned control path. The capture AXI-Lite registers and
-  stream-to-memory DMA are also controlled by R5 core 0 during bring-up.
-- Current addresses are AXI Quad SPI `0xB0010000`, capture registers
-  `0xB0020000`, and AXI DMA `0xB0030000`. Address-map changes require a new XSA
-  and coordinated RPU updates.
+- AXI Quad SPI, capture, conversion, and processing AXI-Lite registers are
+  RPU-owned. Linux exclusively owns the SG-enabled meter S2MM DMA.
+- Current addresses are AXI Quad SPI `0xB0010000`, capture `0xB0020000`, AXI
+  DMA `0xB0030000`, conversion `0xB0040000`, and processing `0xB0050000`.
+  Address-map changes require a new XSA and coordinated RPU updates.
 - Preserve explicit clock-domain boundaries between ADC DCLK and the AXI clock.
   Do not suppress CDC or timing findings without documenting the actual path.
 

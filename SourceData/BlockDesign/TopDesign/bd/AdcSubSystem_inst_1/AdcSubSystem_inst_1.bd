@@ -1,7 +1,7 @@
 {
   "design": {
     "design_info": {
-      "boundary_crc": "0xA1144346A04BD7AF",
+      "boundary_crc": "0xF8568918654FCEBE",
       "design_src": "/opt/monutchee/project/msap1/MSAP1_PL/SourceData/BlockDesign/AdcSubSystem/AdcSubSystem.bd",
       "device": "xck26-sfvc784-2LV-c",
       "name": "AdcSubSystem_inst_1",
@@ -406,13 +406,13 @@
             "direction": "I"
           },
           "ARUSER": {
-            "physical_name": "S00_AXI_0_aruser_1",
+            "physical_name": "S00_AXI_0_aruser",
             "direction": "I",
             "left": "15",
             "right": "0"
           },
           "AWUSER": {
-            "physical_name": "S00_AXI_0_awuser_1",
+            "physical_name": "S00_AXI_0_awuser",
             "direction": "I",
             "left": "15",
             "right": "0"
@@ -591,7 +591,7 @@
         "direction": "I",
         "parameters": {
           "CLK_DOMAIN": {
-            "value": "TopDesign_ADC_DCLK_0",
+            "value": "TopDesign_ADC_DCLK",
             "value_src": "default_prop"
           },
           "FREQ_HZ": {
@@ -628,6 +628,26 @@
       },
       "ADC_CONVST_SAR": {
         "direction": "O"
+      },
+      "capture_frame_count_0": {
+        "direction": "O",
+        "left": "31",
+        "right": "0"
+      },
+      "capture_overflow_count_0": {
+        "direction": "O",
+        "left": "31",
+        "right": "0"
+      },
+      "capture_header_errors_0": {
+        "direction": "O",
+        "left": "31",
+        "right": "0"
+      },
+      "capture_alert_count_0": {
+        "direction": "O",
+        "left": "31",
+        "right": "0"
       }
     },
     "components": {
@@ -669,8 +689,7 @@
                 "value_src": "auto"
               },
               "TYPE": {
-                "value": "interior",
-                "value_src": "default"
+                "value": "interior"
               }
             }
           },
@@ -679,6 +698,9 @@
             "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
             "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
             "parameters": {
+              "MAX_BURST_LENGTH": {
+                "value": "1"
+              },
               "NUM_READ_OUTSTANDING": {
                 "value": "8"
               },
@@ -694,14 +716,16 @@
               "RUSER_BITS_PER_BYTE": {
                 "value": "0"
               },
+              "SUPPORTS_NARROW_BURST": {
+                "value": "0"
+              },
               "WUSER_BITS_PER_BYTE": {
                 "value": "0"
               }
             },
             "bd_attributes": {
               "TYPE": {
-                "value": "interior",
-                "value_src": "default"
+                "value": "interior"
               }
             }
           },
@@ -710,6 +734,9 @@
             "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
             "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
             "parameters": {
+              "MAX_BURST_LENGTH": {
+                "value": "1"
+              },
               "NUM_READ_OUTSTANDING": {
                 "value": "8"
               },
@@ -725,14 +752,16 @@
               "RUSER_BITS_PER_BYTE": {
                 "value": "0"
               },
+              "SUPPORTS_NARROW_BURST": {
+                "value": "0"
+              },
               "WUSER_BITS_PER_BYTE": {
                 "value": "0"
               }
             },
             "bd_attributes": {
               "TYPE": {
-                "value": "interior",
-                "value_src": "default"
+                "value": "interior"
               }
             }
           }
@@ -1094,6 +1123,26 @@
               }
             }
           },
+          "capture_frame_count": {
+            "direction": "O",
+            "left": "31",
+            "right": "0"
+          },
+          "capture_overflow_count": {
+            "direction": "O",
+            "left": "31",
+            "right": "0"
+          },
+          "capture_header_errors": {
+            "direction": "O",
+            "left": "31",
+            "right": "0"
+          },
+          "capture_alert_count": {
+            "direction": "O",
+            "left": "31",
+            "right": "0"
+          },
           "adc_dclk": {
             "type": "clk",
             "direction": "I",
@@ -1107,7 +1156,7 @@
                 "value_src": "default_prop"
               },
               "CLK_DOMAIN": {
-                "value": "TopDesign_ADC_DCLK_0",
+                "value": "TopDesign_ADC_DCLK",
                 "value_src": "default_prop"
               }
             }
@@ -1199,6 +1248,30 @@
         "ports": [
           "Ad7771Capture_Wrapper_0/adc_start_n",
           "ADC_START_N"
+        ]
+      },
+      "Ad7771Capture_Wrapper_0_capture_alert_count": {
+        "ports": [
+          "Ad7771Capture_Wrapper_0/capture_alert_count",
+          "capture_alert_count_0"
+        ]
+      },
+      "Ad7771Capture_Wrapper_0_capture_frame_count": {
+        "ports": [
+          "Ad7771Capture_Wrapper_0/capture_frame_count",
+          "capture_frame_count_0"
+        ]
+      },
+      "Ad7771Capture_Wrapper_0_capture_header_errors": {
+        "ports": [
+          "Ad7771Capture_Wrapper_0/capture_header_errors",
+          "capture_header_errors_0"
+        ]
+      },
+      "Ad7771Capture_Wrapper_0_capture_overflow_count": {
+        "ports": [
+          "Ad7771Capture_Wrapper_0/capture_overflow_count",
+          "capture_overflow_count_0"
         ]
       },
       "aclk_0_1": {

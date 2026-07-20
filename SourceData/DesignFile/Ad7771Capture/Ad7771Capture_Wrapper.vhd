@@ -32,6 +32,11 @@ entity Ad7771Capture_Wrapper is
         m_axis_tready    : in  std_logic;
         m_axis_tlast     : out std_logic;
 
+        capture_frame_count    : out std_logic_vector(31 downto 0);
+        capture_overflow_count : out std_logic_vector(31 downto 0);
+        capture_header_errors  : out std_logic_vector(31 downto 0);
+        capture_alert_count    : out std_logic_vector(31 downto 0);
+
         adc_dclk         : in  std_logic;
         adc_drdy_n       : in  std_logic;
         adc_dout         : in  std_logic_vector(3 downto 0);
@@ -113,6 +118,10 @@ begin
             m_axis_tvalid    => m_axis_tvalid,
             m_axis_tready    => m_axis_tready,
             m_axis_tlast     => m_axis_tlast,
+            capture_frame_count => capture_frame_count,
+            capture_overflow_count => capture_overflow_count,
+            capture_header_errors => capture_header_errors,
+            capture_alert_count => capture_alert_count,
             adc_dclk         => adc_dclk,
             adc_drdy_n       => adc_drdy_n,
             adc_dout         => adc_dout,

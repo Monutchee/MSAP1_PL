@@ -1,7 +1,7 @@
 {
   "design": {
     "design_info": {
-      "boundary_crc": "0x7AABF148261B8E4A",
+      "boundary_crc": "0x46061C347D97EB2B",
       "device": "xck26-sfvc784-2LV-c",
       "name": "AdcSubSystem",
       "rev_ctrl_bd_flag": "RevCtrlBdOff",
@@ -582,6 +582,26 @@
       },
       "ADC_CONVST_SAR": {
         "direction": "O"
+      },
+      "capture_frame_count_0": {
+        "direction": "O",
+        "left": "31",
+        "right": "0"
+      },
+      "capture_overflow_count_0": {
+        "direction": "O",
+        "left": "31",
+        "right": "0"
+      },
+      "capture_header_errors_0": {
+        "direction": "O",
+        "left": "31",
+        "right": "0"
+      },
+      "capture_alert_count_0": {
+        "direction": "O",
+        "left": "31",
+        "right": "0"
       }
     },
     "components": {
@@ -1048,6 +1068,26 @@
               }
             }
           },
+          "capture_frame_count": {
+            "direction": "O",
+            "left": "31",
+            "right": "0"
+          },
+          "capture_overflow_count": {
+            "direction": "O",
+            "left": "31",
+            "right": "0"
+          },
+          "capture_header_errors": {
+            "direction": "O",
+            "left": "31",
+            "right": "0"
+          },
+          "capture_alert_count": {
+            "direction": "O",
+            "left": "31",
+            "right": "0"
+          },
           "adc_dclk": {
             "type": "clk",
             "direction": "I",
@@ -1149,6 +1189,30 @@
         "ports": [
           "Ad7771Capture_Wrapper_0/adc_start_n",
           "ADC_START_N"
+        ]
+      },
+      "Ad7771Capture_Wrapper_0_capture_alert_count": {
+        "ports": [
+          "Ad7771Capture_Wrapper_0/capture_alert_count",
+          "capture_alert_count_0"
+        ]
+      },
+      "Ad7771Capture_Wrapper_0_capture_frame_count": {
+        "ports": [
+          "Ad7771Capture_Wrapper_0/capture_frame_count",
+          "capture_frame_count_0"
+        ]
+      },
+      "Ad7771Capture_Wrapper_0_capture_header_errors": {
+        "ports": [
+          "Ad7771Capture_Wrapper_0/capture_header_errors",
+          "capture_header_errors_0"
+        ]
+      },
+      "Ad7771Capture_Wrapper_0_capture_overflow_count": {
+        "ports": [
+          "Ad7771Capture_Wrapper_0/capture_overflow_count",
+          "capture_overflow_count_0"
         ]
       },
       "aclk_0_1": {

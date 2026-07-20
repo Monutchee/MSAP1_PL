@@ -4,7 +4,10 @@
 `AdcSubSystem.bd` as a Vivado module reference. It carries the Vivado AXI,
 AXI4-Stream, clock, and reset attributes while the receiver, register bank,
 and capture implementation use VHDL-2008. It receives the AD7771 four-DOUT
-data interface and exposes packetized samples to an AXI DMA.
+data interface and exposes packetized samples to the conversion pipeline.
+It also exports synchronized 32-bit frame, overflow, header-error, and alert
+counters for inclusion in periodic meter records; their AXI-Lite readback is
+unchanged.
 
 SystemVerilog remains the verification language. The receiver testbench binds
 directly to the VHDL receiver, and the capture testbench verifies the mixed-
@@ -17,8 +20,9 @@ AD7771 DCLK + DRDY + DOUT[3:0]
         -> 4-lane deserializer (8 x header + signed 24-bit sample)
         -> 512-frame asynchronous block-RAM FIFO
         -> 32-bit AXI4-Stream, CH0 through CH7
-        -> AXI DMA S2MM
-        -> PS DDR
+        -> AdcConversion
+        -> MeterProcessing
+        -> meter-result AXI DMA S2MM
 ```
 
 The receiver verifies the three-bit channel ID in every header, sign-extends
