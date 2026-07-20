@@ -1,14 +1,13 @@
 {
   "design": {
     "design_info": {
-      "boundary_crc": "0xF689B49646EFC47B",
+      "boundary_crc": "0xF689B496CB22A6A6",
       "design_src": "/opt/monutchee/project/msap1/MSAP1_PL/SourceData/BlockDesign/MeterProcessing/MeterProcessing.bd",
       "device": "xck26-sfvc784-2LV-c",
       "name": "MeterProcessing_inst_0",
       "rev_ctrl_bd_flag": "RevCtrlBdOff",
       "synth_flow_mode": "Hierarchical",
       "tool_version": "2025.2",
-      "validated": "true",
       "variant": "true"
     },
     "design_tree": {
@@ -213,7 +212,7 @@
         "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
         "parameters": {
           "ADDR_WIDTH": {
-            "value": "16",
+            "value": "32",
             "value_src": "strong"
           },
           "ARUSER_WIDTH": {
@@ -340,8 +339,8 @@
         "address_space_ref": "s_axi_config_0",
         "base_address": {
           "minimum": "0x00000000",
-          "maximum": "0x0000FFFF",
-          "width": "16"
+          "maximum": "0xFFFFFFFF",
+          "width": "32"
         },
         "bd_attributes": {
           "TYPE": {
@@ -1639,17 +1638,17 @@
       "/": {
         "address_spaces": {
           "s_axi_config_0": {
-            "range": "64K",
-            "width": "16",
+            "range": "4G",
+            "width": "32",
             "segments": {
               "SEG_VoltageRms_Wrapper_0_reg0": {
                 "address_block": "/VoltageRms_Wrapper_0/s_axi_config/reg0",
-                "offset": "0x0000",
+                "offset": "0x00000000",
                 "range": "64K"
               },
               "SEG_VoltageRms_Wrapper_0_reg0_1": {
                 "address_block": "/VoltageRms_Wrapper_0/s_axi_config/reg0",
-                "offset": "0x0000",
+                "offset": "0x00000000",
                 "range": "64K"
               }
             }
