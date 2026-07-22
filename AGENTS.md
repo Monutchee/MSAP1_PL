@@ -9,9 +9,12 @@
   Maintained integration and validation Tcl lives in `SourceData/Script/AI_gen/`.
 - Heartbeat VHDL RTL, its ordinary-VHDL module-reference wrapper, and its
   SystemVerilog testbench are in `SourceData/DesignFile/HeatBeat_Controller/`.
-- `TopDesign.bd` is the implementation top. `AdcSubSystem.bd` owns ADC control
-  and capture; `AdcConversion.bd` converts frames using runtime coefficients;
-  `MeterProcessing.bd` owns RMS engines, result hub, and meter packetizer.
+- `TopDesign.bd` is the only block design and owns the Zynq platform, AXI DMA,
+  AXI Quad SPI, AXI GPIO, heartbeat, fan routing, clocks, resets, and external
+  ports.
+- `SourceData/DesignFile/MeterCore/` is the single metering module-reference
+  boundary. Its VHDL hierarchy owns AD7771 capture, runtime conversion, RMS
+  processing, the result hub, and MTR1 packetization.
 - Treat `SourceData` HDL, constraints, block designs, and maintained Tcl as
   design inputs. Treat `vivado_gen` runtime products and block-design generated
   HDL/IP products as regenerable unless explicitly tracked by the repository.
@@ -52,6 +55,8 @@ Run from the repository root, escalating only as the change requires:
 ```sh
 vivado -mode batch -source SourceData/Script/AI_gen/check_ad7771_capture.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_heartbeat.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/check_meter_core.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/check_metering_synthesis.tcl -tclargs MeterCore_Wrapper
 vivado -mode batch -source SourceData/Script/AI_gen/verify_ad7771_design.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/synth_ad7771_design.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/implement_ad7771_design.tcl
