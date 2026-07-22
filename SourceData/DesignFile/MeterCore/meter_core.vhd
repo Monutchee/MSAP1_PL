@@ -1,6 +1,9 @@
 library ieee;
 use ieee.std_logic_1164.all;
 
+library xpm;
+use xpm.vcomponents.all;
+
 -- Structural integration for the complete ADC-to-meter-record datapath.
 -- Vendor/platform integration remains outside this entity in TopDesign.bd.
 entity meter_core is
@@ -212,23 +215,63 @@ begin
       s_axi_rready => s_axi_conversion_rready
     );
 
-  frame_fifo : entity work.meter_frame_fifo
-    generic map (DEPTH => 16)
+  -- Same-clock elasticity between conversion and the calculation engines.
+  -- XPM owns the AXI4-Stream handshake and storage implementation; no
+  -- generated XCI or block-design FIFO is required.
+  frame_fifo : xpm_fifo_axis
+    generic map (
+      CLOCKING_MODE        => "common_clock",
+      FIFO_MEMORY_TYPE     => "auto",
+      CASCADE_HEIGHT       => 0,
+      PACKET_FIFO          => "false",
+      FIFO_DEPTH           => 16,
+      TDATA_WIDTH          => 512,
+      TID_WIDTH            => 1,
+      TDEST_WIDTH          => 1,
+      TUSER_WIDTH          => 384,
+      ECC_MODE             => "no_ecc",
+      RELATED_CLOCKS       => 0,
+      USE_ADV_FEATURES     => "1000",
+      WR_DATA_COUNT_WIDTH  => 5,
+      RD_DATA_COUNT_WIDTH  => 5,
+      PROG_FULL_THRESH     => 10,
+      PROG_EMPTY_THRESH    => 10,
+      SIM_ASSERT_CHK       => 1,
+      EN_SIM_ASSERT_ERR    => "warning",
+      CDC_SYNC_STAGES      => 2
+    )
     port map (
-      aclk => aclk,
-      aresetn => aresetn,
+      s_aresetn => aresetn,
+      s_aclk => aclk,
+      m_aclk => aclk,
       s_axis_tdata => converted_source.data,
+      s_axis_tstrb => (others => '1'),
       s_axis_tkeep => converted_source.keep,
       s_axis_tuser => converted_source.user,
       s_axis_tvalid => converted_source.valid,
       s_axis_tready => converted_source.ready,
       s_axis_tlast => converted_source.last,
+      s_axis_tid => (others => '0'),
+      s_axis_tdest => (others => '0'),
       m_axis_tdata => converted_fifo.data,
+      m_axis_tstrb => open,
       m_axis_tkeep => converted_fifo.keep,
       m_axis_tuser => converted_fifo.user,
       m_axis_tvalid => converted_fifo.valid,
       m_axis_tready => converted_fifo.ready,
-      m_axis_tlast => converted_fifo.last
+      m_axis_tlast => converted_fifo.last,
+      m_axis_tid => open,
+      m_axis_tdest => open,
+      prog_full_axis => open,
+      wr_data_count_axis => open,
+      almost_full_axis => open,
+      prog_empty_axis => open,
+      rd_data_count_axis => open,
+      almost_empty_axis => open,
+      injectsbiterr_axis => '0',
+      injectdbiterr_axis => '0',
+      sbiterr_axis => open,
+      dbiterr_axis => open
     );
 
   -- Every branch observes each accepted frame exactly once. No calculation

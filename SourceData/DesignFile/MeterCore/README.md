@@ -8,7 +8,7 @@ VHDL-2008.
 The standalone hierarchy is:
 
 ```text
-AD7771 capture -> ADC conversion -> 16-frame RTL FIFO
+AD7771 capture -> ADC conversion -> 16-frame XPM AXI4-Stream FIFO
                -> voltage RMS + current stub
                -> result hub -> MTR1 packetizer
 ```
@@ -30,6 +30,11 @@ capture entity retains the established CDC implementation.
 Zynq platform, AXI DMA, SmartConnect, AXI Quad SPI, clocks, resets, heartbeat,
 and fan routing remains in that single block design; metering datapath logic
 remains in the VHDL hierarchy described above.
+
+The conversion-to-processing elasticity buffer is an `xpm_fifo_axis` macro in
+common-clock mode. It stores complete converted frames and their AXI4-Stream
+metadata without a custom FIFO implementation, generated XCI, or additional
+block design.
 
 ## Verification
 
