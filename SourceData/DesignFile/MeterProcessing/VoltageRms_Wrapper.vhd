@@ -128,7 +128,7 @@ begin
       status_i => core_status
     );
 
-  rms_core : entity work.voltage_rms
+  rms_core : entity work.meter_rms
     port map (
       aclk => aclk, aresetn => aresetn,
       s_axis_tdata => s_axis_converted_tdata,

@@ -251,6 +251,10 @@ module meter_core_tb;
     begin
       for (channel = 0; channel < 8; channel = channel + 1) begin
         case (channel)
+          0: sample = frame_number[0] ? 24'sd30 : 24'sd10;
+          1: sample = frame_number[0] ? 24'sd22 : 24'sd18;
+          2: sample = frame_number[0] ? -24'sd4 : -24'sd12;
+          3: sample = frame_number[0] ? 24'sd5 : -24'sd5;
           4: sample = frame_number[0] ? 24'sd13 : 24'sd7;
           5: sample = frame_number[0] ? 24'sd24 : 24'sd16;
           6: sample = frame_number[0] ? -24'sd12 : -24'sd2;
@@ -292,7 +296,7 @@ module meter_core_tb;
                                  input bit remove_dc);
     begin
       conversion_write(8'h10, generation);
-      conversion_write(8'h14, 32'h0000_0070);
+      conversion_write(8'h14, 32'h0000_007f);
       for (int index = 0; index < 8; index++)
         conversion_write(8'h18 + index * 4, 32'd65536);
       conversion_write(8'h08, 32'h0000_0003);
@@ -300,7 +304,7 @@ module meter_core_tb;
       processing_write(8'h10, generation);
       processing_write(8'h14, 32'd20);
       processing_write(8'h18, 32'd4);
-      processing_write(8'h1c, 32'h0000_0070);
+      processing_write(8'h1c, 32'h0000_007f);
       processing_write(8'h08, remove_dc ? 32'h0000_0007 : 32'h0000_0003);
 
       repeat (8) @(posedge clock);
@@ -319,6 +323,10 @@ module meter_core_tb;
   task automatic check_meter_word(input integer word_index,
                                   input integer expected_sequence,
                                   input integer expected_generation,
+                                  input integer rms0,
+                                  input integer rms1,
+                                  input integer rms2,
+                                  input integer rms3,
                                   input integer rms4,
                                   input integer rms5,
                                   input integer rms6);
@@ -331,13 +339,33 @@ module meter_core_tb;
         4: assert (meter_tdata == expected_generation) else $fatal(1, "bad generation");
         5: assert (meter_tdata == 32'd20) else $fatal(1, "bad sample rate");
         6: assert (meter_tdata == 32'd4) else $fatal(1, "bad RMS window");
-        7: assert (meter_tdata[7:0] == 8'h70) else $fatal(1, "bad valid mask");
+        7: assert (meter_tdata[7:0] == 8'h7f) else $fatal(1, "bad valid mask");
         8: assert (meter_tdata == 0) else $fatal(1, "unexpected result status");
         10: assert (meter_tdata == 0) else $fatal(1, "header errors are non-zero");
         11: assert (meter_tdata == 0) else $fatal(1, "FIFO overflows are non-zero");
         12: assert (meter_tdata == 0) else $fatal(1, "packetizer drops are non-zero");
         13: assert (meter_tdata == 0) else $fatal(1, "hub drops are non-zero");
         14: assert (meter_tdata == 0) else $fatal(1, "ADC alerts are non-zero");
+        16: assert ($signed(meter_tdata) == 20) else $fatal(1, "CH0 mean mismatch");
+        17: assert (meter_tdata == 0) else $fatal(1, "CH0 mean high mismatch");
+        18: assert (meter_tdata == rms0) else $fatal(1, "CH0 raw RMS mismatch");
+        19: assert ($signed(meter_tdata) == rms0) else $fatal(1, "CH0 RMS mismatch");
+        20: assert (meter_tdata == 0) else $fatal(1, "CH0 RMS high mismatch");
+        21: assert ($signed(meter_tdata) == 20) else $fatal(1, "CH1 mean mismatch");
+        22: assert (meter_tdata == 0) else $fatal(1, "CH1 mean high mismatch");
+        23: assert (meter_tdata == rms1) else $fatal(1, "CH1 raw RMS mismatch");
+        24: assert ($signed(meter_tdata) == rms1) else $fatal(1, "CH1 RMS mismatch");
+        25: assert (meter_tdata == 0) else $fatal(1, "CH1 RMS high mismatch");
+        26: assert ($signed(meter_tdata) == -8) else $fatal(1, "CH2 mean mismatch");
+        27: assert (meter_tdata == 32'hffff_ffff) else $fatal(1, "CH2 mean high mismatch");
+        28: assert (meter_tdata == rms2) else $fatal(1, "CH2 raw RMS mismatch");
+        29: assert ($signed(meter_tdata) == rms2) else $fatal(1, "CH2 RMS mismatch");
+        30: assert (meter_tdata == 0) else $fatal(1, "CH2 RMS high mismatch");
+        31: assert ($signed(meter_tdata) == 0) else $fatal(1, "CH3 mean mismatch");
+        32: assert (meter_tdata == 0) else $fatal(1, "CH3 mean high mismatch");
+        33: assert (meter_tdata == rms3) else $fatal(1, "CH3 raw RMS mismatch");
+        34: assert ($signed(meter_tdata) == rms3) else $fatal(1, "CH3 RMS mismatch");
+        35: assert (meter_tdata == 0) else $fatal(1, "CH3 RMS high mismatch");
         36: assert ($signed(meter_tdata) == 10) else $fatal(1, "CH4 mean mismatch");
         37: assert (meter_tdata == 0) else $fatal(1, "CH4 mean high mismatch");
         38: assert (meter_tdata == rms4) else $fatal(1, "CH4 raw RMS mismatch: %0d", meter_tdata);
@@ -360,6 +388,10 @@ module meter_core_tb;
 
   task automatic consume_record(input integer expected_sequence,
                                 input integer expected_generation,
+                                input integer rms0,
+                                input integer rms1,
+                                input integer rms2,
+                                input integer rms3,
                                 input integer rms4,
                                 input integer rms5,
                                 input integer rms6);
@@ -375,6 +407,7 @@ module meter_core_tb;
           assert (meter_tlast == (word_index == 63))
             else $fatal(1, "meter TLAST at word %0d", word_index);
           check_meter_word(word_index, expected_sequence, expected_generation,
+                           rms0, rms1, rms2, rms3,
                            rms4, rms5, rms6);
           word_index = word_index + 1;
         end
@@ -421,13 +454,13 @@ module meter_core_tb;
     assert (read_value == 8)
       else $fatal(1, "capture stalled behind meter DMA: %0d frames", read_value);
 
-    consume_record(1, 42, 3, 4, 5);
-    consume_record(2, 42, 3, 4, 5);
+    consume_record(1, 42, 10, 2, 4, 5, 3, 4, 5);
+    consume_record(2, 42, 10, 2, 4, 5, 3, 4, 5);
 
     configure_meter(32'd43, 1'b0);
     for (int frame = 8; frame < 12; frame++)
       send_frame(frame);
-    consume_record(3, 43, 10, 20, 8);
+    consume_record(3, 43, 22, 20, 8, 5, 10, 20, 8);
 
     repeat (20) @(posedge clock);
     capture_read(8'h10, read_value);

@@ -2619,102 +2619,33 @@
               "boundary_crc": "0x0"
             },
             "interface_ports": {
-              "m_axis_meter": {
-                "mode": "Master",
-                "vlnv_bus_definition": "xilinx.com:interface:axis:1.0",
-                "vlnv": "xilinx.com:interface:axis_rtl:1.0",
-                "parameters": {
-                  "TDATA_NUM_BYTES": {
-                    "value": "4",
-                    "value_src": "constant"
-                  },
-                  "TDEST_WIDTH": {
-                    "value": "0",
-                    "value_src": "constant"
-                  },
-                  "TID_WIDTH": {
-                    "value": "0",
-                    "value_src": "constant"
-                  },
-                  "TUSER_WIDTH": {
-                    "value": "0",
-                    "value_src": "constant"
-                  },
-                  "HAS_TREADY": {
-                    "value": "1",
-                    "value_src": "constant"
-                  },
-                  "HAS_TSTRB": {
-                    "value": "0",
-                    "value_src": "constant"
-                  },
-                  "HAS_TKEEP": {
-                    "value": "1",
-                    "value_src": "constant"
-                  },
-                  "HAS_TLAST": {
-                    "value": "1",
-                    "value_src": "constant"
-                  },
-                  "FREQ_HZ": {
-                    "value": "99999001",
-                    "value_src": "user_prop"
-                  },
-                  "CLK_DOMAIN": {
-                    "value": "TopDesign_zynq_ultra_ps_e_0_0_pl_clk0",
-                    "value_src": "default_prop"
-                  }
-                },
-                "port_maps": {
-                  "TDATA": {
-                    "physical_name": "m_axis_meter_tdata",
-                    "direction": "O",
-                    "left": "31",
-                    "right": "0"
-                  },
-                  "TKEEP": {
-                    "physical_name": "m_axis_meter_tkeep",
-                    "direction": "O",
-                    "left": "3",
-                    "right": "0"
-                  },
-                  "TLAST": {
-                    "physical_name": "m_axis_meter_tlast",
-                    "direction": "O"
-                  },
-                  "TVALID": {
-                    "physical_name": "m_axis_meter_tvalid",
-                    "direction": "O"
-                  },
-                  "TREADY": {
-                    "physical_name": "m_axis_meter_tready",
-                    "direction": "I"
-                  }
-                }
-              },
-              "s_axi_capture": {
+              "S_AXI_CAPTURE": {
                 "mode": "Slave",
                 "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
                 "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
                 "parameters": {
-                  "DATA_WIDTH": {
-                    "value": "32",
-                    "value_src": "constant"
-                  },
                   "PROTOCOL": {
                     "value": "AXI4LITE",
                     "value_src": "constant"
                   },
-                  "FREQ_HZ": {
-                    "value": "99999001",
-                    "value_src": "user_prop"
+                  "DATA_WIDTH": {
+                    "value": "32",
+                    "value_src": "constant"
+                  },
+                  "ADDR_WIDTH": {
+                    "value": "8",
+                    "value_src": "constant"
                   },
                   "ID_WIDTH": {
                     "value": "0",
                     "value_src": "constant"
                   },
-                  "ADDR_WIDTH": {
-                    "value": "8",
+                  "READ_WRITE_MODE": {
+                    "value": "READ_WRITE",
+                    "value_src": "constant"
+                  },
+                  "FREQ_HZ": {
+                    "value": "99999001",
                     "value_src": "constant"
                   },
                   "AWUSER_WIDTH": {
@@ -2735,10 +2666,6 @@
                   },
                   "BUSER_WIDTH": {
                     "value": "0",
-                    "value_src": "constant"
-                  },
-                  "READ_WRITE_MODE": {
-                    "value": "READ_WRITE",
                     "value_src": "constant"
                   },
                   "HAS_BURST": {
@@ -2814,7 +2741,7 @@
                     "value_src": "user_prop"
                   }
                 },
-                "memory_map_ref": "s_axi_capture",
+                "memory_map_ref": "S_AXI_CAPTURE",
                 "port_maps": {
                   "AWADDR": {
                     "physical_name": "s_axi_capture_awaddr",
@@ -2900,29 +2827,33 @@
                   }
                 }
               },
-              "s_axi_conversion": {
+              "S_AXI_CONVERSION": {
                 "mode": "Slave",
                 "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
                 "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
                 "parameters": {
-                  "DATA_WIDTH": {
-                    "value": "32",
-                    "value_src": "constant"
-                  },
                   "PROTOCOL": {
                     "value": "AXI4LITE",
                     "value_src": "constant"
                   },
-                  "FREQ_HZ": {
-                    "value": "99999001",
-                    "value_src": "user_prop"
+                  "DATA_WIDTH": {
+                    "value": "32",
+                    "value_src": "constant"
+                  },
+                  "ADDR_WIDTH": {
+                    "value": "8",
+                    "value_src": "constant"
                   },
                   "ID_WIDTH": {
                     "value": "0",
                     "value_src": "constant"
                   },
-                  "ADDR_WIDTH": {
-                    "value": "8",
+                  "READ_WRITE_MODE": {
+                    "value": "READ_WRITE",
+                    "value_src": "constant"
+                  },
+                  "FREQ_HZ": {
+                    "value": "99999001",
                     "value_src": "constant"
                   },
                   "AWUSER_WIDTH": {
@@ -2943,10 +2874,6 @@
                   },
                   "BUSER_WIDTH": {
                     "value": "0",
-                    "value_src": "constant"
-                  },
-                  "READ_WRITE_MODE": {
-                    "value": "READ_WRITE",
                     "value_src": "constant"
                   },
                   "HAS_BURST": {
@@ -3022,7 +2949,7 @@
                     "value_src": "user_prop"
                   }
                 },
-                "memory_map_ref": "s_axi_conversion",
+                "memory_map_ref": "S_AXI_CONVERSION",
                 "port_maps": {
                   "AWADDR": {
                     "physical_name": "s_axi_conversion_awaddr",
@@ -3108,29 +3035,33 @@
                   }
                 }
               },
-              "s_axi_processing": {
+              "S_AXI_PROCESSING": {
                 "mode": "Slave",
                 "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
                 "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
                 "parameters": {
-                  "DATA_WIDTH": {
-                    "value": "32",
-                    "value_src": "constant"
-                  },
                   "PROTOCOL": {
                     "value": "AXI4LITE",
                     "value_src": "constant"
                   },
-                  "FREQ_HZ": {
-                    "value": "99999001",
-                    "value_src": "user_prop"
+                  "DATA_WIDTH": {
+                    "value": "32",
+                    "value_src": "constant"
+                  },
+                  "ADDR_WIDTH": {
+                    "value": "8",
+                    "value_src": "constant"
                   },
                   "ID_WIDTH": {
                     "value": "0",
                     "value_src": "constant"
                   },
-                  "ADDR_WIDTH": {
-                    "value": "8",
+                  "READ_WRITE_MODE": {
+                    "value": "READ_WRITE",
+                    "value_src": "constant"
+                  },
+                  "FREQ_HZ": {
+                    "value": "99999001",
                     "value_src": "constant"
                   },
                   "AWUSER_WIDTH": {
@@ -3151,10 +3082,6 @@
                   },
                   "BUSER_WIDTH": {
                     "value": "0",
-                    "value_src": "constant"
-                  },
-                  "READ_WRITE_MODE": {
-                    "value": "READ_WRITE",
                     "value_src": "constant"
                   },
                   "HAS_BURST": {
@@ -3230,7 +3157,7 @@
                     "value_src": "user_prop"
                   }
                 },
-                "memory_map_ref": "s_axi_processing",
+                "memory_map_ref": "S_AXI_PROCESSING",
                 "port_maps": {
                   "AWADDR": {
                     "physical_name": "s_axi_processing_awaddr",
@@ -3315,6 +3242,79 @@
                     "direction": "I"
                   }
                 }
+              },
+              "M_AXIS_METER": {
+                "mode": "Master",
+                "vlnv_bus_definition": "xilinx.com:interface:axis:1.0",
+                "vlnv": "xilinx.com:interface:axis_rtl:1.0",
+                "parameters": {
+                  "TDATA_NUM_BYTES": {
+                    "value": "4",
+                    "value_src": "constant"
+                  },
+                  "TUSER_WIDTH": {
+                    "value": "0",
+                    "value_src": "constant"
+                  },
+                  "HAS_TREADY": {
+                    "value": "1",
+                    "value_src": "constant"
+                  },
+                  "HAS_TKEEP": {
+                    "value": "1",
+                    "value_src": "constant"
+                  },
+                  "HAS_TLAST": {
+                    "value": "1",
+                    "value_src": "constant"
+                  },
+                  "TDEST_WIDTH": {
+                    "value": "0",
+                    "value_src": "constant"
+                  },
+                  "TID_WIDTH": {
+                    "value": "0",
+                    "value_src": "constant"
+                  },
+                  "HAS_TSTRB": {
+                    "value": "0",
+                    "value_src": "constant"
+                  },
+                  "FREQ_HZ": {
+                    "value": "99999001",
+                    "value_src": "constant"
+                  },
+                  "CLK_DOMAIN": {
+                    "value": "TopDesign_zynq_ultra_ps_e_0_0_pl_clk0",
+                    "value_src": "default_prop"
+                  }
+                },
+                "port_maps": {
+                  "TDATA": {
+                    "physical_name": "m_axis_meter_tdata",
+                    "direction": "O",
+                    "left": "31",
+                    "right": "0"
+                  },
+                  "TKEEP": {
+                    "physical_name": "m_axis_meter_tkeep",
+                    "direction": "O",
+                    "left": "3",
+                    "right": "0"
+                  },
+                  "TLAST": {
+                    "physical_name": "m_axis_meter_tlast",
+                    "direction": "O"
+                  },
+                  "TVALID": {
+                    "physical_name": "m_axis_meter_tvalid",
+                    "direction": "O"
+                  },
+                  "TREADY": {
+                    "physical_name": "m_axis_meter_tready",
+                    "direction": "I"
+                  }
+                }
               }
             },
             "ports": {
@@ -3323,16 +3323,16 @@
                 "direction": "I",
                 "parameters": {
                   "ASSOCIATED_BUSIF": {
-                    "value": "m_axis_meter:s_axi_capture:s_axi_conversion:s_axi_processing",
+                    "value": "S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:M_AXIS_METER",
+                    "value_src": "constant"
+                  },
+                  "FREQ_HZ": {
+                    "value": "99999001",
                     "value_src": "constant"
                   },
                   "ASSOCIATED_RESET": {
                     "value": "aresetn",
                     "value_src": "constant"
-                  },
-                  "FREQ_HZ": {
-                    "value": "99999001",
-                    "value_src": "user_prop"
                   },
                   "CLK_DOMAIN": {
                     "value": "TopDesign_zynq_ultra_ps_e_0_0_pl_clk0",
@@ -3351,15 +3351,12 @@
                 }
               },
               "adc_dclk": {
+                "type": "clk",
                 "direction": "I",
                 "parameters": {
                   "FREQ_HZ": {
                     "value": "8192000",
-                    "value_src": "user_prop"
-                  },
-                  "PHASE": {
-                    "value": "0.0",
-                    "value_src": "default_prop"
+                    "value_src": "constant"
                   },
                   "CLK_DOMAIN": {
                     "value": "TopDesign_ADC_DCLK",
@@ -3391,7 +3388,7 @@
           "MeterCore_Wrapper_0_m_axis_meter": {
             "interface_ports": [
               "m_axis_meter",
-              "MeterCore_Wrapper/m_axis_meter"
+              "MeterCore_Wrapper/M_AXIS_METER"
             ]
           },
           "axi_quad_spi_0_SPI_0": {
@@ -3409,19 +3406,19 @@
           "smartconnect_0_M03_AXI": {
             "interface_ports": [
               "s_axi_conversion",
-              "MeterCore_Wrapper/s_axi_conversion"
+              "MeterCore_Wrapper/S_AXI_CONVERSION"
             ]
           },
           "smartconnect_0_M04_AXI": {
             "interface_ports": [
               "s_axi_capture",
-              "MeterCore_Wrapper/s_axi_capture"
+              "MeterCore_Wrapper/S_AXI_CAPTURE"
             ]
           },
           "smartconnect_0_M05_AXI": {
             "interface_ports": [
               "s_axi_processing",
-              "MeterCore_Wrapper/s_axi_processing"
+              "MeterCore_Wrapper/S_AXI_PROCESSING"
             ]
           }
         },
@@ -3465,16 +3462,16 @@
           "proc_sys_reset_0_peripheral_aresetn": {
             "ports": [
               "aresetn",
-              "MeterCore_Wrapper/aresetn",
-              "ADC_SPI/s_axi_aresetn"
+              "ADC_SPI/s_axi_aresetn",
+              "MeterCore_Wrapper/aresetn"
             ]
           },
           "zynq_ultra_ps_e_0_pl_clk0": {
             "ports": [
               "aclk",
-              "MeterCore_Wrapper/aclk",
               "ADC_SPI/s_axi_aclk",
-              "ADC_SPI/ext_spi_clk"
+              "ADC_SPI/ext_spi_clk",
+              "MeterCore_Wrapper/aclk"
             ]
           }
         }
@@ -3650,17 +3647,17 @@
           "Data": {
             "segments": {
               "SEG_MeterCore_Wrapper_0_reg0": {
-                "address_block": "/MeterLogic/MeterCore_Wrapper/s_axi_capture/reg0",
+                "address_block": "/MeterLogic/MeterCore_Wrapper/S_AXI_CAPTURE/reg0",
                 "offset": "0x00B0020000",
                 "range": "64K"
               },
               "SEG_MeterCore_Wrapper_0_reg0_1": {
-                "address_block": "/MeterLogic/MeterCore_Wrapper/s_axi_conversion/reg0",
+                "address_block": "/MeterLogic/MeterCore_Wrapper/S_AXI_CONVERSION/reg0",
                 "offset": "0x00B0040000",
                 "range": "64K"
               },
               "SEG_MeterCore_Wrapper_0_reg0_2": {
-                "address_block": "/MeterLogic/MeterCore_Wrapper/s_axi_processing/reg0",
+                "address_block": "/MeterLogic/MeterCore_Wrapper/S_AXI_PROCESSING/reg0",
                 "offset": "0x00B0050000",
                 "range": "64K"
               },

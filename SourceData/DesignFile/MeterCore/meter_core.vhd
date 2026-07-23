@@ -109,8 +109,7 @@ architecture structural of meter_core is
   signal converted_source : converted_stream_t;
   signal converted_fifo   : converted_stream_t;
   signal engine_valid     : std_logic;
-  signal voltage_ready    : std_logic;
-  signal current_ready    : std_logic;
+  signal engine_ready     : std_logic;
 
   signal capture_frame_count : std_logic_vector(31 downto 0);
   signal capture_overflows   : std_logic_vector(31 downto 0);
@@ -133,8 +132,7 @@ architecture structural of meter_core is
   signal result_sample_rate: std_logic_vector(31 downto 0);
   signal result_window     : std_logic_vector(31 downto 0);
   signal result_status     : std_logic_vector(31 downto 0);
-  signal voltage_result    : result_bundle_t;
-  signal current_result    : result_bundle_t;
+  signal meter_result      : result_bundle_t;
   signal result_drop_count : std_logic_vector(31 downto 0);
 
   signal record_data          : std_logic_vector(2047 downto 0);
@@ -274,9 +272,9 @@ begin
       dbiterr_axis => open
     );
 
-  -- Every branch observes each accepted frame exactly once. No calculation
-  -- branch is allowed to apply backpressure independently to capture.
-  converted_fifo.ready <= voltage_ready and current_ready;
+  -- The unified engine calculates all configured current and voltage
+  -- channels from one coherent window.
+  converted_fifo.ready <= engine_ready;
   engine_valid <= converted_fifo.valid and converted_fifo.ready;
 
   processing_registers : entity work.meter_processing_axi_regs
@@ -314,7 +312,12 @@ begin
       status_i => processing_status
     );
 
-  voltage_engine : entity work.voltage_rms
+  rms_engine : entity work.meter_rms
+    generic map (
+      G_FIRST_CHANNEL => 0,
+      G_CHANNEL_COUNT => 7,
+      G_RESULT_MASK => x"7F"
+    )
     port map (
       aclk => aclk,
       aresetn => aresetn,
@@ -322,7 +325,7 @@ begin
       s_axis_tkeep => converted_fifo.keep,
       s_axis_tuser => converted_fifo.user,
       s_axis_tvalid => engine_valid,
-      s_axis_tready => voltage_ready,
+      s_axis_tready => engine_ready,
       s_axis_tlast => converted_fifo.last,
       config_generation_i => shadow_generation,
       config_sample_rate_i => shadow_sample_rate,
@@ -338,28 +341,12 @@ begin
       result_generation_o => result_generation,
       result_sample_rate_o => result_sample_rate,
       result_window_samples_o => result_window,
-      result_valid_mask_o => voltage_result.valid_mask,
+      result_valid_mask_o => meter_result.valid_mask,
       result_status_o => result_status,
-      result_mean_q16_o => voltage_result.mean_q16,
-      result_rms_q16_o => voltage_result.rms_q16,
-      result_rms_count_o => voltage_result.rms_count,
+      result_mean_q16_o => meter_result.mean_q16,
+      result_rms_q16_o => meter_result.rms_q16,
+      result_rms_count_o => meter_result.rms_count,
       result_drop_count_o => result_drop_count
-    );
-
-  current_engine : entity work.CurrentRms_Wrapper
-    port map (
-      aclk => aclk,
-      aresetn => aresetn,
-      s_axis_converted_tdata => converted_fifo.data,
-      s_axis_converted_tkeep => converted_fifo.keep,
-      s_axis_converted_tuser => converted_fifo.user,
-      s_axis_converted_tvalid => engine_valid,
-      s_axis_converted_tready => current_ready,
-      s_axis_converted_tlast => converted_fifo.last,
-      current_valid_mask_o => current_result.valid_mask,
-      current_mean_q16_o => current_result.mean_q16,
-      current_rms_q16_o => current_result.rms_q16,
-      current_rms_count_o => current_result.rms_count
     );
 
   result_hub : entity work.MeterResultHub_Wrapper
@@ -371,15 +358,15 @@ begin
       config_generation_i => result_generation,
       sample_rate_i => result_sample_rate,
       window_samples_i => result_window,
-      voltage_valid_mask_i => voltage_result.valid_mask,
+      voltage_valid_mask_i => meter_result.valid_mask and x"F0",
       result_status_i => result_status,
-      voltage_mean_q16_i => voltage_result.mean_q16,
-      voltage_rms_q16_i => voltage_result.rms_q16,
-      voltage_rms_count_i => voltage_result.rms_count,
-      current_valid_mask_i => current_result.valid_mask,
-      current_mean_q16_i => current_result.mean_q16,
-      current_rms_q16_i => current_result.rms_q16,
-      current_rms_count_i => current_result.rms_count,
+      voltage_mean_q16_i => meter_result.mean_q16,
+      voltage_rms_q16_i => meter_result.rms_q16,
+      voltage_rms_count_i => meter_result.rms_count,
+      current_valid_mask_i => meter_result.valid_mask and x"0F",
+      current_mean_q16_i => meter_result.mean_q16,
+      current_rms_q16_i => meter_result.rms_q16,
+      current_rms_count_i => meter_result.rms_count,
       capture_frame_count_i => capture_frame_count,
       capture_header_errors_i => capture_headers,
       capture_overflows_i => capture_overflows,

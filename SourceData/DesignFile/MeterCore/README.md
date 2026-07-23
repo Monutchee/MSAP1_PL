@@ -9,7 +9,7 @@ The standalone hierarchy is:
 
 ```text
 AD7771 capture -> ADC conversion -> 16-frame XPM AXI4-Stream FIFO
-               -> voltage RMS + current stub
+               -> unified current/voltage RMS
                -> result hub -> MTR1 packetizer
 ```
 

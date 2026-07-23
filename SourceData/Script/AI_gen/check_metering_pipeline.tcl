@@ -26,13 +26,12 @@ set common_vhdl [list \
   [file join $design_root AdcConversion adc_conversion_axi_regs.vhd] \
   [file join $design_root AdcConversion adc_conversion.vhd] \
   [file join $design_root MeterProcessing meter_processing_axi_regs.vhd] \
-  [file join $design_root MeterProcessing voltage_rms.vhd] \
+  [file join $design_root MeterProcessing meter_rms.vhd] \
   [file join $design_root MeterProcessing MeterResultHub_Wrapper.vhd] \
   [file join $design_root MeterProcessing MeterPacketizer_Wrapper.vhd]]
 
 set wrapper_vhdl [list \
   [file join $design_root AdcConversion AdcConversion_Wrapper.vhd] \
-  [file join $design_root MeterProcessing CurrentRms_Wrapper.vhd] \
   [file join $design_root MeterProcessing VoltageRms_Wrapper.vhd]]
 
 proc run_test {work_root test_name common_vhdl wrapper_vhdl testbench xvhdl xvlog xelab simulator_libraries} {
