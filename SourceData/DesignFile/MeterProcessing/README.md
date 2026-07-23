@@ -1,29 +1,28 @@
 # Meter processing stage
 
-The first meter-processing milestone computes mean-corrected block RMS for
-AD7771 channels 4 (VLC), 5 (VLB), and 6 (VLA). The default window is 6,400
-frames, which is exactly 200 ms at 32 kSPS. Calculation uses
+The meter-processing stage computes block RMS for current channels 0 through 3
+and voltage channels 4 through 6 from one coherent converted-sample window.
+The default window is 6,400 frames, which is exactly 200 ms at 32 kSPS.
+Mean-corrected AC RMS uses
 
 ```text
 sqrt((N * sum(x^2) - sum(x)^2) / N^2)
 ```
 
 with 128-bit accumulators and multi-cycle unsigned division and integer square
-root. Accumulation of the next window continues while the previous snapshot is
-evaluated. The current branch continuously consumes its broadcast stream but
-reports channels 0 through 3 as zero and invalid.
+root. Zero-referenced total RMS uses `sqrt(sum(x^2) / N)`. Accumulation of the
+next window continues while the previous snapshot is evaluated.
 
 ## Module references
 
-- `VoltageRms_Wrapper`: AXI4-Stream consumer and AXI-Lite configuration owner.
-- `CurrentRms_Wrapper`: non-stalling zero/invalid milestone stub.
+- `meter_rms`: reusable VHDL-2008 engine parameterized by first channel,
+  channel count, and result mask.
+- `VoltageRms_Wrapper`: compatibility AXI4-Stream/AXI-Lite boundary using the
+  voltage-only default generics.
 - `MeterResultHub_Wrapper`: caches the newest coherent result and builds a
   fixed 256-byte record.
 - `MeterPacketizer_Wrapper`: two-record latest-wins buffer and 32-bit AXI4-
   Stream packetizer. `TLAST` is asserted only on word 63.
-
-Configure the AXI4-Stream Broadcaster for one input, two outputs, 512-bit
-`TDATA`, 384-bit `TUSER`, `TKEEP`, and `TLAST`.
 
 ## MeterProcessing AXI-Lite registers
 
@@ -54,6 +53,6 @@ Words 16 through 55 contain five words per channel: signed mean micro-units,
 unsigned raw ADC RMS counts, and signed 64-bit RMS micro-units. Remaining
 words are reserved for frequency, power, energy, demand, and PQ records.
 
-The four synchronized capture counters are scalar inputs to
-`MeterResultHub_Wrapper`. In `TopDesign.bd`, connect them to the corresponding
-outputs added to `Ad7771Capture_Wrapper` through `AdcSubSystem.bd`.
+The synchronized capture counters are internal MeterCore signals connecting
+the capture entity directly to `MeterResultHub_Wrapper`; they do not cross the
+single `MeterCore_Wrapper` module-reference boundary in `TopDesign.bd`.

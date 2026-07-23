@@ -75,14 +75,16 @@ entity MeterCore_Wrapper is
     adc_start_n    : out std_logic;
     adc_convst_sar : out std_logic
   );
+end entity MeterCore_Wrapper;
 
+architecture structural of MeterCore_Wrapper is
   attribute X_INTERFACE_INFO : string;
   attribute X_INTERFACE_PARAMETER : string;
 
   attribute X_INTERFACE_INFO of aclk : signal is
     "xilinx.com:signal:clock:1.0 aclk CLK";
   attribute X_INTERFACE_PARAMETER of aclk : signal is
-    "XIL_INTERFACENAME aclk, ASSOCIATED_BUSIF S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:M_AXIS_METER, ASSOCIATED_RESET aresetn, FREQ_HZ 99999001";
+    "XIL_INTERFACENAME aclk, FREQ_HZ 99999001, ASSOCIATED_RESET aresetn, ASSOCIATED_BUSIF S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:M_AXIS_METER";
   attribute X_INTERFACE_INFO of aresetn : signal is
     "xilinx.com:signal:reset:1.0 aresetn RST";
   attribute X_INTERFACE_PARAMETER of aresetn : signal is
@@ -160,9 +162,6 @@ entity MeterCore_Wrapper is
   attribute X_INTERFACE_INFO of m_axis_meter_tvalid : signal is "xilinx.com:interface:axis:1.0 M_AXIS_METER TVALID";
   attribute X_INTERFACE_INFO of m_axis_meter_tready : signal is "xilinx.com:interface:axis:1.0 M_AXIS_METER TREADY";
   attribute X_INTERFACE_INFO of m_axis_meter_tlast : signal is "xilinx.com:interface:axis:1.0 M_AXIS_METER TLAST";
-end entity;
-
-architecture structural of MeterCore_Wrapper is
 begin
   implementation : entity work.meter_core
     port map (

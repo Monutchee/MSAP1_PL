@@ -7,7 +7,6 @@ set top_name [lindex $argv 0]
 set allowed_tops [list \
   AdcConversion_Wrapper \
   VoltageRms_Wrapper \
-  CurrentRms_Wrapper \
   MeterResultHub_Wrapper \
   MeterPacketizer_Wrapper \
   MeterCore_Wrapper]
@@ -30,11 +29,10 @@ read_vhdl -vhdl2008 [file join $design_root Ad7771Capture ad7771_capture.vhd]
 read_vhdl -vhdl2008 [file join $design_root AdcConversion adc_conversion_axi_regs.vhd]
 read_vhdl -vhdl2008 [file join $design_root AdcConversion adc_conversion.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_processing_axi_regs.vhd]
-read_vhdl -vhdl2008 [file join $design_root MeterProcessing voltage_rms.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_rms.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing MeterResultHub_Wrapper.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing MeterPacketizer_Wrapper.vhd]
 read_vhdl [file join $design_root AdcConversion AdcConversion_Wrapper.vhd]
-read_vhdl [file join $design_root MeterProcessing CurrentRms_Wrapper.vhd]
 read_vhdl [file join $design_root MeterProcessing VoltageRms_Wrapper.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore meter_core.vhd]
 read_vhdl [file join $design_root MeterCore MeterCore_Wrapper.vhd]

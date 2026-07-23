@@ -5,7 +5,12 @@ use ieee.numeric_std.all;
 library work;
 use work.metering_pkg.all;
 
-entity voltage_rms is
+entity meter_rms is
+  generic (
+    G_FIRST_CHANNEL : natural := 4;
+    G_CHANNEL_COUNT : positive := 3;
+    G_RESULT_MASK   : std_logic_vector(7 downto 0) := x"70"
+  );
   port (
     aclk                    : in  std_logic;
     aresetn                 : in  std_logic;
@@ -40,7 +45,7 @@ entity voltage_rms is
   );
 end entity;
 
-architecture rtl of voltage_rms is
+architecture rtl of meter_rms is
   type calc_state_t is (
     CALC_IDLE,
     CALC_PREPARE_MEAN,
@@ -51,10 +56,14 @@ architecture rtl of voltage_rms is
     CALC_SQRT_MULTIPLY,
     CALC_SQRT_COMPARE
   );
-  type signed128_array_t is array (0 to 2) of signed(127 downto 0);
-  type unsigned128_array_t is array (0 to 2) of unsigned(127 downto 0);
-  type signed64_array3_t is array (0 to 2) of signed(63 downto 0);
-  type unsigned96_array3_t is array (0 to 2) of unsigned(95 downto 0);
+  type signed128_array_t is array (0 to G_CHANNEL_COUNT - 1) of
+    signed(127 downto 0);
+  type unsigned128_array_t is array (0 to G_CHANNEL_COUNT - 1) of
+    unsigned(127 downto 0);
+  type signed64_array_t is array (0 to G_CHANNEL_COUNT - 1) of
+    signed(63 downto 0);
+  type unsigned96_array_t is array (0 to G_CHANNEL_COUNT - 1) of
+    unsigned(95 downto 0);
 
   signal active_generation     : word32_t := (others => '0');
   signal active_sample_rate    : word32_t := std_logic_vector(to_unsigned(32000, 32));
@@ -66,12 +75,12 @@ architecture rtl of voltage_rms is
 
   signal accumulator_sum       : signed128_array_t := (others => (others => '0'));
   signal accumulator_square    : unsigned128_array_t := (others => (others => '0'));
-  signal raw_accumulator_sum   : signed64_array3_t := (others => (others => '0'));
-  signal raw_accumulator_square: unsigned96_array3_t := (others => (others => '0'));
+  signal raw_accumulator_sum   : signed64_array_t := (others => (others => '0'));
+  signal raw_accumulator_square: unsigned96_array_t := (others => (others => '0'));
   signal snapshot_sum          : signed128_array_t := (others => (others => '0'));
   signal snapshot_square       : unsigned128_array_t := (others => (others => '0'));
-  signal raw_snapshot_sum      : signed64_array3_t := (others => (others => '0'));
-  signal raw_snapshot_square   : unsigned96_array3_t := (others => (others => '0'));
+  signal raw_snapshot_sum      : signed64_array_t := (others => (others => '0'));
+  signal raw_snapshot_square   : unsigned96_array_t := (others => (others => '0'));
   signal sample_count          : unsigned(31 downto 0) := (others => '0');
   signal snapshot_generation   : word32_t := (others => '0');
   signal snapshot_sample_rate  : word32_t := (others => '0');
@@ -80,7 +89,7 @@ architecture rtl of voltage_rms is
   signal snapshot_dc_remove    : std_logic := '1';
 
   signal calc_state            : calc_state_t := CALC_IDLE;
-  signal calc_channel          : natural range 0 to 2 := 0;
+  signal calc_channel          : natural range 0 to G_CHANNEL_COUNT - 1 := 0;
   signal calc_raw_mode         : std_logic := '0';
   signal divider_dividend      : unsigned(127 downto 0) := (others => '0');
   signal divider_divisor       : unsigned(127 downto 0) := (others => '0');
@@ -114,6 +123,10 @@ architecture rtl of voltage_rms is
   signal calculation_busy      : std_logic;
   signal configuration_pending : std_logic;
 begin
+  assert G_FIRST_CHANNEL + G_CHANNEL_COUNT <= 8
+    report "meter_rms channel range exceeds the eight-channel frame"
+    severity failure;
+
   -- The broadcaster branches must never be able to stop the sampling stream.
   s_axis_tready <= '1';
   active_generation_o <= active_generation;
@@ -147,8 +160,8 @@ begin
     variable square_next       : unsigned128_array_t;
     variable raw_sample_value  : signed(31 downto 0);
     variable raw_square_value  : unsigned(63 downto 0);
-    variable raw_sum_next      : signed64_array3_t;
-    variable raw_square_next   : unsigned96_array3_t;
+    variable raw_sum_next      : signed64_array_t;
+    variable raw_square_next   : unsigned96_array_t;
     variable square_extended   : unsigned(128 downto 0);
     variable window_value      : unsigned(31 downto 0);
     variable absolute_sum      : unsigned(127 downto 0);
@@ -218,29 +231,30 @@ begin
             square_next := accumulator_square;
             raw_sum_next := raw_accumulator_sum;
             raw_square_next := raw_accumulator_square;
-            for voltage_index in 0 to 2 loop
+            for rms_index in 0 to G_CHANNEL_COUNT - 1 loop
               sample_value := signed(
-                s_axis_tdata(((voltage_index + 4) * 64) + 63 downto
-                             (voltage_index + 4) * 64));
-              sum_next(voltage_index) :=
-                accumulator_sum(voltage_index) + resize(sample_value, 128);
+                s_axis_tdata(((rms_index + G_FIRST_CHANNEL) * 64) + 63
+                             downto
+                             (rms_index + G_FIRST_CHANNEL) * 64));
+              sum_next(rms_index) :=
+                accumulator_sum(rms_index) + resize(sample_value, 128);
               square_value := unsigned(sample_value * sample_value);
-              square_extended := ('0' & accumulator_square(voltage_index)) +
+              square_extended := ('0' & accumulator_square(rms_index)) +
                                  ('0' & square_value);
               if square_extended(128) = '1' then
-                square_next(voltage_index) := (others => '1');
+                square_next(rms_index) := (others => '1');
                 arithmetic_overflow <= '1';
               else
-                square_next(voltage_index) := square_extended(127 downto 0);
+                square_next(rms_index) := square_extended(127 downto 0);
               end if;
 
               raw_sample_value := signed(s_axis_tuser(
-                128 + ((voltage_index + 4) * 32) + 31 downto
-                128 + ((voltage_index + 4) * 32)));
-              raw_sum_next(voltage_index) := raw_accumulator_sum(voltage_index) +
+                128 + ((rms_index + G_FIRST_CHANNEL) * 32) + 31 downto
+                128 + ((rms_index + G_FIRST_CHANNEL) * 32)));
+              raw_sum_next(rms_index) := raw_accumulator_sum(rms_index) +
                 resize(raw_sample_value, 64);
               raw_square_value := unsigned(raw_sample_value * raw_sample_value);
-              raw_square_next(voltage_index) := raw_accumulator_square(voltage_index) +
+              raw_square_next(rms_index) := raw_accumulator_square(rms_index) +
                 resize(raw_square_value, 96);
             end loop;
 
@@ -322,7 +336,7 @@ begin
                 if mean_negative = '1' then
                   mean_value := -mean_value;
                 end if;
-                result_mean(calc_channel + 4) <= mean_value;
+                result_mean(calc_channel + G_FIRST_CHANNEL) <= mean_value;
                 calc_state <= CALC_PREPARE_VARIANCE;
               else
                 divider_bit <= divider_bit - 1;
@@ -428,19 +442,20 @@ begin
               if sqrt_iteration = 63 then
                 root_value := low_next;
                 if calc_raw_mode = '0' then
-                  result_rms(calc_channel + 4) <= signed(root_value);
+                  result_rms(calc_channel + G_FIRST_CHANNEL) <=
+                    signed(root_value);
                   calc_raw_mode <= '1';
                   calc_state <= CALC_PREPARE_VARIANCE;
                 else
-                  result_rms_count(calc_channel + 4) <=
+                  result_rms_count(calc_channel + G_FIRST_CHANNEL) <=
                     std_logic_vector(root_value(31 downto 0));
                   calc_raw_mode <= '0';
-                  if calc_channel = 2 then
+                  if calc_channel = G_CHANNEL_COUNT - 1 then
                     result_sequence <= result_sequence + 1;
                     result_generation <= snapshot_generation;
                     result_sample_rate <= snapshot_sample_rate;
                     result_window <= snapshot_window;
-                    result_mask <= snapshot_valid_mask and x"70";
+                    result_mask <= snapshot_valid_mask and G_RESULT_MASK;
                     result_status <= (31 downto 1 => '0') & arithmetic_overflow;
                     result_valid <= '1';
                     calc_state <= CALC_IDLE;

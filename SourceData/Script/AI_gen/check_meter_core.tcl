@@ -26,9 +26,8 @@ set vhdl2008_sources [list \
   [file join $design_root AdcConversion adc_conversion_axi_regs.vhd] \
   [file join $design_root AdcConversion adc_conversion.vhd] \
   [file join $design_root MeterProcessing meter_processing_axi_regs.vhd] \
-  [file join $design_root MeterProcessing voltage_rms.vhd]]
+  [file join $design_root MeterProcessing meter_rms.vhd]]
 set dependency_wrappers [list \
-  [file join $design_root MeterProcessing CurrentRms_Wrapper.vhd] \
   [file join $design_root MeterProcessing MeterResultHub_Wrapper.vhd] \
   [file join $design_root MeterProcessing MeterPacketizer_Wrapper.vhd]]
 set core_vhdl2008_sources [list \

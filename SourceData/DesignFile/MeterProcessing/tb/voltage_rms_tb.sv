@@ -32,7 +32,7 @@ module voltage_rms_tb;
 
   always #5 clock = ~clock;
 
-  voltage_rms dut (
+  meter_rms dut (
     .aclk(clock), .aresetn(resetn),
     .s_axis_tdata(sample_data), .s_axis_tkeep(sample_keep), .s_axis_tuser(sample_user),
     .s_axis_tvalid(sample_valid), .s_axis_tready(sample_ready),

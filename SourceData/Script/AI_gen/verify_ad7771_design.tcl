@@ -1,46 +1,44 @@
-# Validate the VHDL module references and regenerate the managed wrapper.
+# Refresh the maintained VHDL sources, validate TopDesign, and regenerate its
+# managed VHDL wrapper. TopDesign is the only block design; MeterCore_Wrapper
+# is the only metering module-reference boundary.
 
 set script_dir [file dirname [file normalize [info script]]]
 set repo_dir [file normalize [file join $script_dir ../../..]]
 set project_file [file join $repo_dir vivado_gen MSAP1_PL.xpr]
+set design_dir [file join $repo_dir SourceData DesignFile]
 
 open_project $project_file
-
 set_property TARGET_LANGUAGE VHDL [current_project]
 set_property SIMULATOR_LANGUAGE Mixed [current_project]
 
-# Replace the maintained SystemVerilog implementation with VHDL while keeping
-# the module-reference top name and ports unchanged. The BD therefore refreshes
-# the existing cell instead of deleting and reconnecting it.
-set rtl_dir [file join $repo_dir SourceData DesignFile Ad7771Capture]
-set heartbeat_dir [file join $repo_dir SourceData DesignFile HeatBeat_Controller]
-set meter_common_dir [file join $repo_dir SourceData DesignFile MeterCommon]
-set conversion_dir [file join $repo_dir SourceData DesignFile AdcConversion]
-set processing_dir [file join $repo_dir SourceData DesignFile MeterProcessing]
-set legacy_sources [list \
-    [file join $rtl_dir ad7771_receiver.sv] \
-    [file join $rtl_dir ad7771_axi_regs.sv] \
-    [file join $rtl_dir ad7771_capture.sv] \
-    [file join $rtl_dir Ad7771Capture_Wrapper.v] \
-    [file join $heartbeat_dir HeatBeat_Controller.sv] \
-    [file join $heartbeat_dir HeatBeat_Wrapper.v]]
-foreach legacy_source $legacy_sources {
-    set legacy_file [get_files -quiet $legacy_source]
-    if {[llength $legacy_file] != 0} {
-        remove_files $legacy_file
+set obsolete_sources [list \
+    [file join $design_dir Ad7771Capture ad7771_receiver.sv] \
+    [file join $design_dir Ad7771Capture ad7771_axi_regs.sv] \
+    [file join $design_dir Ad7771Capture ad7771_capture.sv] \
+    [file join $design_dir Ad7771Capture Ad7771Capture_Wrapper.v] \
+    [file join $design_dir HeatBeat_Controller HeatBeat_Controller.sv] \
+    [file join $design_dir HeatBeat_Controller HeatBeat_Wrapper.v] \
+    [file join $design_dir MeterCore meter_frame_fifo.vhd] \
+    [file join $design_dir MeterProcessing CurrentRms_Wrapper.vhd] \
+    [file join $design_dir MeterProcessing voltage_rms.vhd]]
+foreach obsolete_source $obsolete_sources {
+    set obsolete_file [get_files -quiet $obsolete_source]
+    if {[llength $obsolete_file] != 0} {
+        remove_files $obsolete_file
     }
 }
 
 set vhdl2008_sources [list \
-    [file join $rtl_dir ad7771_receiver.vhd] \
-    [file join $rtl_dir ad7771_axi_regs.vhd] \
-    [file join $rtl_dir ad7771_capture.vhd] \
-    [file join $heartbeat_dir HeatBeat_Controller.vhd] \
-    [file join $meter_common_dir metering_pkg.vhd] \
-    [file join $conversion_dir adc_conversion_axi_regs.vhd] \
-    [file join $conversion_dir adc_conversion.vhd] \
-    [file join $processing_dir meter_processing_axi_regs.vhd] \
-    [file join $processing_dir voltage_rms.vhd]]
+    [file join $design_dir HeatBeat_Controller HeatBeat_Controller.vhd] \
+    [file join $design_dir MeterCommon metering_pkg.vhd] \
+    [file join $design_dir Ad7771Capture ad7771_receiver.vhd] \
+    [file join $design_dir Ad7771Capture ad7771_axi_regs.vhd] \
+    [file join $design_dir Ad7771Capture ad7771_capture.vhd] \
+    [file join $design_dir AdcConversion adc_conversion_axi_regs.vhd] \
+    [file join $design_dir AdcConversion adc_conversion.vhd] \
+    [file join $design_dir MeterProcessing meter_processing_axi_regs.vhd] \
+    [file join $design_dir MeterProcessing meter_rms.vhd] \
+    [file join $design_dir MeterCore meter_core.vhd]]
 foreach vhdl_source $vhdl2008_sources {
     if {[llength [get_files -quiet $vhdl_source]] == 0} {
         add_files -norecurse $vhdl_source
@@ -49,13 +47,10 @@ foreach vhdl_source $vhdl2008_sources {
 }
 
 set module_reference_sources [list \
-    [file join $rtl_dir Ad7771Capture_Wrapper.vhd] \
-    [file join $heartbeat_dir HeatBeat_Wrapper.vhd] \
-    [file join $conversion_dir AdcConversion_Wrapper.vhd] \
-    [file join $processing_dir VoltageRms_Wrapper.vhd] \
-    [file join $processing_dir CurrentRms_Wrapper.vhd] \
-    [file join $processing_dir MeterResultHub_Wrapper.vhd] \
-    [file join $processing_dir MeterPacketizer_Wrapper.vhd]]
+    [file join $design_dir HeatBeat_Controller HeatBeat_Wrapper.vhd] \
+    [file join $design_dir MeterProcessing MeterResultHub_Wrapper.vhd] \
+    [file join $design_dir MeterProcessing MeterPacketizer_Wrapper.vhd] \
+    [file join $design_dir MeterCore MeterCore_Wrapper.vhd]]
 foreach module_reference_source $module_reference_sources {
     if {[llength [get_files -quiet $module_reference_source]] == 0} {
         add_files -norecurse $module_reference_source
@@ -64,196 +59,75 @@ foreach module_reference_source $module_reference_sources {
 }
 update_compile_order -fileset sources_1
 
-# Failed/retried BDC boundary updates can leave auto-generated filesets in the
-# project. Determine the active BDC variant from TopDesign.bxml so cleanup never
-# deletes the currently selected container merely because its numeric suffix
-# changed after a GUI remove/re-add operation.
-set top_bxml [file join $repo_dir SourceData BlockDesign TopDesign TopDesign.bxml]
-set bxml_channel [open $top_bxml r]
-set bxml_contents [read $bxml_channel]
-close $bxml_channel
-set active_bdc_filesets {}
-foreach fileset_match [regexp -all -inline {BDFileset="[^"]+"} $bxml_contents] {
-    if {[regexp {BDFileset="([^"]+)"} $fileset_match -> active_name]} {
-        lappend active_bdc_filesets $active_name
-    }
-}
-
-foreach bdc_prefix {AdcSubSystem AdcConversion MeterProcessing} {
-    foreach stale_fileset [get_filesets -quiet ${bdc_prefix}_inst_*] {
-        set stale_name [get_property NAME $stale_fileset]
-        if {[lsearch -exact $active_bdc_filesets $stale_name] >= 0} {
-            continue
-        }
-        delete_fileset $stale_fileset
-    }
-}
-
-# Persist the fileset cleanup before opening/generating any BD. If Vivado
-# encounters an output-product problem later, the stale reference must not be
-# resurrected in the next synthesis launch.
-close_project
-open_project $project_file
-
-# Refresh the existing heartbeat module-reference cell in place. Its entity
-# name is unchanged; connect the new clock and reset pins to the StatusSignal
-# AXI clock domain if the GUI has not already done so.
-open_bd_design [get_files StatusSignal.bd]
-current_bd_design StatusSignal
-set heartbeat_cell [get_bd_cells -quiet HeatBeat_Wrapper_0]
-if {[llength $heartbeat_cell] != 0} {
-    set heartbeat_ip [get_ips -quiet StatusSignal_HeatBeat_Wrapper_0_*]
-    if {[llength $heartbeat_ip] != 1} {
-        error "Expected one active heartbeat module-reference IP object, found [llength $heartbeat_ip]"
-    }
-    update_module_reference $heartbeat_ip
-
-    set heartbeat_clk_pin [get_bd_pins -quiet HeatBeat_Wrapper_0/clk]
-    set heartbeat_reset_pin [get_bd_pins -quiet HeatBeat_Wrapper_0/reset_n]
-    set status_clk_port [get_bd_ports -quiet s_axi_aclk_0]
-    set status_reset_port [get_bd_ports -quiet s_axi_aresetn_0]
-    if {[llength $heartbeat_clk_pin] != 1 ||
-        [llength $heartbeat_reset_pin] != 1 ||
-        [llength $status_clk_port] != 1 ||
-        [llength $status_reset_port] != 1} {
-        error "Heartbeat clock/reset pins or StatusSignal clock/reset ports were not found"
-    }
-
-    if {[llength [get_bd_nets -quiet -of_objects $heartbeat_clk_pin]] == 0} {
-        connect_bd_net $status_clk_port $heartbeat_clk_pin
-    }
-    if {[llength [get_bd_nets -quiet -of_objects $heartbeat_reset_pin]] == 0} {
-        connect_bd_net $status_reset_port $heartbeat_reset_pin
-    }
-}
-validate_bd_design
-save_bd_design
-
-# The ADC module-reference wrapper does not carry packaged-IP address metadata.
-# Maintain its child and parent address assignments explicitly.
-open_bd_design [get_files AdcSubSystem.bd]
-current_bd_design AdcSubSystem
-set capture_cell [get_bd_cells -quiet Ad7771Capture_Wrapper_0]
-if {[llength $capture_cell] != 0} {
-    set capture_ip [get_ips -quiet AdcSubSystem_Ad7771Capture_Wrapper_0_0]
-    if {[llength $capture_ip] == 0} {
-        error "AD7771 module-reference IP object was not found"
-    }
-    update_module_reference $capture_ip
-}
-set_property CONFIG.FREQ_HZ 99999001 [get_bd_ports s_axi_aclk]
-set capture_segment [get_bd_addr_segs -quiet \
-    Ad7771Capture_Wrapper_0/S_AXI/reg0]
-if {[llength $capture_segment] == 0} {
-    error "AD7771 module-reference AXI register segment was not found"
-}
-assign_bd_address -offset 0x44A10000 -range 4K \
-    -target_address_space [get_bd_addr_spaces S00_AXI_0] \
-    $capture_segment -force
-validate_bd_design
-save_bd_design
-
-# Refresh and validate both software-configured metering containers. The
-# maintained entity names keep all existing GUI connections intact.
-open_bd_design [get_files AdcConversion.bd]
-current_bd_design AdcConversion
-set conversion_ip [get_ips -quiet AdcConversion_AdcConversion_Wrapper_0_0]
-if {[llength $conversion_ip] != 1} {
-    error "Expected one ADC conversion module-reference IP object, found [llength $conversion_ip]"
-}
-update_module_reference $conversion_ip
-set conversion_clk_port [get_bd_ports -quiet s_axis_aclk_0]
-set conversion_reset_port [get_bd_ports -quiet s_axis_aresetn_0]
-if {[llength $conversion_clk_port] != 1 ||
-    [llength $conversion_reset_port] != 1} {
-    error "AdcConversion external clock/reset ports were not found"
-}
-set_property CONFIG.FREQ_HZ 99999001 $conversion_clk_port
-set_property CONFIG.ASSOCIATED_RESET s_axis_aresetn_0 $conversion_clk_port
-validate_bd_design
-save_bd_design
-
-open_bd_design [get_files MeterProcessing.bd]
-current_bd_design MeterProcessing
-foreach module_ip_pattern {\
-    MeterProcessing_VoltageRms_Wrapper_0_0 \
-    MeterProcessing_CurrentRms_Wrapper_0_0 \
-    MeterProcessing_MeterResultHub* \
-    MeterProcessing_MeterPacketizer*} {
-    set module_ip [get_ips -quiet $module_ip_pattern]
-    if {[llength $module_ip] != 1} {
-        error "Expected one metering module-reference for $module_ip_pattern, found [llength $module_ip]"
-    }
-    update_module_reference $module_ip
-}
-set processing_clk_port [get_bd_ports -quiet aclk_0]
-set processing_reset_port [get_bd_ports -quiet aresetn_0]
-if {[llength $processing_clk_port] != 1 ||
-    [llength $processing_reset_port] != 1} {
-    error "MeterProcessing external clock/reset ports were not found"
-}
-set_property CONFIG.FREQ_HZ 99999001 $processing_clk_port
-set_property CONFIG.ASSOCIATED_RESET aresetn_0 $processing_clk_port
-validate_bd_design
-save_bd_design
-
 open_bd_design [get_files TopDesign.bd]
 current_bd_design TopDesign
-set top_capture_segment [get_bd_addr_segs -quiet \
-    AdcSubSystem_0/Ad7771Capture_Wrapper_0/S_AXI/reg0]
-if {[llength $top_capture_segment] == 0} {
-    error "TopDesign AD7771 AXI register segment was not found"
-}
-assign_bd_address -offset 0xB0020000 -range 4K \
-    -target_address_space [get_bd_addr_spaces zynq_ultra_ps_e_0/Data] \
-    $top_capture_segment -force
 
-set top_conversion_segment [get_bd_addr_segs -quiet \
-    AdcConversion_0/AdcConversion_Wrapper_0/S_AXI_CONFIG/reg0]
-set top_processing_segment [get_bd_addr_segs -quiet \
-    MeterProcessing_0/VoltageRms_Wrapper_0/S_AXI_CONFIG/reg0]
-if {[llength $top_conversion_segment] != 1 ||
-    [llength $top_processing_segment] != 1} {
-    error "TopDesign metering AXI register segments were not found"
+set meter_ip [get_ips -quiet TopDesign_MeterCore_Wrapper_0_0]
+if {[llength $meter_ip] != 1} {
+    error "Expected one MeterCore module-reference IP, found [llength $meter_ip]"
 }
+update_module_reference $meter_ip
+
+set heartbeat_ip [get_ips -quiet TopDesign_HeatBeat_Wrapper_0_0]
+if {[llength $heartbeat_ip] != 1} {
+    error "Expected one heartbeat module-reference IP, found [llength $heartbeat_ip]"
+}
+update_module_reference $heartbeat_ip
+
+set meter_cell [get_bd_cells -quiet MeterLogic/MeterCore_Wrapper]
+if {[llength $meter_cell] != 1} {
+    error "MeterCore module-reference cell was not found in TopDesign"
+}
+set meter_clock [get_bd_pins -quiet MeterLogic/MeterCore_Wrapper/aclk]
+set meter_reset [get_bd_pins -quiet MeterLogic/MeterCore_Wrapper/aresetn]
+if {[llength $meter_clock] != 1 || [llength $meter_reset] != 1} {
+    error "MeterCore clock/reset pins were not found"
+}
+if {[get_property CONFIG.FREQ_HZ $meter_clock] != 99999001} {
+    error "MeterCore aclk metadata is not 99999001 Hz"
+}
+if {[llength [get_bd_nets -quiet -of_objects $meter_clock]] == 0 ||
+    [llength [get_bd_nets -quiet -of_objects $meter_reset]] == 0} {
+    error "MeterCore clock or reset is unconnected"
+}
+
+set ps_address_space [get_bd_addr_spaces zynq_ultra_ps_e_0/Data]
+set capture_segment [get_bd_addr_segs -quiet \
+    MeterLogic/MeterCore_Wrapper/s_axi_capture/reg0]
+set conversion_segment [get_bd_addr_segs -quiet \
+    MeterLogic/MeterCore_Wrapper/s_axi_conversion/reg0]
+set processing_segment [get_bd_addr_segs -quiet \
+    MeterLogic/MeterCore_Wrapper/s_axi_processing/reg0]
+if {[llength $capture_segment] != 1 ||
+    [llength $conversion_segment] != 1 ||
+    [llength $processing_segment] != 1} {
+    error "MeterCore AXI-Lite address segments were not found"
+}
+assign_bd_address -offset 0xB0020000 -range 64K \
+    -target_address_space $ps_address_space $capture_segment -force
 assign_bd_address -offset 0xB0040000 -range 64K \
-    -target_address_space [get_bd_addr_spaces zynq_ultra_ps_e_0/Data] \
-    $top_conversion_segment -force
+    -target_address_space $ps_address_space $conversion_segment -force
 assign_bd_address -offset 0xB0050000 -range 64K \
-    -target_address_space [get_bd_addr_spaces zynq_ultra_ps_e_0/Data] \
-    $top_processing_segment -force
+    -target_address_space $ps_address_space $processing_segment -force
+
 validate_bd_design
 save_bd_design
-
-# Rebuild output metadata as well as HDL. Recreating a BDC boundary can leave
-# obsolete ActiveVariant entries in TopDesign.bxml even after the BD itself is
-# correct; those entries otherwise resurrect missing generated filesets during
-# synthesis.
 reset_target all [get_files TopDesign.bd]
-generate_target all [get_files StatusSignal.bd]
-generate_target all [get_files AdcSubSystem.bd]
-generate_target all [get_files AdcConversion.bd]
-generate_target all [get_files MeterProcessing.bd]
 generate_target all [get_files TopDesign.bd]
 
-set old_wrapper [file join $repo_dir SourceData BlockDesign TopDesign hdl TopDesign_wrapper.v]
+set old_wrapper [file join $repo_dir SourceData BlockDesign TopDesign hdl \
+    TopDesign_wrapper.v]
 set old_wrapper_file [get_files -quiet $old_wrapper]
 if {[llength $old_wrapper_file] != 0} {
     remove_files $old_wrapper_file
 }
 make_wrapper -files [get_files TopDesign.bd] -top -language VHDL -force
-set wrapper [file join $repo_dir SourceData BlockDesign TopDesign hdl TopDesign_wrapper.vhd]
+set wrapper [file join $repo_dir SourceData BlockDesign TopDesign hdl \
+    TopDesign_wrapper.vhd]
 if {[llength [get_files -quiet $wrapper]] == 0} {
     add_files -norecurse $wrapper
 }
 set_property FILE_TYPE VHDL [get_files $wrapper]
 set_property top TopDesign_wrapper [current_fileset]
 update_compile_order -fileset sources_1
-
-# A cancelled GUI implementation retry can leave an empty copied run in the
-# project. It is not part of the maintained build flow and otherwise creates a
-# large, unrelated project-file diff when the wrapper is regenerated.
-foreach copied_run [get_runs -quiet impl_1_copy_*] {
-    delete_runs $copied_run
-}
 close_project
