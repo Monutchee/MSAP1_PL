@@ -36,7 +36,6 @@ read_vhdl -vhdl2008 [file join $design_root MeterProcessing MeterPacketizer_Wrap
 read_vhdl [file join $design_root AdcConversion AdcConversion_Wrapper.vhd]
 read_vhdl [file join $design_root MeterProcessing CurrentRms_Wrapper.vhd]
 read_vhdl [file join $design_root MeterProcessing VoltageRms_Wrapper.vhd]
-read_vhdl -vhdl2008 [file join $design_root MeterCore meter_frame_fifo.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore meter_core.vhd]
 read_vhdl [file join $design_root MeterCore MeterCore_Wrapper.vhd]
 

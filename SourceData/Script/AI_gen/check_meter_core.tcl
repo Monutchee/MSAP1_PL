@@ -32,7 +32,6 @@ set dependency_wrappers [list \
   [file join $design_root MeterProcessing MeterResultHub_Wrapper.vhd] \
   [file join $design_root MeterProcessing MeterPacketizer_Wrapper.vhd]]
 set core_vhdl2008_sources [list \
-  [file join $design_root MeterCore meter_frame_fifo.vhd] \
   [file join $design_root MeterCore meter_core.vhd]]
 set boundary_wrapper [file join $design_root MeterCore MeterCore_Wrapper.vhd]
 set testbench [file join $design_root MeterCore tb meter_core_tb.sv]
