@@ -25,7 +25,12 @@ set common_vhdl [list \
   [file join $design_root MeterCommon metering_pkg.vhd] \
   [file join $design_root AdcConversion adc_conversion_axi_regs.vhd] \
   [file join $design_root AdcConversion adc_conversion.vhd] \
+  [file join $design_root MeterProcessing meter_frequency_pkg.vhd] \
   [file join $design_root MeterProcessing meter_processing_axi_regs.vhd] \
+  [file join $design_root MeterProcessing meter_unsigned_divider.vhd] \
+  [file join $design_root MeterProcessing meter_zero_crossing.vhd] \
+  [file join $design_root MeterProcessing meter_frequency_estimator.vhd] \
+  [file join $design_root MeterProcessing meter_frequency.vhd] \
   [file join $design_root MeterProcessing meter_rms.vhd] \
   [file join $design_root MeterProcessing MeterResultHub_Wrapper.vhd] \
   [file join $design_root MeterProcessing MeterPacketizer_Wrapper.vhd]]

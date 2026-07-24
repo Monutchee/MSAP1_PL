@@ -2436,15 +2436,15 @@
               "s_axi_aclk_0_1": {
                 "ports": [
                   "s_axi_aclk_0",
-                  "PL_HeartBeat_Ctrl/clk",
-                  "RPU_HeartBeat_GPIO_Ctrl/s_axi_aclk"
+                  "RPU_HeartBeat_GPIO_Ctrl/s_axi_aclk",
+                  "PL_HeartBeat_Ctrl/clk"
                 ]
               },
               "s_axi_aresetn_0_1": {
                 "ports": [
                   "s_axi_aresetn_0",
-                  "PL_HeartBeat_Ctrl/reset_n",
-                  "RPU_HeartBeat_GPIO_Ctrl/s_axi_aresetn"
+                  "RPU_HeartBeat_GPIO_Ctrl/s_axi_aresetn",
+                  "PL_HeartBeat_Ctrl/reset_n"
                 ]
               }
             }

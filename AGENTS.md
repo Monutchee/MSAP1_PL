@@ -14,7 +14,7 @@
   ports.
 - `SourceData/DesignFile/MeterCore/` is the single metering module-reference
   boundary. Its VHDL hierarchy owns AD7771 capture, runtime conversion, RMS
-  processing, the result hub, and MTR1 packetization.
+  processing, VLA frequency measurement, the result hub, and MTR1 packetization.
 - Treat `SourceData` HDL, constraints, block designs, and maintained Tcl as
   design inputs. Treat `vivado_gen` runtime products and block-design generated
   HDL/IP products as regenerable unless explicitly tracked by the repository.
@@ -33,6 +33,9 @@
 - Current addresses are AXI Quad SPI `0xB0010000`, capture `0xB0020000`, AXI
   DMA `0xB0030000`, conversion `0xB0040000`, and processing `0xB0050000`.
   Address-map changes require a new XSA and coordinated RPU updates.
+- Capture diagnostics expose the measured ADC DCLK rate at offset `0x2C` and
+  the physical `ADC_DRDY_N` falling-edge rate at offset `0x30`. Both use
+  one-second measurement windows and become valid after the baseline window.
 - Preserve explicit clock-domain boundaries between ADC DCLK and the AXI clock.
   Do not suppress CDC or timing findings without documenting the actual path.
 
@@ -56,6 +59,7 @@ Run from the repository root, escalating only as the change requires:
 vivado -mode batch -source SourceData/Script/AI_gen/check_ad7771_capture.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_heartbeat.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_meter_core.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/check_meter_frequency.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_metering_synthesis.tcl -tclargs MeterCore_Wrapper
 vivado -mode batch -source SourceData/Script/AI_gen/verify_ad7771_design.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/synth_ad7771_design.tcl

@@ -76,6 +76,36 @@ module voltage_rms_tb;
     end
   endtask
 
+  // Exercise the registered RMS pipeline at its full initiation rate. The
+  // production sample cadence is much slower, but the upstream XPM FIFO can
+  // legally present one queued frame on every PL clock.
+  task automatic send_window_back_to_back;
+    integer frame_index;
+    integer signed channel4;
+    integer signed channel5;
+    integer signed channel6;
+    begin
+      @(negedge clock);
+      sample_valid = 1'b1;
+      for (frame_index = 0; frame_index < 4; frame_index++) begin
+        channel4 = frame_index[0] ? 7 : 13;
+        channel5 = frame_index[0] ? 16 : 24;
+        channel6 = frame_index[0] ? -12 : -2;
+        sample_data = '0;
+        sample_data[4*64 +: 64] = 64'(channel4) <<< 16;
+        sample_data[5*64 +: 64] = 64'(channel5) <<< 16;
+        sample_data[6*64 +: 64] = 64'(channel6) <<< 16;
+        sample_user[128 + 4*32 +: 32] = 32'(channel4);
+        sample_user[128 + 5*32 +: 32] = 32'(channel5);
+        sample_user[128 + 6*32 +: 32] = 32'(channel6);
+        @(posedge clock);
+        assert (sample_ready);
+        @(negedge clock);
+      end
+      sample_valid = 1'b0;
+    end
+  endtask
+
   task automatic check_result(input int expected_sequence);
     begin
       do @(posedge clock); while (!result_valid);
@@ -116,6 +146,9 @@ module voltage_rms_tb;
     send_frame(13, 24, -2);
     send_frame(7, 16, -12);
     check_result(2);
+
+    send_window_back_to_back();
+    check_result(3);
 
     $display("voltage_rms_tb PASS");
     $finish;

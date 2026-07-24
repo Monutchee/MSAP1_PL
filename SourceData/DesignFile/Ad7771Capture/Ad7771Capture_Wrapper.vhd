@@ -93,6 +93,9 @@ architecture rtl of Ad7771Capture_Wrapper is
         "XIL_INTERFACENAME adc_dclk, FREQ_HZ 8192000";
 begin
     implementation : entity work.ad7771_capture(rtl)
+        generic map (
+            S_AXI_CLOCK_HZ => 99999001
+        )
         port map (
             s_axi_aclk       => s_axi_aclk,
             s_axi_aresetn    => s_axi_aresetn,
@@ -122,6 +125,8 @@ begin
             capture_overflow_count => capture_overflow_count,
             capture_header_errors => capture_header_errors,
             capture_alert_count => capture_alert_count,
+            capture_frame_rate_hz => open,
+            capture_frame_rate_valid => open,
             adc_dclk         => adc_dclk,
             adc_drdy_n       => adc_drdy_n,
             adc_dout         => adc_dout,
