@@ -387,6 +387,10 @@ begin
                 cycles_used <= std_logic_vector(pending_cycles);
                 result_valid <= '1';
                 out_of_range <= '0';
+                -- Report arithmetic_error as the health of the latest
+                -- completed calculation, not as a permanent history latch.
+                -- rejected_count retains the cumulative diagnostic history.
+                arithmetic_error <= '0';
               end if;
               state <= EST_IDLE;
             end if;
