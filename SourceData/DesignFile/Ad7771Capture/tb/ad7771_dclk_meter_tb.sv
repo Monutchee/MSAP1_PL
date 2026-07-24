@@ -5,7 +5,7 @@ module ad7771_dclk_meter_tb;
     logic        reference_clk = 1'b0;
     logic        reference_resetn = 1'b0;
     logic        adc_dclk = 1'b0;
-    logic        adc_drdy_n = 1'b1;
+    logic        adc_drdy_n = 1'b0;
     logic [31:0] dclk_frequency_hz;
     logic        dclk_valid;
     logic [31:0] drdy_frequency_hz;
@@ -29,15 +29,15 @@ module ad7771_dclk_meter_tb;
         .drdy_valid_o(drdy_valid)
     );
 
-    // Generate one qualified DRDY_N high-to-low transition every eight DCLK
-    // cycles. A one-microsecond simulated measurement window therefore
-    // observes three or four transitions, depending on the CDC boundary.
+    // Generate a narrow DRDY_N high pulse around a DCLK falling edge. The
+    // pulse is deliberately invisible at every rising edge, reproducing the
+    // phase relationship that made a rising-edge diagnostic counter report
+    // zero while the falling-edge receiver continued accepting frames.
     initial begin : generate_drdy
         forever begin
-            repeat (7) @(negedge adc_dclk);
-            adc_drdy_n <= 1'b0;
-            @(negedge adc_dclk);
-            adc_drdy_n <= 1'b1;
+            repeat (7) @(posedge adc_dclk);
+            #15 adc_drdy_n <= 1'b1;
+            #10 adc_drdy_n <= 1'b0;
         end
     end
 

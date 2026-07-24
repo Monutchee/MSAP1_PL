@@ -67,9 +67,13 @@ begin
       dest_arst => dclk_reset
     );
 
-  count_dclk_edges : process (adc_dclk)
+  -- Match the receiver's sampling edge. AD7771 DRDY_N can pulse high entirely
+  -- between two DCLK rising edges, while it is guaranteed to be observable on
+  -- the falling edge used to sample DOUT. Counting on the opposite edge can
+  -- therefore measure DCLK correctly but miss every DRDY_N transition.
+  count_dclk_and_drdy_edges : process (adc_dclk)
   begin
-    if rising_edge(adc_dclk) then
+    if falling_edge(adc_dclk) then
       if dclk_reset = '1' then
         dclk_count <= (others => '0');
         drdy_count <= (others => '0');
