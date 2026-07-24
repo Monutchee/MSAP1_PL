@@ -22,7 +22,8 @@ entity meter_frequency is
     frame_user_i               : in  std_logic_vector(383 downto 0);
 
     config_generation_i        : in  word32_t;
-    config_sample_rate_i       : in  word32_t;
+    measured_frame_rate_hz_i   : in  word32_t;
+    measured_frame_rate_valid_i: in  std_logic;
     config_control_i           : in  word32_t;
     config_window_samples_i    : in  word32_t;
     config_minimum_millihz_i   : in  word32_t;
@@ -45,9 +46,9 @@ end entity;
 
 architecture rtl of meter_frequency is
   signal apply_seen             : std_logic := '0';
+  signal frame_rate_valid_seen  : std_logic := '0';
   signal clear_measurement      : std_logic := '0';
   signal active_generation      : word32_t := (others => '0');
-  signal active_sample_rate     : word32_t := std_logic_vector(to_unsigned(32000, 32));
   signal active_control         : word32_t := x"00000A63";
   signal active_window_samples  : word32_t := std_logic_vector(to_unsigned(32000, 32));
   signal active_minimum_millihz : word32_t := std_logic_vector(to_unsigned(40000, 32));
@@ -71,6 +72,7 @@ architecture rtl of meter_frequency is
   signal reference_sample : std_logic_vector(63 downto 0);
   signal sample_valid     : std_logic;
   signal sample_sequence  : word32_t;
+  signal estimator_enabled: std_logic;
 begin
   reference_sample <= frame_data_i(
     (FREQUENCY_REFERENCE_VLA * 64) + 63 downto
@@ -87,6 +89,7 @@ begin
   active_maximum_millihz_o <= active_maximum_millihz;
   active_hysteresis_uv_o <= active_hysteresis_uv;
   status_o <= frequency_status;
+  estimator_enabled <= active_control(0) and measured_frame_rate_valid_i;
 
   process (all)
     variable status_value : word32_t := (others => '0');
@@ -100,6 +103,8 @@ begin
     status_value(FREQUENCY_STATUS_OUT_OF_RANGE) := estimator_out_range;
     status_value(FREQUENCY_STATUS_TIMEOUT) := estimator_timeout;
     status_value(FREQUENCY_STATUS_ARITHMETIC_ERROR) := estimator_error;
+    status_value(FREQUENCY_STATUS_FRAME_RATE_VALID) :=
+      measured_frame_rate_valid_i;
     status_value(10 downto 8) := active_control(3 downto 1);
     status_value(15 downto 12) := active_control(7 downto 4);
     status_value(23 downto 16) := estimator_cycles;
@@ -114,23 +119,32 @@ begin
       clear_measurement <= '0';
       if aresetn = '0' then
         apply_seen <= '0';
+        frame_rate_valid_seen <= '0';
         active_generation <= (others => '0');
-        active_sample_rate <= std_logic_vector(to_unsigned(32000, 32));
         active_control <= x"00000A63";
         active_window_samples <= std_logic_vector(to_unsigned(32000, 32));
         active_minimum_millihz <= std_logic_vector(to_unsigned(40000, 32));
         active_maximum_millihz <= std_logic_vector(to_unsigned(70000, 32));
         active_hysteresis_uv <= std_logic_vector(to_unsigned(1000000, 32));
-      elsif config_apply_toggle_i /= apply_seen then
-        active_generation <= config_generation_i;
-        active_sample_rate <= config_sample_rate_i;
-        active_control <= config_control_i;
-        active_window_samples <= config_window_samples_i;
-        active_minimum_millihz <= config_minimum_millihz_i;
-        active_maximum_millihz <= config_maximum_millihz_i;
-        active_hysteresis_uv <= config_hysteresis_uv_i;
-        apply_seen <= config_apply_toggle_i;
-        clear_measurement <= '1';
+      else
+        -- Discard timestamps collected before a missing/recovered DRDY rate
+        -- measurement. Otherwise a stale crossing could be combined with a
+        -- newly measured frame cadence.
+        if measured_frame_rate_valid_i /= frame_rate_valid_seen then
+          frame_rate_valid_seen <= measured_frame_rate_valid_i;
+          clear_measurement <= '1';
+        end if;
+
+        if config_apply_toggle_i /= apply_seen then
+          active_generation <= config_generation_i;
+          active_control <= config_control_i;
+          active_window_samples <= config_window_samples_i;
+          active_minimum_millihz <= config_minimum_millihz_i;
+          active_maximum_millihz <= config_maximum_millihz_i;
+          active_hysteresis_uv <= config_hysteresis_uv_i;
+          apply_seen <= config_apply_toggle_i;
+          clear_measurement <= '1';
+        end if;
       end if;
     end if;
   end process;
@@ -158,11 +172,11 @@ begin
       aclk => aclk,
       aresetn => aresetn,
       clear_i => clear_measurement,
-      enabled_i => active_control(0),
+      enabled_i => estimator_enabled,
       mode_i => active_control(3 downto 1),
       averaging_cycles_i => active_control(15 downto 8),
       averaging_window_samples_i => active_window_samples,
-      sample_rate_hz_i => active_sample_rate,
+      measured_frame_rate_hz_i => measured_frame_rate_hz_i,
       minimum_millihz_i => active_minimum_millihz,
       maximum_millihz_i => active_maximum_millihz,
       frame_accept_i => frame_accept_i,

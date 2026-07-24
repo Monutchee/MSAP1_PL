@@ -13,7 +13,9 @@ use work.meter_frequency_pkg.all;
 -- The crossing FIFO stores Q16 sample timestamps for cycle-window modes.
 -- Time-window mode uses a non-overlapping complete-cycle interval so no
 -- partial cycle is ever included. The output remains invalid until a complete
--- configured interval has been observed.
+-- configured interval has been observed. Frequency and timeout calculations
+-- use the physical DRDY frame rate measured by the capture block, not the
+-- software-requested ADC sample rate.
 entity meter_frequency_estimator is
   port (
     aclk                       : in  std_logic;
@@ -23,7 +25,7 @@ entity meter_frequency_estimator is
     mode_i                     : in  std_logic_vector(2 downto 0);
     averaging_cycles_i         : in  std_logic_vector(7 downto 0);
     averaging_window_samples_i : in  std_logic_vector(31 downto 0);
-    sample_rate_hz_i           : in  std_logic_vector(31 downto 0);
+    measured_frame_rate_hz_i   : in  std_logic_vector(31 downto 0);
     minimum_millihz_i          : in  std_logic_vector(31 downto 0);
     maximum_millihz_i          : in  std_logic_vector(31 downto 0);
     frame_accept_i             : in  std_logic;
@@ -57,13 +59,13 @@ architecture rtl of meter_frequency_estimator is
   );
 
   function make_frequency_numerator(
-    sample_rate : std_logic_vector(31 downto 0);
-    cycles      : unsigned(7 downto 0)
+    measured_frame_rate : std_logic_vector(31 downto 0);
+    cycles             : unsigned(7 downto 0)
   ) return divider_word_t is
     variable rate_cycles : unsigned(39 downto 0);
     variable milliscaled : unsigned(49 downto 0);
   begin
-    rate_cycles := unsigned(sample_rate) * cycles;
+    rate_cycles := unsigned(measured_frame_rate) * cycles;
     milliscaled := rate_cycles * to_unsigned(1000, 10);
     return resize(milliscaled, DIVIDER_WIDTH) sll 16;
   end function;
@@ -221,7 +223,8 @@ begin
                            last_crossing_seq) *
                           unsigned(minimum_millihz_i);
           timeout_right := resize(
-            unsigned(sample_rate_hz_i) * to_unsigned(3000, 12), 64);
+            unsigned(measured_frame_rate_hz_i) *
+            to_unsigned(3000, 12), 64);
           if timeout_left >= timeout_right then
             result_valid <= '0';
             timeout <= '1';
@@ -298,7 +301,7 @@ begin
                       pending_elapsed <= elapsed;
                       pending_cycles <= completed_cycles;
                       divider_dividend <= make_frequency_numerator(
-                        sample_rate_hz_i, completed_cycles);
+                        measured_frame_rate_hz_i, completed_cycles);
                       divider_divisor <= resize(elapsed, DIVIDER_WIDTH);
                       divider_start <= '1';
                       time_start <= crossing_timestamp;
@@ -335,7 +338,7 @@ begin
                     fifo_write <= '1';
                     fifo_read <= '1';
                     divider_dividend <= make_frequency_numerator(
-                      sample_rate_hz_i, requested_cycles);
+                      measured_frame_rate_hz_i, requested_cycles);
                     divider_divisor <= resize(elapsed, DIVIDER_WIDTH);
                     divider_start <= '1';
                     state <= EST_WAIT_FREQUENCY;

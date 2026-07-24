@@ -28,9 +28,17 @@ crossing_q16 =
     + ((-previous_q16 << 16) / (current_q16 - previous_q16))
 
 frequency_mHz =
-    sample_rate_hz * complete_cycles * 1000 * 65536
+    measured_drdy_frames_per_second * complete_cycles * 1000 * 65536
     / elapsed_q16_samples
 ```
+
+The frame rate comes from the capture block's one-second physical
+`ADC_DRDY_N` measurement. The requested profile sample rate is deliberately
+not an estimator input. Frequency therefore remains correct when the ADC's
+real output cadence differs from the requested rate (for example, 19.2
+kframe/s versus 32 kSPS). Results remain invalid until the DRDY meter has a
+valid baseline, and crossing history is cleared if that measurement becomes
+unavailable or recovers.
 
 The 48-bit Q16 timestamp subtraction is explicitly modulo `2^48`, so the
 32-bit capture sequence may wrap without corrupting an interval. The crossing

@@ -8,7 +8,8 @@ module meter_frequency_tb;
   logic [63:0] frame_keep = '1;
   logic [383:0] frame_user = '0;
   logic [31:0] generation = 32'h1234_0001;
-  logic [31:0] sample_rate = 32'd1000;
+  logic [31:0] measured_frame_rate = 32'd1000;
+  logic measured_frame_rate_valid = 1'b1;
   logic [31:0] control = 32'h0000_0a63;
   logic [31:0] window_samples = 32'd100;
   logic [31:0] minimum_millihz = 32'd40000;
@@ -37,7 +38,8 @@ module meter_frequency_tb;
     .frame_keep_i(frame_keep),
     .frame_user_i(frame_user),
     .config_generation_i(generation),
-    .config_sample_rate_i(sample_rate),
+    .measured_frame_rate_hz_i(measured_frame_rate),
+    .measured_frame_rate_valid_i(measured_frame_rate_valid),
     .config_control_i(control),
     .config_window_samples_i(window_samples),
     .config_minimum_millihz_i(minimum_millihz),
@@ -121,7 +123,7 @@ module meter_frequency_tb;
     real angle;
     int signed error_millihz;
     begin
-      sample_rate = new_sample_rate;
+      measured_frame_rate = new_sample_rate;
       apply_configuration(new_generation, 32'h0000_0a63,
                           new_sample_rate);
       frequency_hz = expected_millihz / 1000.0;
@@ -197,6 +199,12 @@ module meter_frequency_tb;
     verify_sine(32'h1234_0201, 32_000, 40_000);
     verify_sine(32'h1234_0202, 32_000, 60_000);
     verify_sine(32'h1234_0203, 32_000, 70_000);
+
+    // The software profile can request 32 kSPS while the physical DRDY cadence
+    // is different. Frequency must follow the measured frame rate: a 60 Hz
+    // waveform sampled at 19.2 kframe/s must remain 60 Hz, not the erroneous
+    // 100 Hz produced by scaling it with the requested 32 kSPS value.
+    verify_sine(32'h1234_0301, 19_200, 60_000);
 
     assert (rejected_count == 0)
       else $fatal(1, "valid waveform produced rejected crossings");

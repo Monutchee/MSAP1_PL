@@ -125,6 +125,8 @@ begin
             capture_overflow_count => capture_overflow_count,
             capture_header_errors => capture_header_errors,
             capture_alert_count => capture_alert_count,
+            capture_frame_rate_hz => open,
+            capture_frame_rate_valid => open,
             adc_dclk         => adc_dclk,
             adc_drdy_n       => adc_drdy_n,
             adc_dout         => adc_dout,

@@ -115,6 +115,8 @@ architecture structural of meter_core is
   signal capture_overflows   : std_logic_vector(31 downto 0);
   signal capture_headers     : std_logic_vector(31 downto 0);
   signal capture_alerts      : std_logic_vector(31 downto 0);
+  signal capture_frame_rate  : std_logic_vector(31 downto 0);
+  signal capture_frame_rate_valid : std_logic;
 
   signal shadow_generation     : std_logic_vector(31 downto 0);
   signal shadow_sample_rate    : std_logic_vector(31 downto 0);
@@ -189,6 +191,8 @@ begin
       capture_overflow_count => capture_overflows,
       capture_header_errors => capture_headers,
       capture_alert_count => capture_alerts,
+      capture_frame_rate_hz => capture_frame_rate,
+      capture_frame_rate_valid => capture_frame_rate_valid,
       adc_dclk => adc_dclk,
       adc_drdy_n => adc_drdy_n,
       adc_dout => adc_dout,
@@ -356,7 +360,8 @@ begin
       frame_keep_i => converted_fifo.keep,
       frame_user_i => converted_fifo.user,
       config_generation_i => shadow_generation,
-      config_sample_rate_i => shadow_sample_rate,
+      measured_frame_rate_hz_i => capture_frame_rate,
+      measured_frame_rate_valid_i => capture_frame_rate_valid,
       config_control_i => frequency_shadow_control,
       config_window_samples_i => frequency_shadow_window,
       config_minimum_millihz_i => frequency_shadow_minimum,

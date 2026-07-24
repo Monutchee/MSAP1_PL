@@ -41,6 +41,8 @@ entity ad7771_capture is
         capture_overflow_count : out std_logic_vector(31 downto 0);
         capture_header_errors  : out std_logic_vector(31 downto 0);
         capture_alert_count    : out std_logic_vector(31 downto 0);
+        capture_frame_rate_hz  : out std_logic_vector(31 downto 0);
+        capture_frame_rate_valid : out std_logic;
 
         adc_dclk         : in  std_logic;
         adc_drdy_n       : in  std_logic;
@@ -109,6 +111,12 @@ architecture rtl of ad7771_capture is
     signal drdy_frequency_hz       : std_logic_vector(31 downto 0);
     signal drdy_frequency_valid    : std_logic;
 begin
+    -- ADC_DRDY_N marks physical conversion frames. Export its measured rate
+    -- internally to MeterCore so frequency processing follows the ADC's real
+    -- output cadence instead of the software-requested sample rate.
+    capture_frame_rate_hz <= drdy_frequency_hz;
+    capture_frame_rate_valid <= drdy_frequency_valid;
+
     beats_per_packet <= to_unsigned(8, beats_per_packet'length)
         when unsigned(packet_frames) = 0 else
         shift_left(resize(unsigned(packet_frames), beats_per_packet'length), 3);

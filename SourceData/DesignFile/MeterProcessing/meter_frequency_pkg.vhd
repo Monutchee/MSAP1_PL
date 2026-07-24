@@ -48,6 +48,9 @@ package meter_frequency_pkg is
   constant FREQUENCY_STATUS_OUT_OF_RANGE     : natural := 5;
   constant FREQUENCY_STATUS_TIMEOUT          : natural := 6;
   constant FREQUENCY_STATUS_ARITHMETIC_ERROR : natural := 7;
+  -- The physical DRDY frame-rate meter must be primed before an estimate can
+  -- be trusted. Bit 11 is unused by the mode/reference-channel fields.
+  constant FREQUENCY_STATUS_FRAME_RATE_VALID : natural := 11;
 
   type frequency_configuration_t is record
     enabled                : std_logic;
