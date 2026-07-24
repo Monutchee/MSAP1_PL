@@ -236,7 +236,7 @@ module ad7771_capture_tb;
 
         repeat (20) @(posedge s_axi_aclk);
         axi_read(8'h00, read_value);
-        if (read_value !== 32'h0001_0000)
+        if (read_value !== 32'h0001_0001)
             $fatal(1, "version register mismatch");
         axi_read(8'h08, read_value);
         if (read_value !== 32'd2)

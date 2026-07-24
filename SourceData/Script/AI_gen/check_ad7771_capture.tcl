@@ -2,8 +2,10 @@ set script_dir [file dirname [file normalize [info script]]]
 set repo_dir [file normalize [file join $script_dir ../../..]]
 set rtl_dir [file join $repo_dir SourceData DesignFile Ad7771Capture]
 set receiver_testbench [file join $rtl_dir tb ad7771_receiver_tb.sv]
+set timing_meter_testbench [file join $rtl_dir tb ad7771_dclk_meter_tb.sv]
 set capture_testbench [file join $rtl_dir tb ad7771_capture_tb.sv]
 set receiver_sim_dir [file join /tmp msap1_ad7771_receiver_sim]
+set timing_meter_sim_dir [file join /tmp msap1_ad7771_timing_meter_sim]
 set capture_sim_dir [file join /tmp msap1_ad7771_capture_sim]
 
 # Run the self-checking receiver test before synthesis.  Use the standalone
@@ -40,6 +42,25 @@ if {![string match "*PASS: ad7771_receiver_tb*" $sim_output]} {
     error "AD7771 receiver simulation did not report PASS"
 }
 
+# Verify the one-second DCLK and DRDY_N diagnostic counters independently from
+# the capture data-path stimulus.
+file delete -force $timing_meter_sim_dir
+file mkdir $timing_meter_sim_dir
+cd $timing_meter_sim_dir
+puts [exec $xvhdl --2008 \
+    [file join $rtl_dir ad7771_dclk_meter.vhd] 2>@1]
+puts [exec $xvlog --sv $timing_meter_testbench 2>@1]
+puts [exec $xvlog [file join $vivado_root data verilog src glbl.v] 2>@1]
+puts [exec $xelab -a --mt off -L xpm ad7771_dclk_meter_tb glbl \
+    -s ad7771_dclk_meter_tb_sim 2>@1]
+set axsim [file join $timing_meter_sim_dir xsim.dir \
+    ad7771_dclk_meter_tb_sim axsim]
+set sim_output [exec env "LD_LIBRARY_PATH=$simulator_libraries" $axsim 2>@1]
+puts $sim_output
+if {![string match "*PASS: ad7771_dclk_meter_tb*" $sim_output]} {
+    error "AD7771 DCLK/DRDY meter simulation did not report PASS"
+}
+
 # Exercise AXI-Lite control, the asynchronous width-converting FIFO,
 # backpressure, packetization, and AXI4-Stream output with a SystemVerilog
 # integration testbench. XPM simulation models reference the global module.
@@ -64,6 +85,7 @@ if {![string match "*PASS: ad7771_capture_tb*" $sim_output]} {
 
 cd $original_dir
 file delete -force $receiver_sim_dir
+file delete -force $timing_meter_sim_dir
 file delete -force $capture_sim_dir
 
 read_vhdl -vhdl2008 [file join $rtl_dir ad7771_receiver.vhd]

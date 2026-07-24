@@ -10,7 +10,8 @@ counters for inclusion in periodic meter records; their AXI-Lite readback is
 unchanged.
 
 SystemVerilog remains the verification language. The receiver testbench binds
-directly to the VHDL receiver, and the capture testbench verifies the mixed-
+directly to the VHDL receiver, the timing-meter testbench verifies independent
+DCLK and DRDY rate measurements, and the capture testbench verifies the mixed-
 language AXI-Lite, CDC FIFO, backpressure, channel ordering, and TLAST path.
 
 ## Data path
@@ -45,7 +46,7 @@ frames and destroys header alignment.
 
 | Offset | Access | Description |
 | ---: | --- | --- |
-| `0x00` | R | Version (`0x00010000`) |
+| `0x00` | R | Version (`0x00010001`) |
 | `0x04` | R/W | Control: capture, FIFO reset, RESET, START, CONVST_SAR |
 | `0x08` | R/W | Frames per AXI packet |
 | `0x0C` | R | Live/sticky status |
@@ -57,11 +58,14 @@ frames and destroys header alignment.
 | `0x24` | R | Format descriptor (`8 channels, 4 lanes, AXIS32`) |
 | `0x28` | R | Identifier (`"AD71"`) |
 | `0x2C` | R | Measured external ADC DCLK frequency in hertz |
+| `0x30` | R | Measured `ADC_DRDY_N` falling-edge rate in hertz |
 
-Status bit 10 marks the DCLK frequency measurement valid. The meter compares
-free-running DCLK edges with the 99,999,001 Hz PL AXI clock over a one-second
-window. The first valid result is available approximately two seconds after
-reset; loss of DCLK clears validity and reports zero.
+Status bit 10 marks the DCLK frequency measurement valid, and bit 11 marks the
+DRDY frame-rate measurement valid. The meter compares free-running DCLK edges
+and `ADC_DRDY_N` high-to-low transitions with the 99,999,001 Hz PL AXI clock
+over a one-second window. The first valid results are available approximately
+two seconds after reset. Loss of the corresponding signal clears its validity
+and reports zero.
 
 Control bit 3 drives the board signal named `ADC_START_N`, but the physical
 AD7771 START pin is a positive synchronization input. The reset value is low;

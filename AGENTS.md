@@ -33,6 +33,9 @@
 - Current addresses are AXI Quad SPI `0xB0010000`, capture `0xB0020000`, AXI
   DMA `0xB0030000`, conversion `0xB0040000`, and processing `0xB0050000`.
   Address-map changes require a new XSA and coordinated RPU updates.
+- Capture diagnostics expose the measured ADC DCLK rate at offset `0x2C` and
+  the physical `ADC_DRDY_N` falling-edge rate at offset `0x30`. Both use
+  one-second measurement windows and become valid after the baseline window.
 - Preserve explicit clock-domain boundaries between ADC DCLK and the AXI clock.
   Do not suppress CDC or timing findings without documenting the actual path.
 

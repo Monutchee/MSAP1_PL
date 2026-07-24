@@ -106,6 +106,8 @@ architecture rtl of ad7771_capture is
     signal alert_sticky            : std_logic;
     signal dclk_frequency_hz       : std_logic_vector(31 downto 0);
     signal dclk_frequency_valid    : std_logic;
+    signal drdy_frequency_hz       : std_logic_vector(31 downto 0);
+    signal drdy_frequency_valid    : std_logic;
 begin
     beats_per_packet <= to_unsigned(8, beats_per_packet'length)
         when unsigned(packet_frames) = 0 else
@@ -124,8 +126,11 @@ begin
             reference_clk    => s_axi_aclk,
             reference_resetn => s_axi_aresetn,
             adc_dclk         => adc_dclk,
+            adc_drdy_n       => adc_drdy_n,
             frequency_hz_o   => dclk_frequency_hz,
-            valid_o          => dclk_frequency_valid
+            valid_o          => dclk_frequency_valid,
+            drdy_frequency_hz_o => drdy_frequency_hz,
+            drdy_valid_o        => drdy_frequency_valid
         );
 
     register_fifo_reset : process(s_axi_aclk)
@@ -354,6 +359,8 @@ begin
             alert_count          => alert_count_axi,
             packet_count         => packet_count,
             dclk_frequency_hz    => dclk_frequency_hz,
-            dclk_frequency_valid => dclk_frequency_valid
+            dclk_frequency_valid => dclk_frequency_valid,
+            drdy_frequency_hz    => drdy_frequency_hz,
+            drdy_frequency_valid => drdy_frequency_valid
         );
 end architecture rtl;
