@@ -14,7 +14,7 @@
   ports.
 - `SourceData/DesignFile/MeterCore/` is the single metering module-reference
   boundary. Its VHDL hierarchy owns AD7771 capture, runtime conversion, RMS
-  processing, the result hub, and MTR1 packetization.
+  processing, VLA frequency measurement, the result hub, and MTR1 packetization.
 - Treat `SourceData` HDL, constraints, block designs, and maintained Tcl as
   design inputs. Treat `vivado_gen` runtime products and block-design generated
   HDL/IP products as regenerable unless explicitly tracked by the repository.
@@ -56,6 +56,7 @@ Run from the repository root, escalating only as the change requires:
 vivado -mode batch -source SourceData/Script/AI_gen/check_ad7771_capture.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_heartbeat.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_meter_core.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/check_meter_frequency.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_metering_synthesis.tcl -tclargs MeterCore_Wrapper
 vivado -mode batch -source SourceData/Script/AI_gen/verify_ad7771_design.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/synth_ad7771_design.tcl

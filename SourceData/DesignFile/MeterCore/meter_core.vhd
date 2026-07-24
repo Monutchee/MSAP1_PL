@@ -123,6 +123,21 @@ architecture structural of meter_core is
   signal shadow_enable         : std_logic;
   signal shadow_dc_remove      : std_logic;
   signal apply_toggle          : std_logic;
+  signal frequency_shadow_control         : std_logic_vector(31 downto 0);
+  signal frequency_shadow_window          : std_logic_vector(31 downto 0);
+  signal frequency_shadow_minimum         : std_logic_vector(31 downto 0);
+  signal frequency_shadow_maximum         : std_logic_vector(31 downto 0);
+  signal frequency_shadow_hysteresis      : std_logic_vector(31 downto 0);
+  signal frequency_active_control         : std_logic_vector(31 downto 0);
+  signal frequency_active_window          : std_logic_vector(31 downto 0);
+  signal frequency_active_minimum         : std_logic_vector(31 downto 0);
+  signal frequency_active_maximum         : std_logic_vector(31 downto 0);
+  signal frequency_active_hysteresis      : std_logic_vector(31 downto 0);
+  signal frequency_status                 : std_logic_vector(31 downto 0);
+  signal frequency_millihz                : std_logic_vector(31 downto 0);
+  signal frequency_period_q16             : std_logic_vector(31 downto 0);
+  signal frequency_sequence               : std_logic_vector(31 downto 0);
+  signal frequency_rejected               : std_logic_vector(31 downto 0);
 
   signal active_generation : std_logic_vector(31 downto 0);
   signal processing_status : std_logic_vector(31 downto 0);
@@ -142,6 +157,9 @@ architecture structural of meter_core is
   signal packetizer_drop_count: std_logic_vector(31 downto 0);
 begin
   capture : entity work.ad7771_capture
+    generic map (
+      S_AXI_CLOCK_HZ => 99999001
+    )
     port map (
       s_axi_aclk => aclk,
       s_axi_aresetn => aresetn,
@@ -305,11 +323,56 @@ begin
       shadow_enable_o => shadow_enable,
       shadow_dc_remove_o => shadow_dc_remove,
       apply_toggle_o => apply_toggle,
+      frequency_shadow_control_o => frequency_shadow_control,
+      frequency_shadow_window_samples_o => frequency_shadow_window,
+      frequency_shadow_minimum_millihz_o => frequency_shadow_minimum,
+      frequency_shadow_maximum_millihz_o => frequency_shadow_maximum,
+      frequency_shadow_hysteresis_uv_o => frequency_shadow_hysteresis,
+      frequency_active_control_i => frequency_active_control,
+      frequency_active_window_samples_i => frequency_active_window,
+      frequency_active_minimum_millihz_i => frequency_active_minimum,
+      frequency_active_maximum_millihz_i => frequency_active_maximum,
+      frequency_active_hysteresis_uv_i => frequency_active_hysteresis,
+      frequency_status_i => frequency_status,
+      frequency_millihz_i => frequency_millihz,
+      frequency_period_q16_samples_i => frequency_period_q16,
+      frequency_measurement_sequence_i => frequency_sequence,
+      frequency_rejected_count_i => frequency_rejected,
       active_generation_i => active_generation,
       result_sequence_i => result_sequence,
       result_drop_count_i => result_drop_count,
       packet_drop_count_i => packetizer_drop_count,
       status_i => processing_status
+    );
+
+  -- Frequency observes the exact frames accepted by the RMS engine. It has no
+  -- ready path and therefore cannot stop conversion, RMS, or ADC capture.
+  frequency_engine : entity work.meter_frequency
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      frame_accept_i => engine_valid,
+      frame_data_i => converted_fifo.data,
+      frame_keep_i => converted_fifo.keep,
+      frame_user_i => converted_fifo.user,
+      config_generation_i => shadow_generation,
+      config_sample_rate_i => shadow_sample_rate,
+      config_control_i => frequency_shadow_control,
+      config_window_samples_i => frequency_shadow_window,
+      config_minimum_millihz_i => frequency_shadow_minimum,
+      config_maximum_millihz_i => frequency_shadow_maximum,
+      config_hysteresis_uv_i => frequency_shadow_hysteresis,
+      config_apply_toggle_i => apply_toggle,
+      active_control_o => frequency_active_control,
+      active_window_samples_o => frequency_active_window,
+      active_minimum_millihz_o => frequency_active_minimum,
+      active_maximum_millihz_o => frequency_active_maximum,
+      active_hysteresis_uv_o => frequency_active_hysteresis,
+      status_o => frequency_status,
+      frequency_millihz_o => frequency_millihz,
+      period_q16_samples_o => frequency_period_q16,
+      measurement_sequence_o => frequency_sequence,
+      rejected_count_o => frequency_rejected
     );
 
   rms_engine : entity work.meter_rms
@@ -367,6 +430,10 @@ begin
       current_mean_q16_i => meter_result.mean_q16,
       current_rms_q16_i => meter_result.rms_q16,
       current_rms_count_i => meter_result.rms_count,
+      frequency_millihz_i => frequency_millihz,
+      frequency_status_i => frequency_status,
+      frequency_period_q16_i => frequency_period_q16,
+      frequency_sequence_i => frequency_sequence,
       capture_frame_count_i => capture_frame_count,
       capture_header_errors_i => capture_headers,
       capture_overflows_i => capture_overflows,

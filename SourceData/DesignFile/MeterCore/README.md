@@ -9,8 +9,11 @@ The standalone hierarchy is:
 
 ```text
 AD7771 capture -> ADC conversion -> 16-frame XPM AXI4-Stream FIFO
-               -> unified current/voltage RMS
-               -> result hub -> MTR1 packetizer
+               +-> unified current/voltage RMS --------+
+               +-> VLA positive zero-cross frequency --+
+                                                      |
+                         result hub <- coherent results+
+                              -> MTR1 packetizer
 ```
 
 The three AXI4-Lite interfaces retain their existing software contracts:
@@ -36,6 +39,21 @@ common-clock mode. It stores complete converted frames and their AXI4-Stream
 metadata without a custom FIFO implementation, generated XCI, or additional
 block design.
 
+The VLA frequency path observes each frame accepted by the RMS engine. It has
+no `ready` output and can therefore never backpressure conversion, RMS, or ADC
+capture. A qualified crossing first requires VLA below the negative hysteresis
+threshold, then a negative-to-positive transition. The crossing position is
+linearly interpolated in Q16 sample units:
+
+```text
+crossing = previous_sample_index
+         + (-previous_value / (current_value - previous_value))
+```
+
+Counting only positive-going crossings produces one interval per complete grid
+cycle. The estimator supports one-cycle, rolling-cycle, and complete-cycle
+time-window modes. Frequency is independent of the RMS `remove_dc` setting.
+
 ## Verification
 
 Run the end-to-end mixed-language test and focused synthesis from the
@@ -43,6 +61,7 @@ repository root:
 
 ```sh
 vivado -mode batch -source SourceData/Script/AI_gen/check_meter_core.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/check_meter_frequency.tcl
 vivado -mode batch \
   -source SourceData/Script/AI_gen/check_metering_synthesis.tcl \
   -tclargs MeterCore_Wrapper

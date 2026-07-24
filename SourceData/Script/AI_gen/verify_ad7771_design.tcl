@@ -33,10 +33,16 @@ set vhdl2008_sources [list \
     [file join $design_dir MeterCommon metering_pkg.vhd] \
     [file join $design_dir Ad7771Capture ad7771_receiver.vhd] \
     [file join $design_dir Ad7771Capture ad7771_axi_regs.vhd] \
+    [file join $design_dir Ad7771Capture ad7771_dclk_meter.vhd] \
     [file join $design_dir Ad7771Capture ad7771_capture.vhd] \
     [file join $design_dir AdcConversion adc_conversion_axi_regs.vhd] \
     [file join $design_dir AdcConversion adc_conversion.vhd] \
+    [file join $design_dir MeterProcessing meter_frequency_pkg.vhd] \
     [file join $design_dir MeterProcessing meter_processing_axi_regs.vhd] \
+    [file join $design_dir MeterProcessing meter_unsigned_divider.vhd] \
+    [file join $design_dir MeterProcessing meter_zero_crossing.vhd] \
+    [file join $design_dir MeterProcessing meter_frequency_estimator.vhd] \
+    [file join $design_dir MeterProcessing meter_frequency.vhd] \
     [file join $design_dir MeterProcessing meter_rms.vhd] \
     [file join $design_dir MeterCore meter_core.vhd]]
 foreach vhdl_source $vhdl2008_sources {

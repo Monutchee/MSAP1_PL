@@ -52,7 +52,10 @@ module ad7771_capture_tb;
     always #5  s_axi_aclk = ~s_axi_aclk;
     always #20 adc_dclk = ~adc_dclk;
 
-    ad7771_capture dut (
+    ad7771_capture #(
+        // Shorten the one-second production measurement window for simulation.
+        .S_AXI_CLOCK_HZ(100)
+    ) dut (
         .s_axi_aclk,
         .s_axi_aresetn,
         .s_axi_awaddr,
@@ -237,10 +240,25 @@ module ad7771_capture_tb;
             $fatal(1, "version register mismatch");
         axi_read(8'h08, read_value);
         if (read_value !== 32'd2)
-            $fatal(1, "packet count mismatch: %0d", read_value);
+            $fatal(1, "configured packet-frame count mismatch: %0d",
+                   read_value);
         axi_read(8'h10, read_value);
         if (read_value !== 32'd2)
             $fatal(1, "frame count mismatch: %0d", read_value);
+        // The accepted-packet counter advances only when the final beat and
+        // TLAST complete their AXI handshake. Backpressured or partial packets
+        // must not be reported as delivered.
+        axi_read(8'h20, read_value);
+        if (read_value !== 32'd1)
+            $fatal(1, "accepted packet count mismatch: %0d", read_value);
+        axi_read(8'h0c, read_value);
+        if (!read_value[10])
+            $fatal(1, "DCLK frequency measurement never became valid");
+        axi_read(8'h2c, read_value);
+        // The test clocks are 100 MHz reference and 25 MHz DCLK. CDC snapshot
+        // latency can move one edge across a window boundary.
+        if (read_value < 32'd24 || read_value > 32'd26)
+            $fatal(1, "DCLK frequency measurement mismatch: %0d", read_value);
         axi_read(8'h18, read_value);
         if (read_value !== 32'd0)
             $fatal(1, "unexpected header errors: %0d", read_value);

@@ -2,6 +2,9 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
+library work;
+use work.meter_frequency_pkg.all;
+
 entity MeterResultHub_Wrapper is
   port (
     aclk                    : in  std_logic;
@@ -20,6 +23,10 @@ entity MeterResultHub_Wrapper is
     current_mean_q16_i      : in  std_logic_vector(511 downto 0);
     current_rms_q16_i       : in  std_logic_vector(511 downto 0);
     current_rms_count_i     : in  std_logic_vector(255 downto 0);
+    frequency_millihz_i     : in  std_logic_vector(31 downto 0);
+    frequency_status_i      : in  std_logic_vector(31 downto 0);
+    frequency_period_q16_i  : in  std_logic_vector(31 downto 0);
+    frequency_sequence_i    : in  std_logic_vector(31 downto 0);
     capture_frame_count_i   : in  std_logic_vector(31 downto 0);
     capture_header_errors_i : in  std_logic_vector(31 downto 0);
     capture_overflows_i     : in  std_logic_vector(31 downto 0);
@@ -119,6 +126,22 @@ begin
             next_record(((word_base + 4) * 32) + 31 downto
                         (word_base + 4) * 32) := std_logic_vector(rms_units(63 downto 32));
           end loop;
+
+          -- Words 56-59 were reserved in MTR1 format 1. Consumers that predate
+          -- frequency measurement continue to ignore them, so the fixed
+          -- 256-byte record and format identifier remain compatible.
+          next_record((MTR1_FREQUENCY_VALUE_WORD * 32) + 31 downto
+                      MTR1_FREQUENCY_VALUE_WORD * 32) :=
+            frequency_millihz_i;
+          next_record((MTR1_FREQUENCY_STATUS_WORD * 32) + 31 downto
+                      MTR1_FREQUENCY_STATUS_WORD * 32) :=
+            frequency_status_i;
+          next_record((MTR1_FREQUENCY_PERIOD_WORD * 32) + 31 downto
+                      MTR1_FREQUENCY_PERIOD_WORD * 32) :=
+            frequency_period_q16_i;
+          next_record((MTR1_FREQUENCY_SEQUENCE_WORD * 32) + 31 downto
+                      MTR1_FREQUENCY_SEQUENCE_WORD * 32) :=
+            frequency_sequence_i;
 
           if record_valid = '1' and record_ready_i = '0' then
             hub_drop_count <= hub_drop_count + 1;

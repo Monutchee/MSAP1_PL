@@ -56,6 +56,12 @@ frames and destroys header alignment.
 | `0x20` | R | Emitted packet count |
 | `0x24` | R | Format descriptor (`8 channels, 4 lanes, AXIS32`) |
 | `0x28` | R | Identifier (`"AD71"`) |
+| `0x2C` | R | Measured external ADC DCLK frequency in hertz |
+
+Status bit 10 marks the DCLK frequency measurement valid. The meter compares
+free-running DCLK edges with the 99,999,001 Hz PL AXI clock over a one-second
+window. The first valid result is available approximately two seconds after
+reset; loss of DCLK clears validity and reports zero.
 
 Control bit 3 drives the board signal named `ADC_START_N`, but the physical
 AD7771 START pin is a positive synchronization input. The reset value is low;

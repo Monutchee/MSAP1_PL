@@ -62,6 +62,10 @@ architecture rtl of meter_rms is
     unsigned(127 downto 0);
   type signed64_array_t is array (0 to G_CHANNEL_COUNT - 1) of
     signed(63 downto 0);
+  type signed32_array_t is array (0 to G_CHANNEL_COUNT - 1) of
+    signed(31 downto 0);
+  type unsigned64_array_t is array (0 to G_CHANNEL_COUNT - 1) of
+    unsigned(63 downto 0);
   type unsigned96_array_t is array (0 to G_CHANNEL_COUNT - 1) of
     unsigned(95 downto 0);
 
@@ -82,6 +86,22 @@ architecture rtl of meter_rms is
   signal raw_snapshot_sum      : signed64_array_t := (others => (others => '0'));
   signal raw_snapshot_square   : unsigned96_array_t := (others => (others => '0'));
   signal sample_count          : unsigned(31 downto 0) := (others => '0');
+
+  -- RMS input arithmetic is deliberately split across registered stages.
+  -- A converted 64-bit Q16 sample requires a multi-DSP square. Registering
+  -- both sides of that operation prevents the FIFO-to-multiplier-to-128-bit
+  -- accumulator path from consuming one complete 100 MHz clock period.
+  signal sample_stage_valid     : std_logic := '0';
+  signal sample_stage_value     : signed64_array_t := (others => (others => '0'));
+  signal sample_stage_raw       : signed32_array_t := (others => (others => '0'));
+  signal sample_stage_valid_mask: std_logic_vector(7 downto 0) := (others => '0');
+  signal square_stage_valid     : std_logic := '0';
+  signal square_stage_value     : unsigned128_array_t := (others => (others => '0'));
+  signal square_stage_sample    : signed64_array_t := (others => (others => '0'));
+  signal square_stage_raw_value : unsigned64_array_t := (others => (others => '0'));
+  signal square_stage_raw_sample: signed32_array_t := (others => (others => '0'));
+  signal square_stage_valid_mask: std_logic_vector(7 downto 0) := (others => '0');
+
   signal snapshot_generation   : word32_t := (others => '0');
   signal snapshot_sample_rate  : word32_t := (others => '0');
   signal snapshot_window       : word32_t := (others => '0');
@@ -155,11 +175,9 @@ begin
 
   process (aclk)
     variable sample_value      : sword64_t;
-    variable square_value      : unsigned(127 downto 0);
     variable sum_next          : signed128_array_t;
     variable square_next       : unsigned128_array_t;
     variable raw_sample_value  : signed(31 downto 0);
-    variable raw_square_value  : unsigned(63 downto 0);
     variable raw_sum_next      : signed64_array_t;
     variable raw_square_next   : unsigned96_array_t;
     variable square_extended   : unsigned(128 downto 0);
@@ -190,6 +208,8 @@ begin
         raw_accumulator_sum <= (others => (others => '0'));
         raw_accumulator_square <= (others => (others => '0'));
         sample_count <= (others => '0');
+        sample_stage_valid <= '0';
+        square_stage_valid <= '0';
         calc_state <= CALC_IDLE;
         calc_channel <= 0;
         calc_raw_mode <= '0';
@@ -218,85 +238,135 @@ begin
           raw_accumulator_sum <= (others => (others => '0'));
           raw_accumulator_square <= (others => (others => '0'));
           sample_count <= (others => '0');
+          sample_stage_valid <= '0';
+          square_stage_valid <= '0';
           calc_state <= CALC_IDLE;
           calc_raw_mode <= '0';
           result_mask <= (others => '0');
           arithmetic_overflow <= '0';
         else
-          -- Accumulation runs independently of the result arithmetic state.
-          if s_axis_tvalid = '1' and s_axis_tkeep = x"FFFFFFFFFFFFFFFF" and
-             active_enable = '1' and
-             s_axis_tuser(63 downto 32) = active_generation then
-            sum_next := accumulator_sum;
-            square_next := accumulator_square;
-            raw_sum_next := raw_accumulator_sum;
-            raw_square_next := raw_accumulator_square;
-            for rms_index in 0 to G_CHANNEL_COUNT - 1 loop
-              sample_value := signed(
-                s_axis_tdata(((rms_index + G_FIRST_CHANNEL) * 64) + 63
-                             downto
-                             (rms_index + G_FIRST_CHANNEL) * 64));
-              sum_next(rms_index) :=
-                accumulator_sum(rms_index) + resize(sample_value, 128);
-              square_value := unsigned(sample_value * sample_value);
-              square_extended := ('0' & accumulator_square(rms_index)) +
-                                 ('0' & square_value);
-              if square_extended(128) = '1' then
-                square_next(rms_index) := (others => '1');
-                arithmetic_overflow <= '1';
-              else
-                square_next(rms_index) := square_extended(127 downto 0);
-              end if;
+          -- Default pipeline bubbles. Each valid stage assignment below
+          -- overrides these defaults, allowing one accepted frame per clock.
+          sample_stage_valid <= '0';
+          square_stage_valid <= '0';
 
-              raw_sample_value := signed(s_axis_tuser(
-                128 + ((rms_index + G_FIRST_CHANNEL) * 32) + 31 downto
-                128 + ((rms_index + G_FIRST_CHANNEL) * 32)));
-              raw_sum_next(rms_index) := raw_accumulator_sum(rms_index) +
-                resize(raw_sample_value, 64);
-              raw_square_value := unsigned(raw_sample_value * raw_sample_value);
-              raw_square_next(rms_index) := raw_accumulator_square(rms_index) +
-                resize(raw_square_value, 96);
-            end loop;
-
-            window_value := unsigned(active_window_samples);
-            if window_value /= 0 and sample_count + 1 >= window_value then
-              if calc_state = CALC_IDLE then
-                snapshot_sum <= sum_next;
-                snapshot_square <= square_next;
-                raw_snapshot_sum <= raw_sum_next;
-                raw_snapshot_square <= raw_square_next;
-                snapshot_generation <= active_generation;
-                snapshot_sample_rate <= active_sample_rate;
-                snapshot_window <= active_window_samples;
-                snapshot_valid_mask <= active_valid_mask and
-                                       s_axis_tuser(71 downto 64);
-                snapshot_dc_remove <= active_dc_remove;
-                calc_channel <= 0;
-                calc_raw_mode <= '0';
-                calc_state <= CALC_PREPARE_MEAN;
-              else
-                result_drop_count <= result_drop_count + 1;
-              end if;
-              accumulator_sum <= (others => (others => '0'));
-              accumulator_square <= (others => (others => '0'));
-              raw_accumulator_sum <= (others => (others => '0'));
-              raw_accumulator_square <= (others => (others => '0'));
-              sample_count <= (others => '0');
-            else
-              accumulator_sum <= sum_next;
-              accumulator_square <= square_next;
-              raw_accumulator_sum <= raw_sum_next;
-              raw_accumulator_square <= raw_square_next;
-              sample_count <= sample_count + 1;
-            end if;
-          elsif s_axis_tvalid = '1' and active_enable = '1' then
-            -- Never mix generations or malformed converted frames in one RMS
-            -- window. The next matching frame starts a fresh window.
+          -- A malformed or stale-generation frame invalidates both the active
+          -- window and every in-flight arithmetic stage. This preserves the
+          -- original rule that one result never mixes configurations.
+          if s_axis_tvalid = '1' and active_enable = '1' and
+             (s_axis_tkeep /= x"FFFFFFFFFFFFFFFF" or
+              s_axis_tuser(63 downto 32) /= active_generation) then
             accumulator_sum <= (others => (others => '0'));
             accumulator_square <= (others => (others => '0'));
             raw_accumulator_sum <= (others => (others => '0'));
             raw_accumulator_square <= (others => (others => '0'));
             sample_count <= (others => '0');
+            sample_stage_valid <= '0';
+            square_stage_valid <= '0';
+          else
+            -- Stage 0: register the complete converted frame. Registering the
+            -- XPM FIFO output also gives the following DSP stage stable,
+            -- local inputs without adding backpressure to the stream.
+            if s_axis_tvalid = '1' and
+               s_axis_tkeep = x"FFFFFFFFFFFFFFFF" and
+               active_enable = '1' and
+               s_axis_tuser(63 downto 32) = active_generation then
+              for rms_index in 0 to G_CHANNEL_COUNT - 1 loop
+                sample_value := signed(
+                  s_axis_tdata(((rms_index + G_FIRST_CHANNEL) * 64) + 63
+                               downto
+                               (rms_index + G_FIRST_CHANNEL) * 64));
+                sample_stage_value(rms_index) <= sample_value;
+                raw_sample_value := signed(s_axis_tuser(
+                  128 + ((rms_index + G_FIRST_CHANNEL) * 32) + 31 downto
+                  128 + ((rms_index + G_FIRST_CHANNEL) * 32)));
+                sample_stage_raw(rms_index) <= raw_sample_value;
+              end loop;
+              sample_stage_valid_mask <= s_axis_tuser(71 downto 64);
+              sample_stage_valid <= '1';
+            end if;
+
+            -- Stage 1: perform and register the converted and raw squares.
+            -- This boundary lets Vivado use the DSP48 pipeline registers
+            -- instead of combining multiplication and accumulation.
+            if sample_stage_valid = '1' then
+              for rms_index in 0 to G_CHANNEL_COUNT - 1 loop
+                square_stage_value(rms_index) <= unsigned(
+                  sample_stage_value(rms_index) *
+                  sample_stage_value(rms_index));
+                square_stage_sample(rms_index) <=
+                  sample_stage_value(rms_index);
+                square_stage_raw_value(rms_index) <= unsigned(
+                  sample_stage_raw(rms_index) *
+                  sample_stage_raw(rms_index));
+                square_stage_raw_sample(rms_index) <=
+                  sample_stage_raw(rms_index);
+              end loop;
+              square_stage_valid_mask <= sample_stage_valid_mask;
+              square_stage_valid <= '1';
+            end if;
+
+            -- Stage 2: accumulation and window snapshot use only registered
+            -- products. This path contains adders and boundary selection, but
+            -- no multiplier. It remains independent of result calculation.
+            if square_stage_valid = '1' then
+              sum_next := accumulator_sum;
+              square_next := accumulator_square;
+              raw_sum_next := raw_accumulator_sum;
+              raw_square_next := raw_accumulator_square;
+              for rms_index in 0 to G_CHANNEL_COUNT - 1 loop
+                sum_next(rms_index) :=
+                  accumulator_sum(rms_index) +
+                  resize(square_stage_sample(rms_index), 128);
+                square_extended := ('0' & accumulator_square(rms_index)) +
+                                   ('0' & square_stage_value(rms_index));
+                if square_extended(128) = '1' then
+                  square_next(rms_index) := (others => '1');
+                  arithmetic_overflow <= '1';
+                else
+                  square_next(rms_index) := square_extended(127 downto 0);
+                end if;
+
+                raw_sum_next(rms_index) :=
+                  raw_accumulator_sum(rms_index) +
+                  resize(square_stage_raw_sample(rms_index), 64);
+                raw_square_next(rms_index) :=
+                  raw_accumulator_square(rms_index) +
+                  resize(square_stage_raw_value(rms_index), 96);
+              end loop;
+
+              window_value := unsigned(active_window_samples);
+              if window_value /= 0 and sample_count + 1 >= window_value then
+                if calc_state = CALC_IDLE then
+                  snapshot_sum <= sum_next;
+                  snapshot_square <= square_next;
+                  raw_snapshot_sum <= raw_sum_next;
+                  raw_snapshot_square <= raw_square_next;
+                  snapshot_generation <= active_generation;
+                  snapshot_sample_rate <= active_sample_rate;
+                  snapshot_window <= active_window_samples;
+                  snapshot_valid_mask <= active_valid_mask and
+                                         square_stage_valid_mask;
+                  snapshot_dc_remove <= active_dc_remove;
+                  calc_channel <= 0;
+                  calc_raw_mode <= '0';
+                  calc_state <= CALC_PREPARE_MEAN;
+                else
+                  result_drop_count <= result_drop_count + 1;
+                end if;
+                accumulator_sum <= (others => (others => '0'));
+                accumulator_square <= (others => (others => '0'));
+                raw_accumulator_sum <= (others => (others => '0'));
+                raw_accumulator_square <= (others => (others => '0'));
+                sample_count <= (others => '0');
+              else
+                accumulator_sum <= sum_next;
+                accumulator_square <= square_next;
+                raw_accumulator_sum <= raw_sum_next;
+                raw_accumulator_square <= raw_square_next;
+                sample_count <= sample_count + 1;
+              end if;
+            end if;
           end if;
 
           case calc_state is

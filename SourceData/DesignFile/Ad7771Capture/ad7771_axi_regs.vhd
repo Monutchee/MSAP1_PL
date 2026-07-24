@@ -46,7 +46,9 @@ entity ad7771_axi_regs is
         overflow_count       : in std_logic_vector(31 downto 0);
         header_error_count   : in std_logic_vector(31 downto 0);
         alert_count          : in std_logic_vector(31 downto 0);
-        packet_count         : in std_logic_vector(31 downto 0)
+        packet_count         : in std_logic_vector(31 downto 0);
+        dclk_frequency_hz    : in std_logic_vector(31 downto 0);
+        dclk_frequency_valid : in std_logic
     );
 end entity ad7771_axi_regs;
 
@@ -150,7 +152,7 @@ begin
             when "000010" => read_data_mux <= packet_frames_reg;
             when "000011" =>
                 read_data_mux <=
-                    (31 downto 10 => '0') &
+                    (31 downto 11 => '0') & dclk_frequency_valid &
                     fifo_rd_reset_busy & fifo_wr_reset_busy & adc_drdy_n &
                     alert_sticky & header_error_sticky & fifo_overflow_sticky &
                     fifo_empty & fifo_full & receiver_busy & control_reg(0);
@@ -161,6 +163,7 @@ begin
             when "001000" => read_data_mux <= packet_count;
             when "001001" => read_data_mux <= x"00080420";
             when "001010" => read_data_mux <= IDENTIFIER;
+            when "001011" => read_data_mux <= dclk_frequency_hz;
             when others   => read_data_mux <= (others => '0');
         end case;
     end process read_decode;

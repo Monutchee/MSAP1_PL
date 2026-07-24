@@ -6,6 +6,9 @@ library xpm;
 use xpm.vcomponents.all;
 
 entity ad7771_capture is
+    generic (
+        S_AXI_CLOCK_HZ : positive := 99999001
+    );
     port (
         s_axi_aclk       : in  std_logic;
         s_axi_aresetn    : in  std_logic;
@@ -101,6 +104,8 @@ architecture rtl of ad7771_capture is
     signal fifo_overflow_sticky    : std_logic;
     signal header_error_sticky     : std_logic;
     signal alert_sticky            : std_logic;
+    signal dclk_frequency_hz       : std_logic_vector(31 downto 0);
+    signal dclk_frequency_valid    : std_logic;
 begin
     beats_per_packet <= to_unsigned(8, beats_per_packet'length)
         when unsigned(packet_frames) = 0 else
@@ -110,6 +115,18 @@ begin
     fifo_overflow_sticky <= '1' when unsigned(overflow_count_axi) /= 0 else '0';
     header_error_sticky  <= '1' when unsigned(header_error_count_axi) /= 0 else '0';
     alert_sticky         <= '1' when unsigned(alert_count_axi) /= 0 else '0';
+
+    dclk_frequency_meter : entity work.ad7771_dclk_meter
+        generic map (
+            REFERENCE_CLOCK_HZ => S_AXI_CLOCK_HZ
+        )
+        port map (
+            reference_clk    => s_axi_aclk,
+            reference_resetn => s_axi_aresetn,
+            adc_dclk         => adc_dclk,
+            frequency_hz_o   => dclk_frequency_hz,
+            valid_o          => dclk_frequency_valid
+        );
 
     register_fifo_reset : process(s_axi_aclk)
     begin
@@ -335,6 +352,8 @@ begin
             overflow_count       => overflow_count_axi,
             header_error_count   => header_error_count_axi,
             alert_count          => alert_count_axi,
-            packet_count         => packet_count
+            packet_count         => packet_count,
+            dclk_frequency_hz    => dclk_frequency_hz,
+            dclk_frequency_valid => dclk_frequency_valid
         );
 end architecture rtl;

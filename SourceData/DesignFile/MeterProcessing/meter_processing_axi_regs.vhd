@@ -3,6 +3,7 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 library work;
+use work.meter_frequency_pkg.all;
 use work.metering_pkg.all;
 
 entity meter_processing_axi_regs is
@@ -36,6 +37,22 @@ entity meter_processing_axi_regs is
     shadow_dc_remove_o      : out std_logic;
     apply_toggle_o          : out std_logic;
 
+    frequency_shadow_control_o         : out word32_t;
+    frequency_shadow_window_samples_o  : out word32_t;
+    frequency_shadow_minimum_millihz_o : out word32_t;
+    frequency_shadow_maximum_millihz_o : out word32_t;
+    frequency_shadow_hysteresis_uv_o   : out word32_t;
+    frequency_active_control_i         : in  word32_t;
+    frequency_active_window_samples_i  : in  word32_t;
+    frequency_active_minimum_millihz_i : in  word32_t;
+    frequency_active_maximum_millihz_i : in  word32_t;
+    frequency_active_hysteresis_uv_i   : in  word32_t;
+    frequency_status_i                 : in  word32_t;
+    frequency_millihz_i                : in  word32_t;
+    frequency_period_q16_samples_i     : in  word32_t;
+    frequency_measurement_sequence_i   : in  word32_t;
+    frequency_rejected_count_i         : in  word32_t;
+
     active_generation_i     : in  word32_t;
     result_sequence_i       : in  word32_t;
     result_drop_count_i     : in  word32_t;
@@ -54,6 +71,16 @@ architecture rtl of meter_processing_axi_regs is
   signal shadow_valid_mask     : std_logic_vector(7 downto 0) := x"70";
   signal shadow_enable         : std_logic := '0';
   signal shadow_dc_remove      : std_logic := '1';
+  -- 0x00000A63 = enabled, rolling-cycles, CH6, 10 cycles.
+  signal frequency_shadow_control         : word32_t := x"00000A63";
+  signal frequency_shadow_window_samples  : word32_t :=
+    std_logic_vector(to_unsigned(32000, 32));
+  signal frequency_shadow_minimum_millihz : word32_t :=
+    std_logic_vector(to_unsigned(40000, 32));
+  signal frequency_shadow_maximum_millihz : word32_t :=
+    std_logic_vector(to_unsigned(70000, 32));
+  signal frequency_shadow_hysteresis_uv   : word32_t :=
+    std_logic_vector(to_unsigned(1000000, 32));
   signal apply_toggle          : std_logic := '0';
   signal bvalid                : std_logic := '0';
   signal rvalid                : std_logic := '0';
@@ -79,6 +106,11 @@ begin
   shadow_enable_o <= shadow_enable;
   shadow_dc_remove_o <= shadow_dc_remove;
   apply_toggle_o <= apply_toggle;
+  frequency_shadow_control_o <= frequency_shadow_control;
+  frequency_shadow_window_samples_o <= frequency_shadow_window_samples;
+  frequency_shadow_minimum_millihz_o <= frequency_shadow_minimum_millihz;
+  frequency_shadow_maximum_millihz_o <= frequency_shadow_maximum_millihz;
+  frequency_shadow_hysteresis_uv_o <= frequency_shadow_hysteresis_uv;
 
   process (aclk)
     variable address_word : natural range 0 to 63;
@@ -93,6 +125,15 @@ begin
         shadow_valid_mask <= x"70";
         shadow_enable <= '0';
         shadow_dc_remove <= '1';
+        frequency_shadow_control <= x"00000A63";
+        frequency_shadow_window_samples <=
+          std_logic_vector(to_unsigned(32000, 32));
+        frequency_shadow_minimum_millihz <=
+          std_logic_vector(to_unsigned(40000, 32));
+        frequency_shadow_maximum_millihz <=
+          std_logic_vector(to_unsigned(70000, 32));
+        frequency_shadow_hysteresis_uv <=
+          std_logic_vector(to_unsigned(1000000, 32));
         apply_toggle <= '0';
         bvalid <= '0';
         rvalid <= '0';
@@ -129,6 +170,21 @@ begin
               updated_word(7 downto 0) := shadow_valid_mask;
               updated_word := apply_write_strobes(updated_word, s_axi_wdata, s_axi_wstrb);
               shadow_valid_mask <= updated_word(7 downto 0);
+            when FREQUENCY_REG_SHADOW_CONTROL / 4 =>
+              frequency_shadow_control <= apply_write_strobes(
+                frequency_shadow_control, s_axi_wdata, s_axi_wstrb);
+            when FREQUENCY_REG_SHADOW_WINDOW_SAMPLES / 4 =>
+              frequency_shadow_window_samples <= apply_write_strobes(
+                frequency_shadow_window_samples, s_axi_wdata, s_axi_wstrb);
+            when FREQUENCY_REG_SHADOW_MINIMUM_MILLIHZ / 4 =>
+              frequency_shadow_minimum_millihz <= apply_write_strobes(
+                frequency_shadow_minimum_millihz, s_axi_wdata, s_axi_wstrb);
+            when FREQUENCY_REG_SHADOW_MAXIMUM_MILLIHZ / 4 =>
+              frequency_shadow_maximum_millihz <= apply_write_strobes(
+                frequency_shadow_maximum_millihz, s_axi_wdata, s_axi_wstrb);
+            when FREQUENCY_REG_SHADOW_HYSTERESIS_UV / 4 =>
+              frequency_shadow_hysteresis_uv <= apply_write_strobes(
+                frequency_shadow_hysteresis_uv, s_axi_wdata, s_axi_wstrb);
             when others => null;
           end case;
           bvalid <= '1';
@@ -157,6 +213,35 @@ begin
             when 9 => rdata <= result_sequence_i;
             when 10 => rdata <= result_drop_count_i;
             when 11 => rdata <= packet_drop_count_i;
+            when FREQUENCY_REG_SHADOW_CONTROL / 4 =>
+              rdata <= frequency_shadow_control;
+            when FREQUENCY_REG_SHADOW_WINDOW_SAMPLES / 4 =>
+              rdata <= frequency_shadow_window_samples;
+            when FREQUENCY_REG_SHADOW_MINIMUM_MILLIHZ / 4 =>
+              rdata <= frequency_shadow_minimum_millihz;
+            when FREQUENCY_REG_SHADOW_MAXIMUM_MILLIHZ / 4 =>
+              rdata <= frequency_shadow_maximum_millihz;
+            when FREQUENCY_REG_SHADOW_HYSTERESIS_UV / 4 =>
+              rdata <= frequency_shadow_hysteresis_uv;
+            when FREQUENCY_REG_ACTIVE_CONTROL / 4 =>
+              rdata <= frequency_active_control_i;
+            when FREQUENCY_REG_ACTIVE_WINDOW_SAMPLES / 4 =>
+              rdata <= frequency_active_window_samples_i;
+            when FREQUENCY_REG_ACTIVE_MINIMUM_MILLIHZ / 4 =>
+              rdata <= frequency_active_minimum_millihz_i;
+            when FREQUENCY_REG_ACTIVE_MAXIMUM_MILLIHZ / 4 =>
+              rdata <= frequency_active_maximum_millihz_i;
+            when FREQUENCY_REG_ACTIVE_HYSTERESIS_UV / 4 =>
+              rdata <= frequency_active_hysteresis_uv_i;
+            when FREQUENCY_REG_STATUS / 4 => rdata <= frequency_status_i;
+            when FREQUENCY_REG_VALUE_MILLIHZ / 4 =>
+              rdata <= frequency_millihz_i;
+            when FREQUENCY_REG_PERIOD_Q16_SAMPLES / 4 =>
+              rdata <= frequency_period_q16_samples_i;
+            when FREQUENCY_REG_MEASUREMENT_SEQUENCE / 4 =>
+              rdata <= frequency_measurement_sequence_i;
+            when FREQUENCY_REG_REJECTED_COUNT / 4 =>
+              rdata <= frequency_rejected_count_i;
             when others => rdata <= (others => '0');
           end case;
           rvalid <= '1';

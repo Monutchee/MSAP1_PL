@@ -49,6 +49,7 @@ cd $capture_sim_dir
 puts [exec $xvhdl --2008 \
     [file join $rtl_dir ad7771_receiver.vhd] \
     [file join $rtl_dir ad7771_axi_regs.vhd] \
+    [file join $rtl_dir ad7771_dclk_meter.vhd] \
     [file join $rtl_dir ad7771_capture.vhd] 2>@1]
 puts [exec $xvlog --sv $capture_testbench 2>@1]
 puts [exec $xvlog [file join $vivado_root data verilog src glbl.v] 2>@1]
@@ -67,6 +68,7 @@ file delete -force $capture_sim_dir
 
 read_vhdl -vhdl2008 [file join $rtl_dir ad7771_receiver.vhd]
 read_vhdl -vhdl2008 [file join $rtl_dir ad7771_axi_regs.vhd]
+read_vhdl -vhdl2008 [file join $rtl_dir ad7771_dclk_meter.vhd]
 read_vhdl -vhdl2008 [file join $rtl_dir ad7771_capture.vhd]
 read_vhdl [file join $rtl_dir Ad7771Capture_Wrapper.vhd]
 
