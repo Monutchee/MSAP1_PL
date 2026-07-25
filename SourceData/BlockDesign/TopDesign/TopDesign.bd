@@ -1992,8 +1992,8 @@
           "axi_dma_0": {
             "vlnv": "xilinx.com:ip:axi_dma:7.1",
             "ip_revision": "37",
-            "xci_name": "TopDesign_axi_dma_0_0",
-            "xci_path": "ip/TopDesign_axi_dma_0_0/TopDesign_axi_dma_0_0.xci",
+            "xci_name": "TopDesign_axi_dma_0_1",
+            "xci_path": "ip/TopDesign_axi_dma_0_1/TopDesign_axi_dma_0_1.xci",
             "inst_hier_path": "ADC_DMA/axi_dma_0",
             "has_run_ip_tcl": "true",
             "parameters": {
@@ -2063,8 +2063,8 @@
           "adc_dma_mem_smc": {
             "vlnv": "xilinx.com:ip:smartconnect:1.0",
             "ip_revision": "28",
-            "xci_name": "TopDesign_adc_dma_mem_smc_0",
-            "xci_path": "ip/TopDesign_adc_dma_mem_smc_0/TopDesign_adc_dma_mem_smc_0.xci",
+            "xci_name": "TopDesign_smartconnect_1_0",
+            "xci_path": "ip/TopDesign_smartconnect_1_0/TopDesign_smartconnect_1_0.xci",
             "inst_hier_path": "ADC_DMA/adc_dma_mem_smc",
             "has_run_ip_tcl": "true",
             "interface_ports": {
@@ -2352,8 +2352,8 @@
               "RPU_HeartBeat_GPIO_Ctrl": {
                 "vlnv": "xilinx.com:ip:axi_gpio:2.0",
                 "ip_revision": "37",
-                "xci_name": "TopDesign_RPU_HeartBeat_GPIO_Ctrl_0",
-                "xci_path": "ip/TopDesign_RPU_HeartBeat_GPIO_Ctrl_0/TopDesign_RPU_HeartBeat_GPIO_Ctrl_0.xci",
+                "xci_name": "TopDesign_axi_gpio_0_0",
+                "xci_path": "ip/TopDesign_axi_gpio_0_0/TopDesign_axi_gpio_0_0.xci",
                 "inst_hier_path": "System_Native_Peripherals/HeatBeat/RPU_HeartBeat_GPIO_Ctrl",
                 "has_run_ip_tcl": "true",
                 "parameters": {
@@ -2368,8 +2368,8 @@
               "PL_HeartBeat_Ctrl": {
                 "vlnv": "xilinx.com:module_ref:HeatBeat_Wrapper:1.0",
                 "ip_revision": "1",
-                "xci_name": "TopDesign_PL_HeartBeat_Ctrl_0",
-                "xci_path": "ip/TopDesign_PL_HeartBeat_Ctrl_0/TopDesign_PL_HeartBeat_Ctrl_0.xci",
+                "xci_name": "TopDesign_HeatBeat_Wrapper_0_0",
+                "xci_path": "ip/TopDesign_HeatBeat_Wrapper_0_0/TopDesign_HeatBeat_Wrapper_0_0.xci",
                 "inst_hier_path": "System_Native_Peripherals/HeatBeat/PL_HeartBeat_Ctrl",
                 "has_run_ip_tcl": "true",
                 "reference_info": {
@@ -2601,16 +2601,16 @@
           "ADC_SPI": {
             "vlnv": "xilinx.com:ip:axi_quad_spi:3.2",
             "ip_revision": "35",
-            "xci_name": "TopDesign_ADC_SPI_0",
-            "xci_path": "ip/TopDesign_ADC_SPI_0/TopDesign_ADC_SPI_0.xci",
+            "xci_name": "TopDesign_axi_quad_spi_0_0",
+            "xci_path": "ip/TopDesign_axi_quad_spi_0_0/TopDesign_axi_quad_spi_0_0.xci",
             "inst_hier_path": "MeterLogic/ADC_SPI",
             "has_run_ip_tcl": "true"
           },
           "MeterCore_Wrapper": {
             "vlnv": "xilinx.com:module_ref:MeterCore_Wrapper:1.0",
             "ip_revision": "1",
-            "xci_name": "TopDesign_MeterCore_Wrapper_0",
-            "xci_path": "ip/TopDesign_MeterCore_Wrapper_0/TopDesign_MeterCore_Wrapper_0.xci",
+            "xci_name": "TopDesign_MeterCore_Wrapper_0_0",
+            "xci_path": "ip/TopDesign_MeterCore_Wrapper_0_0/TopDesign_MeterCore_Wrapper_0_0.xci",
             "inst_hier_path": "MeterLogic/MeterCore_Wrapper",
             "has_run_ip_tcl": "true",
             "reference_info": {
