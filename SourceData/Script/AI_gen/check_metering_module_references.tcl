@@ -26,6 +26,8 @@ set vhdl_2008_sources [list \
   [file join $design_root MeterProcessing meter_frequency_estimator.vhd] \
   [file join $design_root MeterProcessing meter_frequency.vhd] \
   [file join $design_root MeterProcessing meter_rms.vhd] \
+  [file join $design_root MeterCore meter_waveform_axi_regs.vhd] \
+  [file join $design_root MeterCore meter_waveform.vhd] \
   [file join $design_root MeterCore meter_core.vhd]]
 set wrapper_sources [list \
   [file join $design_root MeterProcessing MeterResultHub_Wrapper.vhd] \
@@ -41,7 +43,8 @@ create_bd_cell -type module -reference MeterCore_Wrapper meter_core
 
 set expected_interfaces [list \
   meter_core/S_AXI_CAPTURE meter_core/S_AXI_CONVERSION \
-  meter_core/S_AXI_PROCESSING meter_core/M_AXIS_METER]
+  meter_core/S_AXI_PROCESSING meter_core/S_AXI_WAVEFORM \
+  meter_core/M_AXIS_METER meter_core/M_AXIS_WAVEFORM]
 foreach interface_name $expected_interfaces {
   if {[llength [get_bd_intf_pins -quiet $interface_name]] != 1} {
     error "missing inferred interface $interface_name"
@@ -56,7 +59,7 @@ if {[get_property CONFIG.FREQ_HZ $meter_clock] != 99999001} {
   error "MeterCore aclk FREQ_HZ metadata was not inferred as 99999001"
 }
 if {[get_property CONFIG.ASSOCIATED_BUSIF $meter_clock] ne \
-    "S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:M_AXIS_METER"} {
+    "S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:S_AXI_WAVEFORM:M_AXIS_METER:M_AXIS_WAVEFORM"} {
   error "MeterCore aclk AXI interface associations were not inferred"
 }
 

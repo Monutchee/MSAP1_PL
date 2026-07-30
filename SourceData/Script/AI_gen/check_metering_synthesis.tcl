@@ -36,6 +36,8 @@ read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_zero_crossing.
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_frequency_estimator.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_frequency.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_rms.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterCore meter_waveform_axi_regs.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterCore meter_waveform.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing MeterResultHub_Wrapper.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing MeterPacketizer_Wrapper.vhd]
 read_vhdl [file join $design_root AdcConversion AdcConversion_Wrapper.vhd]

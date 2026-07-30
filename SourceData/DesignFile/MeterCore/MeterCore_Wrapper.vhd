@@ -62,11 +62,35 @@ entity MeterCore_Wrapper is
     s_axi_processing_rvalid  : out std_logic;
     s_axi_processing_rready  : in  std_logic;
 
+    s_axi_waveform_awaddr  : in  std_logic_vector(7 downto 0);
+    s_axi_waveform_awvalid : in  std_logic;
+    s_axi_waveform_awready : out std_logic;
+    s_axi_waveform_wdata   : in  std_logic_vector(31 downto 0);
+    s_axi_waveform_wstrb   : in  std_logic_vector(3 downto 0);
+    s_axi_waveform_wvalid  : in  std_logic;
+    s_axi_waveform_wready  : out std_logic;
+    s_axi_waveform_bresp   : out std_logic_vector(1 downto 0);
+    s_axi_waveform_bvalid  : out std_logic;
+    s_axi_waveform_bready  : in  std_logic;
+    s_axi_waveform_araddr  : in  std_logic_vector(7 downto 0);
+    s_axi_waveform_arvalid : in  std_logic;
+    s_axi_waveform_arready : out std_logic;
+    s_axi_waveform_rdata   : out std_logic_vector(31 downto 0);
+    s_axi_waveform_rresp   : out std_logic_vector(1 downto 0);
+    s_axi_waveform_rvalid  : out std_logic;
+    s_axi_waveform_rready  : in  std_logic;
+
     m_axis_meter_tdata  : out std_logic_vector(31 downto 0);
     m_axis_meter_tkeep  : out std_logic_vector(3 downto 0);
     m_axis_meter_tvalid : out std_logic;
     m_axis_meter_tready : in  std_logic;
     m_axis_meter_tlast  : out std_logic;
+
+    m_axis_waveform_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_waveform_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_waveform_tvalid : out std_logic;
+    m_axis_waveform_tready : in  std_logic;
+    m_axis_waveform_tlast  : out std_logic;
 
     adc_dclk       : in  std_logic;
     adc_drdy_n     : in  std_logic;
@@ -84,7 +108,7 @@ architecture structural of MeterCore_Wrapper is
   attribute X_INTERFACE_INFO of aclk : signal is
     "xilinx.com:signal:clock:1.0 aclk CLK";
   attribute X_INTERFACE_PARAMETER of aclk : signal is
-    "XIL_INTERFACENAME aclk, FREQ_HZ 99999001, ASSOCIATED_RESET aresetn, ASSOCIATED_BUSIF S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:M_AXIS_METER";
+    "XIL_INTERFACENAME aclk, FREQ_HZ 99999001, ASSOCIATED_RESET aresetn, ASSOCIATED_BUSIF S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:S_AXI_WAVEFORM:M_AXIS_METER:M_AXIS_WAVEFORM";
   attribute X_INTERFACE_INFO of aresetn : signal is
     "xilinx.com:signal:reset:1.0 aresetn RST";
   attribute X_INTERFACE_PARAMETER of aresetn : signal is
@@ -155,6 +179,26 @@ architecture structural of MeterCore_Wrapper is
   attribute X_INTERFACE_INFO of s_axi_processing_rvalid : signal is "xilinx.com:interface:aximm:1.0 S_AXI_PROCESSING RVALID";
   attribute X_INTERFACE_INFO of s_axi_processing_rready : signal is "xilinx.com:interface:aximm:1.0 S_AXI_PROCESSING RREADY";
 
+  attribute X_INTERFACE_INFO of s_axi_waveform_awaddr : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM AWADDR";
+  attribute X_INTERFACE_PARAMETER of s_axi_waveform_awaddr : signal is
+    "XIL_INTERFACENAME S_AXI_WAVEFORM, PROTOCOL AXI4LITE, DATA_WIDTH 32, ADDR_WIDTH 8, ID_WIDTH 0, READ_WRITE_MODE READ_WRITE";
+  attribute X_INTERFACE_INFO of s_axi_waveform_awvalid : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM AWVALID";
+  attribute X_INTERFACE_INFO of s_axi_waveform_awready : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM AWREADY";
+  attribute X_INTERFACE_INFO of s_axi_waveform_wdata : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM WDATA";
+  attribute X_INTERFACE_INFO of s_axi_waveform_wstrb : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM WSTRB";
+  attribute X_INTERFACE_INFO of s_axi_waveform_wvalid : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM WVALID";
+  attribute X_INTERFACE_INFO of s_axi_waveform_wready : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM WREADY";
+  attribute X_INTERFACE_INFO of s_axi_waveform_bresp : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM BRESP";
+  attribute X_INTERFACE_INFO of s_axi_waveform_bvalid : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM BVALID";
+  attribute X_INTERFACE_INFO of s_axi_waveform_bready : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM BREADY";
+  attribute X_INTERFACE_INFO of s_axi_waveform_araddr : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM ARADDR";
+  attribute X_INTERFACE_INFO of s_axi_waveform_arvalid : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM ARVALID";
+  attribute X_INTERFACE_INFO of s_axi_waveform_arready : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM ARREADY";
+  attribute X_INTERFACE_INFO of s_axi_waveform_rdata : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM RDATA";
+  attribute X_INTERFACE_INFO of s_axi_waveform_rresp : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM RRESP";
+  attribute X_INTERFACE_INFO of s_axi_waveform_rvalid : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM RVALID";
+  attribute X_INTERFACE_INFO of s_axi_waveform_rready : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM RREADY";
+
   attribute X_INTERFACE_INFO of m_axis_meter_tdata : signal is "xilinx.com:interface:axis:1.0 M_AXIS_METER TDATA";
   attribute X_INTERFACE_PARAMETER of m_axis_meter_tdata : signal is
     "XIL_INTERFACENAME M_AXIS_METER, TDATA_NUM_BYTES 4, TUSER_WIDTH 0, HAS_TREADY 1, HAS_TKEEP 1, HAS_TLAST 1";
@@ -162,6 +206,14 @@ architecture structural of MeterCore_Wrapper is
   attribute X_INTERFACE_INFO of m_axis_meter_tvalid : signal is "xilinx.com:interface:axis:1.0 M_AXIS_METER TVALID";
   attribute X_INTERFACE_INFO of m_axis_meter_tready : signal is "xilinx.com:interface:axis:1.0 M_AXIS_METER TREADY";
   attribute X_INTERFACE_INFO of m_axis_meter_tlast : signal is "xilinx.com:interface:axis:1.0 M_AXIS_METER TLAST";
+
+  attribute X_INTERFACE_INFO of m_axis_waveform_tdata : signal is "xilinx.com:interface:axis:1.0 M_AXIS_WAVEFORM TDATA";
+  attribute X_INTERFACE_PARAMETER of m_axis_waveform_tdata : signal is
+    "XIL_INTERFACENAME M_AXIS_WAVEFORM, TDATA_NUM_BYTES 4, TUSER_WIDTH 0, HAS_TREADY 1, HAS_TKEEP 1, HAS_TLAST 1";
+  attribute X_INTERFACE_INFO of m_axis_waveform_tkeep : signal is "xilinx.com:interface:axis:1.0 M_AXIS_WAVEFORM TKEEP";
+  attribute X_INTERFACE_INFO of m_axis_waveform_tvalid : signal is "xilinx.com:interface:axis:1.0 M_AXIS_WAVEFORM TVALID";
+  attribute X_INTERFACE_INFO of m_axis_waveform_tready : signal is "xilinx.com:interface:axis:1.0 M_AXIS_WAVEFORM TREADY";
+  attribute X_INTERFACE_INFO of m_axis_waveform_tlast : signal is "xilinx.com:interface:axis:1.0 M_AXIS_WAVEFORM TLAST";
 begin
   implementation : entity work.meter_core
     port map (
@@ -218,11 +270,33 @@ begin
       s_axi_processing_rresp => s_axi_processing_rresp,
       s_axi_processing_rvalid => s_axi_processing_rvalid,
       s_axi_processing_rready => s_axi_processing_rready,
+      s_axi_waveform_awaddr => s_axi_waveform_awaddr,
+      s_axi_waveform_awvalid => s_axi_waveform_awvalid,
+      s_axi_waveform_awready => s_axi_waveform_awready,
+      s_axi_waveform_wdata => s_axi_waveform_wdata,
+      s_axi_waveform_wstrb => s_axi_waveform_wstrb,
+      s_axi_waveform_wvalid => s_axi_waveform_wvalid,
+      s_axi_waveform_wready => s_axi_waveform_wready,
+      s_axi_waveform_bresp => s_axi_waveform_bresp,
+      s_axi_waveform_bvalid => s_axi_waveform_bvalid,
+      s_axi_waveform_bready => s_axi_waveform_bready,
+      s_axi_waveform_araddr => s_axi_waveform_araddr,
+      s_axi_waveform_arvalid => s_axi_waveform_arvalid,
+      s_axi_waveform_arready => s_axi_waveform_arready,
+      s_axi_waveform_rdata => s_axi_waveform_rdata,
+      s_axi_waveform_rresp => s_axi_waveform_rresp,
+      s_axi_waveform_rvalid => s_axi_waveform_rvalid,
+      s_axi_waveform_rready => s_axi_waveform_rready,
       m_axis_meter_tdata => m_axis_meter_tdata,
       m_axis_meter_tkeep => m_axis_meter_tkeep,
       m_axis_meter_tvalid => m_axis_meter_tvalid,
       m_axis_meter_tready => m_axis_meter_tready,
       m_axis_meter_tlast => m_axis_meter_tlast,
+      m_axis_waveform_tdata => m_axis_waveform_tdata,
+      m_axis_waveform_tkeep => m_axis_waveform_tkeep,
+      m_axis_waveform_tvalid => m_axis_waveform_tvalid,
+      m_axis_waveform_tready => m_axis_waveform_tready,
+      m_axis_waveform_tlast => m_axis_waveform_tlast,
       adc_dclk => adc_dclk,
       adc_drdy_n => adc_drdy_n,
       adc_dout => adc_dout,
