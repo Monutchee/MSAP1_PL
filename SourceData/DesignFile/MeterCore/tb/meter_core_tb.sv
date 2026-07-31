@@ -58,11 +58,35 @@ module meter_core_tb;
   wire proc_rvalid;
   logic proc_rready = 1'b1;
 
+  logic [7:0] wave_awaddr = '0;
+  logic wave_awvalid = 1'b0;
+  wire wave_awready;
+  logic [31:0] wave_wdata = '0;
+  logic [3:0] wave_wstrb = 4'hf;
+  logic wave_wvalid = 1'b0;
+  wire wave_wready;
+  wire [1:0] wave_bresp;
+  wire wave_bvalid;
+  logic wave_bready = 1'b1;
+  logic [7:0] wave_araddr = '0;
+  logic wave_arvalid = 1'b0;
+  wire wave_arready;
+  wire [31:0] wave_rdata;
+  wire [1:0] wave_rresp;
+  wire wave_rvalid;
+  logic wave_rready = 1'b1;
+
   wire [31:0] meter_tdata;
   wire [3:0] meter_tkeep;
   wire meter_tvalid;
   logic meter_tready = 1'b0;
   wire meter_tlast;
+
+  wire [31:0] waveform_tdata;
+  wire [3:0] waveform_tkeep;
+  wire waveform_tvalid;
+  logic waveform_tready = 1'b0;
+  wire waveform_tlast;
 
   logic adc_dclk = 1'b0;
   logic adc_drdy_n = 1'b0;
@@ -136,11 +160,33 @@ module meter_core_tb;
     .s_axi_processing_rresp(proc_rresp),
     .s_axi_processing_rvalid(proc_rvalid),
     .s_axi_processing_rready(proc_rready),
+    .s_axi_waveform_awaddr(wave_awaddr),
+    .s_axi_waveform_awvalid(wave_awvalid),
+    .s_axi_waveform_awready(wave_awready),
+    .s_axi_waveform_wdata(wave_wdata),
+    .s_axi_waveform_wstrb(wave_wstrb),
+    .s_axi_waveform_wvalid(wave_wvalid),
+    .s_axi_waveform_wready(wave_wready),
+    .s_axi_waveform_bresp(wave_bresp),
+    .s_axi_waveform_bvalid(wave_bvalid),
+    .s_axi_waveform_bready(wave_bready),
+    .s_axi_waveform_araddr(wave_araddr),
+    .s_axi_waveform_arvalid(wave_arvalid),
+    .s_axi_waveform_arready(wave_arready),
+    .s_axi_waveform_rdata(wave_rdata),
+    .s_axi_waveform_rresp(wave_rresp),
+    .s_axi_waveform_rvalid(wave_rvalid),
+    .s_axi_waveform_rready(wave_rready),
     .m_axis_meter_tdata(meter_tdata),
     .m_axis_meter_tkeep(meter_tkeep),
     .m_axis_meter_tvalid(meter_tvalid),
     .m_axis_meter_tready(meter_tready),
     .m_axis_meter_tlast(meter_tlast),
+    .m_axis_waveform_tdata(waveform_tdata),
+    .m_axis_waveform_tkeep(waveform_tkeep),
+    .m_axis_waveform_tvalid(waveform_tvalid),
+    .m_axis_waveform_tready(waveform_tready),
+    .m_axis_waveform_tlast(waveform_tlast),
     .adc_dclk(adc_dclk),
     .adc_drdy_n(adc_drdy_n),
     .adc_dout(adc_dout),
@@ -163,6 +209,38 @@ module meter_core_tb;
       cap_wvalid = 1'b0;
       do @(posedge clock); while (!cap_bvalid);
       assert (cap_bresp == 2'b00) else $fatal(1, "capture AXI write failed");
+    end
+  endtask
+
+  task automatic waveform_write(input logic [7:0] address,
+                                input logic [31:0] value);
+    begin
+      @(negedge clock);
+      wave_awaddr = address;
+      wave_wdata = value;
+      wave_awvalid = 1'b1;
+      wave_wvalid = 1'b1;
+      do @(posedge clock); while (!(wave_awready && wave_wready));
+      @(negedge clock);
+      wave_awvalid = 1'b0;
+      wave_wvalid = 1'b0;
+      do @(posedge clock); while (!wave_bvalid);
+      assert (wave_bresp == 2'b00) else $fatal(1, "waveform AXI write failed");
+    end
+  endtask
+
+  task automatic waveform_read(input logic [7:0] address,
+                               output logic [31:0] value);
+    begin
+      @(negedge clock);
+      wave_araddr = address;
+      wave_arvalid = 1'b1;
+      do @(posedge clock); while (!wave_arready);
+      @(negedge clock);
+      wave_arvalid = 1'b0;
+      do @(posedge clock); while (!wave_rvalid);
+      assert (wave_rresp == 2'b00) else $fatal(1, "waveform AXI read failed");
+      value = wave_rdata;
     end
   endtask
 
@@ -427,6 +505,7 @@ module meter_core_tb;
     resetn = 1'b1;
 
     configure_meter(32'd42, 1'b1);
+    waveform_write(8'h08, 32'h0000_0001);
     capture_write(8'h04, 32'h0000_0005);
     repeat (20) @(posedge adc_dclk);
 
@@ -475,6 +554,12 @@ module meter_core_tb;
     assert (read_value == 0) else $fatal(1, "unexpected RMS result drop");
     processing_read(8'h2c, read_value);
     assert (read_value == 0) else $fatal(1, "unexpected packetizer drop");
+    waveform_read(8'h28, read_value);
+    assert (read_value == 12)
+      else $fatal(1, "waveform frame sequence mismatch");
+    waveform_read(8'h30, read_value);
+    assert (read_value == 0)
+      else $fatal(1, "waveform branch dropped frames before its FIFO filled");
 
     $display("PASS: meter_core_tb");
     $finish;

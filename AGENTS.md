@@ -9,9 +9,9 @@
   Maintained integration and validation Tcl lives in `SourceData/Script/AI_gen/`.
 - Heartbeat VHDL RTL, its ordinary-VHDL module-reference wrapper, and its
   SystemVerilog testbench are in `SourceData/DesignFile/HeatBeat_Controller/`.
-- `TopDesign.bd` is the only block design and owns the Zynq platform, AXI DMA,
-  AXI Quad SPI, AXI GPIO, heartbeat, fan routing, clocks, resets, and external
-  ports.
+- `TopDesign.bd` is the only block design and owns the Zynq platform, the
+  independent meter and waveform AXI DMA engines, AXI Quad SPI, AXI GPIO,
+  heartbeat, fan routing, clocks, resets, and external ports.
 - `SourceData/DesignFile/MeterCore/` is the single metering module-reference
   boundary. Its VHDL hierarchy owns AD7771 capture, runtime conversion, RMS
   processing, VLA frequency measurement, the result hub, and MTR1 packetization.
@@ -29,10 +29,17 @@
 - Assert `TLAST` after the configured packet count. The default is 256 frames,
   2048 AXI beats, or 8192 bytes per DMA packet.
 - AXI Quad SPI, capture, conversion, and processing AXI-Lite registers are
-  RPU-owned. Linux exclusively owns the SG-enabled meter S2MM DMA.
+  RPU-owned. Linux exclusively owns both SG-enabled S2MM DMA engines and the
+  waveform correlation/control registers.
 - Current addresses are AXI Quad SPI `0xB0010000`, capture `0xB0020000`, AXI
-  DMA `0xB0030000`, conversion `0xB0040000`, and processing `0xB0050000`.
-  Address-map changes require a new XSA and coordinated RPU updates.
+  meter DMA `0xB0030000`, conversion `0xB0040000`, processing `0xB0050000`,
+  waveform DMA `0xB0060000`, and waveform control `0xB0070000`. Address-map
+  changes require a new XSA and coordinated Linux/device-tree updates; changes
+  to RPU-owned segments also require coordinated RPU updates.
+- The raw waveform branch emits 64-byte WFM1 headers plus 1024 eight-channel
+  frames. It is observational and must never backpressure ADC capture, RMS,
+  frequency, or MTR1 production. Its short XPM FIFO may drop waveform frames
+  and increment its counter when Linux is unavailable.
 - Capture diagnostics expose the measured ADC DCLK rate at offset `0x2C` and
   the physical `ADC_DRDY_N` falling-edge rate at offset `0x30`. Both use
   one-second measurement windows and become valid after the baseline window.

@@ -65,11 +65,35 @@ entity meter_core is
     s_axi_processing_rvalid  : out std_logic;
     s_axi_processing_rready  : in  std_logic;
 
+    s_axi_waveform_awaddr  : in  std_logic_vector(7 downto 0);
+    s_axi_waveform_awvalid : in  std_logic;
+    s_axi_waveform_awready : out std_logic;
+    s_axi_waveform_wdata   : in  std_logic_vector(31 downto 0);
+    s_axi_waveform_wstrb   : in  std_logic_vector(3 downto 0);
+    s_axi_waveform_wvalid  : in  std_logic;
+    s_axi_waveform_wready  : out std_logic;
+    s_axi_waveform_bresp   : out std_logic_vector(1 downto 0);
+    s_axi_waveform_bvalid  : out std_logic;
+    s_axi_waveform_bready  : in  std_logic;
+    s_axi_waveform_araddr  : in  std_logic_vector(7 downto 0);
+    s_axi_waveform_arvalid : in  std_logic;
+    s_axi_waveform_arready : out std_logic;
+    s_axi_waveform_rdata   : out std_logic_vector(31 downto 0);
+    s_axi_waveform_rresp   : out std_logic_vector(1 downto 0);
+    s_axi_waveform_rvalid  : out std_logic;
+    s_axi_waveform_rready  : in  std_logic;
+
     m_axis_meter_tdata  : out std_logic_vector(31 downto 0);
     m_axis_meter_tkeep  : out std_logic_vector(3 downto 0);
     m_axis_meter_tvalid : out std_logic;
     m_axis_meter_tready : in  std_logic;
     m_axis_meter_tlast  : out std_logic;
+
+    m_axis_waveform_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_waveform_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_waveform_tvalid : out std_logic;
+    m_axis_waveform_tready : in  std_logic;
+    m_axis_waveform_tlast  : out std_logic;
 
     adc_dclk       : in  std_logic;
     adc_drdy_n     : in  std_logic;
@@ -157,6 +181,15 @@ architecture structural of meter_core is
   signal record_ready         : std_logic;
   signal hub_drop_count       : std_logic_vector(31 downto 0);
   signal packetizer_drop_count: std_logic_vector(31 downto 0);
+
+  signal waveform_enable      : std_logic;
+  signal waveform_clear_stats : std_logic;
+  signal waveform_tick        : std_logic_vector(63 downto 0);
+  signal waveform_sequence    : std_logic_vector(63 downto 0);
+  signal waveform_drop_count  : std_logic_vector(31 downto 0);
+  signal waveform_block_count : std_logic_vector(31 downto 0);
+  signal waveform_status      : std_logic_vector(31 downto 0);
+  signal conversion_frame_accept : std_logic;
 begin
   capture : entity work.ad7771_capture
     generic map (
@@ -233,6 +266,68 @@ begin
       s_axi_rresp => s_axi_conversion_rresp,
       s_axi_rvalid => s_axi_conversion_rvalid,
       s_axi_rready => s_axi_conversion_rready
+    );
+
+  -- The waveform branch observes the exact frame accepted into the normal
+  -- conversion-to-processing FIFO. It never owns converted_source.ready, so a
+  -- stopped waveform DMA cannot backpressure RMS or ADC acquisition.
+  conversion_frame_accept <= converted_source.valid and converted_source.ready;
+
+  waveform_registers : entity work.meter_waveform_axi_regs
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      s_axi_awaddr => s_axi_waveform_awaddr,
+      s_axi_awvalid => s_axi_waveform_awvalid,
+      s_axi_awready => s_axi_waveform_awready,
+      s_axi_wdata => s_axi_waveform_wdata,
+      s_axi_wstrb => s_axi_waveform_wstrb,
+      s_axi_wvalid => s_axi_waveform_wvalid,
+      s_axi_wready => s_axi_waveform_wready,
+      s_axi_bresp => s_axi_waveform_bresp,
+      s_axi_bvalid => s_axi_waveform_bvalid,
+      s_axi_bready => s_axi_waveform_bready,
+      s_axi_araddr => s_axi_waveform_araddr,
+      s_axi_arvalid => s_axi_waveform_arvalid,
+      s_axi_arready => s_axi_waveform_arready,
+      s_axi_rdata => s_axi_waveform_rdata,
+      s_axi_rresp => s_axi_waveform_rresp,
+      s_axi_rvalid => s_axi_waveform_rvalid,
+      s_axi_rready => s_axi_waveform_rready,
+      tick_i => waveform_tick,
+      sequence_i => waveform_sequence,
+      drop_count_i => waveform_drop_count,
+      block_count_i => waveform_block_count,
+      status_i => waveform_status,
+      enable_o => waveform_enable,
+      clear_stats_o => waveform_clear_stats
+    );
+
+  waveform_stream : entity work.meter_waveform
+    generic map (
+      G_FRAMES_PER_BLOCK => 1024,
+      G_FIFO_DEPTH => 256
+    )
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      frame_accept_i => conversion_frame_accept,
+      raw_frame_i => converted_source.user(383 downto 128),
+      config_generation_i => converted_source.user(63 downto 32),
+      measured_frame_rate_hz_i => capture_frame_rate,
+      measured_frame_rate_valid_i => capture_frame_rate_valid,
+      enable_i => waveform_enable,
+      clear_stats_i => waveform_clear_stats,
+      tick_o => waveform_tick,
+      sequence_o => waveform_sequence,
+      drop_count_o => waveform_drop_count,
+      block_count_o => waveform_block_count,
+      status_o => waveform_status,
+      m_axis_tdata => m_axis_waveform_tdata,
+      m_axis_tkeep => m_axis_waveform_tkeep,
+      m_axis_tvalid => m_axis_waveform_tvalid,
+      m_axis_tready => m_axis_waveform_tready,
+      m_axis_tlast => m_axis_waveform_tlast
     );
 
   -- Same-clock elasticity between conversion and the calculation engines.

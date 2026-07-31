@@ -70,12 +70,12 @@
     <Option Name="WTVcsLaunchSim" Val="0"/>
     <Option Name="WTRivieraLaunchSim" Val="0"/>
     <Option Name="WTActivehdlLaunchSim" Val="0"/>
-    <Option Name="WTXSimExportSim" Val="5"/>
-    <Option Name="WTModelSimExportSim" Val="5"/>
-    <Option Name="WTQuestaExportSim" Val="5"/>
+    <Option Name="WTXSimExportSim" Val="6"/>
+    <Option Name="WTModelSimExportSim" Val="6"/>
+    <Option Name="WTQuestaExportSim" Val="6"/>
     <Option Name="WTIesExportSim" Val="0"/>
-    <Option Name="WTVcsExportSim" Val="5"/>
-    <Option Name="WTRivieraExportSim" Val="5"/>
+    <Option Name="WTVcsExportSim" Val="6"/>
+    <Option Name="WTRivieraExportSim" Val="6"/>
     <Option Name="WTActivehdlExportSim" Val="0"/>
     <Option Name="GenerateIPUpgradeLog" Val="TRUE"/>
     <Option Name="XSimRadix" Val="hex"/>
@@ -128,7 +128,7 @@
         </FileInfo>
       </File>
       <File Path="$PPRDIR/../SourceData/DesignFile/Ad7771Capture/ad7771_dclk_meter.vhd">
-        <FileInfo>
+        <FileInfo SFType="VHDL2008">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
@@ -152,7 +152,7 @@
         </FileInfo>
       </File>
       <File Path="$PPRDIR/../SourceData/DesignFile/MeterCommon/metering_pkg.vhd">
-        <FileInfo>
+        <FileInfo SFType="VHDL2008">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
@@ -169,8 +169,20 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
+      <File Path="$PPRDIR/../SourceData/DesignFile/MeterCore/meter_waveform_axi_regs.vhd">
+        <FileInfo SFType="VHDL2008">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/../SourceData/DesignFile/MeterCore/meter_waveform.vhd">
+        <FileInfo SFType="VHDL2008">
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
       <File Path="$PPRDIR/../SourceData/DesignFile/MeterProcessing/meter_frequency_pkg.vhd">
-        <FileInfo>
+        <FileInfo SFType="VHDL2008">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
@@ -212,13 +224,13 @@
         </FileInfo>
       </File>
       <File Path="$PPRDIR/../SourceData/DesignFile/MeterProcessing/MeterResultHub_Wrapper.vhd">
-        <FileInfo SFType="VHDL2008">
+        <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/../SourceData/DesignFile/MeterProcessing/MeterPacketizer_Wrapper.vhd">
-        <FileInfo SFType="VHDL2008">
+        <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
@@ -241,20 +253,20 @@
           <Attr Name="UsedIn" Val="implementation"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
-        <CompFileExtendedInfo CompFileName="TopDesign.bd" FileRelPathName="ip/TopDesign_ADC_SPI_0_1/TopDesign_ADC_SPI_0.xci">
-          <Proxy FileSetName="TopDesign_ADC_SPI_0"/>
-        </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="TopDesign.bd" FileRelPathName="ip/TopDesign_MeterCore_Wrapper_0_1/TopDesign_MeterCore_Wrapper_0.xci">
+        <CompFileExtendedInfo CompFileName="TopDesign.bd" FileRelPathName="ip/TopDesign_MeterCore_Wrapper_0/TopDesign_MeterCore_Wrapper_0.xci">
           <Proxy FileSetName="TopDesign_MeterCore_Wrapper_0"/>
         </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="TopDesign.bd" FileRelPathName="ip/TopDesign_PL_HeartBeat_Ctrl_0_1/TopDesign_PL_HeartBeat_Ctrl_0.xci">
+        <CompFileExtendedInfo CompFileName="TopDesign.bd" FileRelPathName="ip/TopDesign_PL_HeartBeat_Ctrl_0/TopDesign_PL_HeartBeat_Ctrl_0.xci">
           <Proxy FileSetName="TopDesign_PL_HeartBeat_Ctrl_0"/>
         </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="TopDesign.bd" FileRelPathName="ip/TopDesign_RPU_HeartBeat_GPIO_Ctrl_0_1/TopDesign_RPU_HeartBeat_GPIO_Ctrl_0.xci">
-          <Proxy FileSetName="TopDesign_RPU_HeartBeat_GPIO_Ctrl_0"/>
+        <CompFileExtendedInfo CompFileName="TopDesign.bd" FileRelPathName="ip/TopDesign_adc_dma_mem_smc_0/TopDesign_adc_dma_mem_smc_0.xci">
+          <Proxy FileSetName="TopDesign_adc_dma_mem_smc_0"/>
         </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="TopDesign.bd" FileRelPathName="ip/TopDesign_axi_dma_0_0_1/TopDesign_axi_dma_0_0.xci">
-          <Proxy FileSetName="TopDesign_axi_dma_0_0"/>
+        <CompFileExtendedInfo CompFileName="TopDesign.bd" FileRelPathName="ip/TopDesign_smartconnect_0_0/TopDesign_smartconnect_0_0.xci">
+          <Proxy FileSetName="TopDesign_smartconnect_0_0"/>
+        </CompFileExtendedInfo>
+        <CompFileExtendedInfo CompFileName="TopDesign.bd" FileRelPathName="ip/TopDesign_zynq_ultra_ps_e_0_0/TopDesign_zynq_ultra_ps_e_0_0.xci">
+          <Proxy FileSetName="TopDesign_zynq_ultra_ps_e_0_0"/>
         </CompFileExtendedInfo>
       </File>
       <File Path="$PPRDIR/../SourceData/BlockDesign/TopDesign/hdl/TopDesign_wrapper.vhd">
@@ -315,15 +327,15 @@
         <Option Name="TopAutoSet" Val="TRUE"/>
       </Config>
     </FileSet>
-    <FileSet Name="TopDesign_MeterCore_Wrapper_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/TopDesign_MeterCore_Wrapper_0" RelGenDir="$PGENDIR/TopDesign_MeterCore_Wrapper_0">
+    <FileSet Name="TopDesign_smartconnect_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/TopDesign_smartconnect_0_0" RelGenDir="$PGENDIR/TopDesign_smartconnect_0_0">
       <Config>
-        <Option Name="TopModule" Val="TopDesign_MeterCore_Wrapper_0"/>
+        <Option Name="TopModule" Val="TopDesign_smartconnect_0_0"/>
         <Option Name="UseBlackboxStub" Val="1"/>
       </Config>
     </FileSet>
-    <FileSet Name="TopDesign_ADC_SPI_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/TopDesign_ADC_SPI_0" RelGenDir="$PGENDIR/TopDesign_ADC_SPI_0">
+    <FileSet Name="TopDesign_zynq_ultra_ps_e_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/TopDesign_zynq_ultra_ps_e_0_0" RelGenDir="$PGENDIR/TopDesign_zynq_ultra_ps_e_0_0">
       <Config>
-        <Option Name="TopModule" Val="TopDesign_ADC_SPI_0"/>
+        <Option Name="TopModule" Val="TopDesign_zynq_ultra_ps_e_0_0"/>
         <Option Name="UseBlackboxStub" Val="1"/>
       </Config>
     </FileSet>
@@ -333,15 +345,15 @@
         <Option Name="UseBlackboxStub" Val="1"/>
       </Config>
     </FileSet>
-    <FileSet Name="TopDesign_axi_dma_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/TopDesign_axi_dma_0_0" RelGenDir="$PGENDIR/TopDesign_axi_dma_0_0">
+    <FileSet Name="TopDesign_MeterCore_Wrapper_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/TopDesign_MeterCore_Wrapper_0" RelGenDir="$PGENDIR/TopDesign_MeterCore_Wrapper_0">
       <Config>
-        <Option Name="TopModule" Val="TopDesign_axi_dma_0_0"/>
+        <Option Name="TopModule" Val="TopDesign_MeterCore_Wrapper_0"/>
         <Option Name="UseBlackboxStub" Val="1"/>
       </Config>
     </FileSet>
-    <FileSet Name="TopDesign_RPU_HeartBeat_GPIO_Ctrl_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/TopDesign_RPU_HeartBeat_GPIO_Ctrl_0" RelGenDir="$PGENDIR/TopDesign_RPU_HeartBeat_GPIO_Ctrl_0">
+    <FileSet Name="TopDesign_adc_dma_mem_smc_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/TopDesign_adc_dma_mem_smc_0" RelGenDir="$PGENDIR/TopDesign_adc_dma_mem_smc_0">
       <Config>
-        <Option Name="TopModule" Val="TopDesign_RPU_HeartBeat_GPIO_Ctrl_0"/>
+        <Option Name="TopModule" Val="TopDesign_adc_dma_mem_smc_0"/>
         <Option Name="UseBlackboxStub" Val="1"/>
       </Config>
     </FileSet>
@@ -378,11 +390,9 @@
       <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
       <RQSFiles/>
     </Run>
-    <Run Id="TopDesign_MeterCore_Wrapper_0_synth_1" Type="Ft3:Synth" SrcSet="TopDesign_MeterCore_Wrapper_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_MeterCore_Wrapper_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/TopDesign_MeterCore_Wrapper_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_MeterCore_Wrapper_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_MeterCore_Wrapper_0_synth_1" ParallelReportGen="true">
+    <Run Id="TopDesign_smartconnect_0_0_synth_1" Type="Ft3:Synth" SrcSet="TopDesign_smartconnect_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_smartconnect_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/TopDesign_smartconnect_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_smartconnect_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_smartconnect_0_0_synth_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025">
-          <Desc>Vivado Synthesis Defaults</Desc>
-        </StratHandle>
+        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025"/>
         <Step Id="synth_design"/>
       </Strategy>
       <GeneratedRun Dir="$PRUNDIR" File="gen_run.xml"/>
@@ -390,11 +400,9 @@
       <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
       <RQSFiles/>
     </Run>
-    <Run Id="TopDesign_ADC_SPI_0_synth_1" Type="Ft3:Synth" SrcSet="TopDesign_ADC_SPI_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_ADC_SPI_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/TopDesign_ADC_SPI_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_ADC_SPI_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_ADC_SPI_0_synth_1" ParallelReportGen="true">
+    <Run Id="TopDesign_zynq_ultra_ps_e_0_0_synth_1" Type="Ft3:Synth" SrcSet="TopDesign_zynq_ultra_ps_e_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_zynq_ultra_ps_e_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/TopDesign_zynq_ultra_ps_e_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_zynq_ultra_ps_e_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_zynq_ultra_ps_e_0_0_synth_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025">
-          <Desc>Vivado Synthesis Defaults</Desc>
-        </StratHandle>
+        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025"/>
         <Step Id="synth_design"/>
       </Strategy>
       <GeneratedRun Dir="$PRUNDIR" File="gen_run.xml"/>
@@ -414,7 +422,7 @@
       <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
       <RQSFiles/>
     </Run>
-    <Run Id="TopDesign_axi_dma_0_0_synth_1" Type="Ft3:Synth" SrcSet="TopDesign_axi_dma_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_axi_dma_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/TopDesign_axi_dma_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_axi_dma_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_axi_dma_0_0_synth_1" ParallelReportGen="true">
+    <Run Id="TopDesign_MeterCore_Wrapper_0_synth_1" Type="Ft3:Synth" SrcSet="TopDesign_MeterCore_Wrapper_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_MeterCore_Wrapper_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/TopDesign_MeterCore_Wrapper_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_MeterCore_Wrapper_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_MeterCore_Wrapper_0_synth_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025">
           <Desc>Vivado Synthesis Defaults</Desc>
@@ -426,7 +434,7 @@
       <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
       <RQSFiles/>
     </Run>
-    <Run Id="TopDesign_RPU_HeartBeat_GPIO_Ctrl_0_synth_1" Type="Ft3:Synth" SrcSet="TopDesign_RPU_HeartBeat_GPIO_Ctrl_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_RPU_HeartBeat_GPIO_Ctrl_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/TopDesign_RPU_HeartBeat_GPIO_Ctrl_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_RPU_HeartBeat_GPIO_Ctrl_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_RPU_HeartBeat_GPIO_Ctrl_0_synth_1" ParallelReportGen="true">
+    <Run Id="TopDesign_adc_dma_mem_smc_0_synth_1" Type="Ft3:Synth" SrcSet="TopDesign_adc_dma_mem_smc_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_adc_dma_mem_smc_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/TopDesign_adc_dma_mem_smc_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_adc_dma_mem_smc_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_adc_dma_mem_smc_0_synth_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025">
           <Desc>Vivado Synthesis Defaults</Desc>
@@ -586,11 +594,9 @@
       <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
       <RQSFiles/>
     </Run>
-    <Run Id="TopDesign_MeterCore_Wrapper_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_MeterCore_Wrapper_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="TopDesign_MeterCore_Wrapper_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_MeterCore_Wrapper_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_MeterCore_Wrapper_0_impl_1" ParallelReportGen="true">
+    <Run Id="TopDesign_smartconnect_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_smartconnect_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="TopDesign_smartconnect_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_smartconnect_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_smartconnect_0_0_impl_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025">
-          <Desc>Default settings for Implementation.</Desc>
-        </StratHandle>
+        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025"/>
         <Step Id="init_design"/>
         <Step Id="opt_design"/>
         <Step Id="power_opt_design"/>
@@ -605,11 +611,9 @@
       <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
       <RQSFiles/>
     </Run>
-    <Run Id="TopDesign_ADC_SPI_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_ADC_SPI_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="TopDesign_ADC_SPI_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_ADC_SPI_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_ADC_SPI_0_impl_1" ParallelReportGen="true">
+    <Run Id="TopDesign_zynq_ultra_ps_e_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_zynq_ultra_ps_e_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="TopDesign_zynq_ultra_ps_e_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_zynq_ultra_ps_e_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_zynq_ultra_ps_e_0_0_impl_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025">
-          <Desc>Default settings for Implementation.</Desc>
-        </StratHandle>
+        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025"/>
         <Step Id="init_design"/>
         <Step Id="opt_design"/>
         <Step Id="power_opt_design"/>
@@ -643,7 +647,7 @@
       <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
       <RQSFiles/>
     </Run>
-    <Run Id="TopDesign_axi_dma_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_axi_dma_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="TopDesign_axi_dma_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_axi_dma_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_axi_dma_0_0_impl_1" ParallelReportGen="true">
+    <Run Id="TopDesign_MeterCore_Wrapper_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_MeterCore_Wrapper_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="TopDesign_MeterCore_Wrapper_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_MeterCore_Wrapper_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_MeterCore_Wrapper_0_impl_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025">
           <Desc>Default settings for Implementation.</Desc>
@@ -662,7 +666,7 @@
       <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
       <RQSFiles/>
     </Run>
-    <Run Id="TopDesign_RPU_HeartBeat_GPIO_Ctrl_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_RPU_HeartBeat_GPIO_Ctrl_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="TopDesign_RPU_HeartBeat_GPIO_Ctrl_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_RPU_HeartBeat_GPIO_Ctrl_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_RPU_HeartBeat_GPIO_Ctrl_0_impl_1" ParallelReportGen="true">
+    <Run Id="TopDesign_adc_dma_mem_smc_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_adc_dma_mem_smc_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="TopDesign_adc_dma_mem_smc_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_adc_dma_mem_smc_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_adc_dma_mem_smc_0_impl_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025">
           <Desc>Default settings for Implementation.</Desc>

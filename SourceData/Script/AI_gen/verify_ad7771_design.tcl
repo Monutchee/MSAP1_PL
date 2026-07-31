@@ -44,6 +44,8 @@ set vhdl2008_sources [list \
     [file join $design_dir MeterProcessing meter_frequency_estimator.vhd] \
     [file join $design_dir MeterProcessing meter_frequency.vhd] \
     [file join $design_dir MeterProcessing meter_rms.vhd] \
+    [file join $design_dir MeterCore meter_waveform_axi_regs.vhd] \
+    [file join $design_dir MeterCore meter_waveform.vhd] \
     [file join $design_dir MeterCore meter_core.vhd]]
 foreach vhdl_source $vhdl2008_sources {
     if {[llength [get_files -quiet $vhdl_source]] == 0} {
@@ -68,13 +70,13 @@ update_compile_order -fileset sources_1
 open_bd_design [get_files TopDesign.bd]
 current_bd_design TopDesign
 
-set meter_ip [get_ips -quiet TopDesign_MeterCore_Wrapper_0_0]
+set meter_ip [get_ips -quiet TopDesign_MeterCore_Wrapper_0]
 if {[llength $meter_ip] != 1} {
     error "Expected one MeterCore module-reference IP, found [llength $meter_ip]"
 }
 update_module_reference $meter_ip
 
-set heartbeat_ip [get_ips -quiet TopDesign_HeatBeat_Wrapper_0_0]
+set heartbeat_ip [get_ips -quiet TopDesign_PL_HeartBeat_Ctrl_0]
 if {[llength $heartbeat_ip] != 1} {
     error "Expected one heartbeat module-reference IP, found [llength $heartbeat_ip]"
 }
@@ -97,17 +99,24 @@ if {[llength [get_bd_nets -quiet -of_objects $meter_clock]] == 0 ||
     error "MeterCore clock or reset is unconnected"
 }
 
-set ps_address_space [get_bd_addr_spaces zynq_ultra_ps_e_0/Data]
+set ps_address_space [get_bd_addr_spaces \
+    ZYNQ_System/zynq_ultra_ps_e_0/Data]
 set capture_segment [get_bd_addr_segs -quiet \
-    MeterLogic/MeterCore_Wrapper/s_axi_capture/reg0]
+    MeterLogic/MeterCore_Wrapper/S_AXI_CAPTURE/reg0]
 set conversion_segment [get_bd_addr_segs -quiet \
-    MeterLogic/MeterCore_Wrapper/s_axi_conversion/reg0]
+    MeterLogic/MeterCore_Wrapper/S_AXI_CONVERSION/reg0]
 set processing_segment [get_bd_addr_segs -quiet \
-    MeterLogic/MeterCore_Wrapper/s_axi_processing/reg0]
+    MeterLogic/MeterCore_Wrapper/S_AXI_PROCESSING/reg0]
+set waveform_segment [get_bd_addr_segs -quiet \
+    MeterLogic/MeterCore_Wrapper/S_AXI_WAVEFORM/reg0]
+set waveform_dma_segment [get_bd_addr_segs -quiet \
+    MeterLogic/Meter_DMA/Waveform_DMA/S_AXI_LITE/Reg]
 if {[llength $capture_segment] != 1 ||
     [llength $conversion_segment] != 1 ||
-    [llength $processing_segment] != 1} {
-    error "MeterCore AXI-Lite address segments were not found"
+    [llength $processing_segment] != 1 ||
+    [llength $waveform_segment] != 1 ||
+    [llength $waveform_dma_segment] != 1} {
+    error "MeterCore or waveform DMA AXI-Lite address segments were not found"
 }
 assign_bd_address -offset 0xB0020000 -range 64K \
     -target_address_space $ps_address_space $capture_segment -force
@@ -115,6 +124,10 @@ assign_bd_address -offset 0xB0040000 -range 64K \
     -target_address_space $ps_address_space $conversion_segment -force
 assign_bd_address -offset 0xB0050000 -range 64K \
     -target_address_space $ps_address_space $processing_segment -force
+assign_bd_address -offset 0xB0070000 -range 64K \
+    -target_address_space $ps_address_space $waveform_segment -force
+assign_bd_address -offset 0xB0060000 -range 64K \
+    -target_address_space $ps_address_space $waveform_dma_segment -force
 
 validate_bd_design
 save_bd_design
