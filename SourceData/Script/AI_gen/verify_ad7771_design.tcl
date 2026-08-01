@@ -44,6 +44,9 @@ set vhdl2008_sources [list \
     [file join $design_dir MeterProcessing meter_frequency_estimator.vhd] \
     [file join $design_dir MeterProcessing meter_frequency.vhd] \
     [file join $design_dir MeterProcessing meter_rms.vhd] \
+    [file join $design_dir MeterCore adc_simulator_pkg.vhd] \
+    [file join $design_dir MeterCore adc_simulator.vhd] \
+    [file join $design_dir MeterCore adc_source_mux.vhd] \
     [file join $design_dir MeterCore meter_waveform_axi_regs.vhd] \
     [file join $design_dir MeterCore meter_waveform.vhd] \
     [file join $design_dir MeterCore meter_core.vhd]]

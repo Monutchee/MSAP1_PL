@@ -80,6 +80,24 @@ entity MeterCore_Wrapper is
     s_axi_waveform_rvalid  : out std_logic;
     s_axi_waveform_rready  : in  std_logic;
 
+    s_axi_simulator_awaddr  : in  std_logic_vector(7 downto 0);
+    s_axi_simulator_awvalid : in  std_logic;
+    s_axi_simulator_awready : out std_logic;
+    s_axi_simulator_wdata   : in  std_logic_vector(31 downto 0);
+    s_axi_simulator_wstrb   : in  std_logic_vector(3 downto 0);
+    s_axi_simulator_wvalid  : in  std_logic;
+    s_axi_simulator_wready  : out std_logic;
+    s_axi_simulator_bresp   : out std_logic_vector(1 downto 0);
+    s_axi_simulator_bvalid  : out std_logic;
+    s_axi_simulator_bready  : in  std_logic;
+    s_axi_simulator_araddr  : in  std_logic_vector(7 downto 0);
+    s_axi_simulator_arvalid : in  std_logic;
+    s_axi_simulator_arready : out std_logic;
+    s_axi_simulator_rdata   : out std_logic_vector(31 downto 0);
+    s_axi_simulator_rresp   : out std_logic_vector(1 downto 0);
+    s_axi_simulator_rvalid  : out std_logic;
+    s_axi_simulator_rready  : in  std_logic;
+
     m_axis_meter_tdata  : out std_logic_vector(31 downto 0);
     m_axis_meter_tkeep  : out std_logic_vector(3 downto 0);
     m_axis_meter_tvalid : out std_logic;
@@ -108,7 +126,7 @@ architecture structural of MeterCore_Wrapper is
   attribute X_INTERFACE_INFO of aclk : signal is
     "xilinx.com:signal:clock:1.0 aclk CLK";
   attribute X_INTERFACE_PARAMETER of aclk : signal is
-    "XIL_INTERFACENAME aclk, FREQ_HZ 99999001, ASSOCIATED_RESET aresetn, ASSOCIATED_BUSIF S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:S_AXI_WAVEFORM:M_AXIS_METER:M_AXIS_WAVEFORM";
+    "XIL_INTERFACENAME aclk, FREQ_HZ 99999001, ASSOCIATED_RESET aresetn, ASSOCIATED_BUSIF S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:S_AXI_WAVEFORM:S_AXI_SIMULATOR:M_AXIS_METER:M_AXIS_WAVEFORM";
   attribute X_INTERFACE_INFO of aresetn : signal is
     "xilinx.com:signal:reset:1.0 aresetn RST";
   attribute X_INTERFACE_PARAMETER of aresetn : signal is
@@ -199,6 +217,26 @@ architecture structural of MeterCore_Wrapper is
   attribute X_INTERFACE_INFO of s_axi_waveform_rvalid : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM RVALID";
   attribute X_INTERFACE_INFO of s_axi_waveform_rready : signal is "xilinx.com:interface:aximm:1.0 S_AXI_WAVEFORM RREADY";
 
+  attribute X_INTERFACE_INFO of s_axi_simulator_awaddr : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR AWADDR";
+  attribute X_INTERFACE_PARAMETER of s_axi_simulator_awaddr : signal is
+    "XIL_INTERFACENAME S_AXI_SIMULATOR, PROTOCOL AXI4LITE, DATA_WIDTH 32, ADDR_WIDTH 8, ID_WIDTH 0, READ_WRITE_MODE READ_WRITE";
+  attribute X_INTERFACE_INFO of s_axi_simulator_awvalid : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR AWVALID";
+  attribute X_INTERFACE_INFO of s_axi_simulator_awready : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR AWREADY";
+  attribute X_INTERFACE_INFO of s_axi_simulator_wdata : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR WDATA";
+  attribute X_INTERFACE_INFO of s_axi_simulator_wstrb : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR WSTRB";
+  attribute X_INTERFACE_INFO of s_axi_simulator_wvalid : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR WVALID";
+  attribute X_INTERFACE_INFO of s_axi_simulator_wready : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR WREADY";
+  attribute X_INTERFACE_INFO of s_axi_simulator_bresp : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR BRESP";
+  attribute X_INTERFACE_INFO of s_axi_simulator_bvalid : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR BVALID";
+  attribute X_INTERFACE_INFO of s_axi_simulator_bready : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR BREADY";
+  attribute X_INTERFACE_INFO of s_axi_simulator_araddr : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR ARADDR";
+  attribute X_INTERFACE_INFO of s_axi_simulator_arvalid : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR ARVALID";
+  attribute X_INTERFACE_INFO of s_axi_simulator_arready : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR ARREADY";
+  attribute X_INTERFACE_INFO of s_axi_simulator_rdata : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR RDATA";
+  attribute X_INTERFACE_INFO of s_axi_simulator_rresp : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR RRESP";
+  attribute X_INTERFACE_INFO of s_axi_simulator_rvalid : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR RVALID";
+  attribute X_INTERFACE_INFO of s_axi_simulator_rready : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR RREADY";
+
   attribute X_INTERFACE_INFO of m_axis_meter_tdata : signal is "xilinx.com:interface:axis:1.0 M_AXIS_METER TDATA";
   attribute X_INTERFACE_PARAMETER of m_axis_meter_tdata : signal is
     "XIL_INTERFACENAME M_AXIS_METER, TDATA_NUM_BYTES 4, TUSER_WIDTH 0, HAS_TREADY 1, HAS_TKEEP 1, HAS_TLAST 1";
@@ -287,6 +325,23 @@ begin
       s_axi_waveform_rresp => s_axi_waveform_rresp,
       s_axi_waveform_rvalid => s_axi_waveform_rvalid,
       s_axi_waveform_rready => s_axi_waveform_rready,
+      s_axi_simulator_awaddr => s_axi_simulator_awaddr,
+      s_axi_simulator_awvalid => s_axi_simulator_awvalid,
+      s_axi_simulator_awready => s_axi_simulator_awready,
+      s_axi_simulator_wdata => s_axi_simulator_wdata,
+      s_axi_simulator_wstrb => s_axi_simulator_wstrb,
+      s_axi_simulator_wvalid => s_axi_simulator_wvalid,
+      s_axi_simulator_wready => s_axi_simulator_wready,
+      s_axi_simulator_bresp => s_axi_simulator_bresp,
+      s_axi_simulator_bvalid => s_axi_simulator_bvalid,
+      s_axi_simulator_bready => s_axi_simulator_bready,
+      s_axi_simulator_araddr => s_axi_simulator_araddr,
+      s_axi_simulator_arvalid => s_axi_simulator_arvalid,
+      s_axi_simulator_arready => s_axi_simulator_arready,
+      s_axi_simulator_rdata => s_axi_simulator_rdata,
+      s_axi_simulator_rresp => s_axi_simulator_rresp,
+      s_axi_simulator_rvalid => s_axi_simulator_rvalid,
+      s_axi_simulator_rready => s_axi_simulator_rready,
       m_axis_meter_tdata => m_axis_meter_tdata,
       m_axis_meter_tkeep => m_axis_meter_tkeep,
       m_axis_meter_tvalid => m_axis_meter_tvalid,
