@@ -83,6 +83,24 @@ entity meter_core is
     s_axi_waveform_rvalid  : out std_logic;
     s_axi_waveform_rready  : in  std_logic;
 
+    s_axi_simulator_awaddr  : in  std_logic_vector(7 downto 0);
+    s_axi_simulator_awvalid : in  std_logic;
+    s_axi_simulator_awready : out std_logic;
+    s_axi_simulator_wdata   : in  std_logic_vector(31 downto 0);
+    s_axi_simulator_wstrb   : in  std_logic_vector(3 downto 0);
+    s_axi_simulator_wvalid  : in  std_logic;
+    s_axi_simulator_wready  : out std_logic;
+    s_axi_simulator_bresp   : out std_logic_vector(1 downto 0);
+    s_axi_simulator_bvalid  : out std_logic;
+    s_axi_simulator_bready  : in  std_logic;
+    s_axi_simulator_araddr  : in  std_logic_vector(7 downto 0);
+    s_axi_simulator_arvalid : in  std_logic;
+    s_axi_simulator_arready : out std_logic;
+    s_axi_simulator_rdata   : out std_logic_vector(31 downto 0);
+    s_axi_simulator_rresp   : out std_logic_vector(1 downto 0);
+    s_axi_simulator_rvalid  : out std_logic;
+    s_axi_simulator_rready  : in  std_logic;
+
     m_axis_meter_tdata  : out std_logic_vector(31 downto 0);
     m_axis_meter_tkeep  : out std_logic_vector(3 downto 0);
     m_axis_meter_tvalid : out std_logic;
@@ -129,7 +147,9 @@ architecture structural of meter_core is
     rms_count  : std_logic_vector(255 downto 0);
   end record;
 
-  signal raw_stream       : axis32_stream_t;
+  signal physical_raw_stream : axis32_stream_t;
+  signal simulator_raw_stream: axis32_stream_t;
+  signal raw_stream          : axis32_stream_t;
   signal converted_source : converted_stream_t;
   signal converted_fifo   : converted_stream_t;
   signal engine_valid     : std_logic;
@@ -141,6 +161,17 @@ architecture structural of meter_core is
   signal capture_alerts      : std_logic_vector(31 downto 0);
   signal capture_frame_rate  : std_logic_vector(31 downto 0);
   signal capture_frame_rate_valid : std_logic;
+  signal physical_frame_count : std_logic_vector(31 downto 0);
+  signal physical_overflows   : std_logic_vector(31 downto 0);
+  signal physical_headers     : std_logic_vector(31 downto 0);
+  signal physical_alerts      : std_logic_vector(31 downto 0);
+  signal physical_frame_rate  : std_logic_vector(31 downto 0);
+  signal physical_frame_rate_valid : std_logic;
+  signal simulator_selected   : std_logic;
+  signal simulator_frame_count: std_logic_vector(31 downto 0);
+  signal simulator_frame_rate : std_logic_vector(31 downto 0);
+  signal simulator_frame_rate_valid : std_logic;
+  signal simulator_saturations: std_logic_vector(31 downto 0);
 
   signal shadow_generation     : std_logic_vector(31 downto 0);
   signal shadow_sample_rate    : std_logic_vector(31 downto 0);
@@ -191,6 +222,13 @@ architecture structural of meter_core is
   signal waveform_status      : std_logic_vector(31 downto 0);
   signal conversion_frame_accept : std_logic;
 begin
+  capture_frame_count <= simulator_frame_count when simulator_selected = '1' else physical_frame_count;
+  capture_overflows <= (others => '0') when simulator_selected = '1' else physical_overflows;
+  capture_headers <= (others => '0') when simulator_selected = '1' else physical_headers;
+  capture_alerts <= simulator_saturations when simulator_selected = '1' else physical_alerts;
+  capture_frame_rate <= simulator_frame_rate when simulator_selected = '1' else physical_frame_rate;
+  capture_frame_rate_valid <= simulator_frame_rate_valid when simulator_selected = '1' else physical_frame_rate_valid;
+
   capture : entity work.ad7771_capture
     generic map (
       S_AXI_CLOCK_HZ => 99999001
@@ -215,23 +253,80 @@ begin
       s_axi_rresp => s_axi_capture_rresp,
       s_axi_rvalid => s_axi_capture_rvalid,
       s_axi_rready => s_axi_capture_rready,
-      m_axis_tdata => raw_stream.data,
-      m_axis_tkeep => raw_stream.keep,
-      m_axis_tvalid => raw_stream.valid,
-      m_axis_tready => raw_stream.ready,
-      m_axis_tlast => raw_stream.last,
-      capture_frame_count => capture_frame_count,
-      capture_overflow_count => capture_overflows,
-      capture_header_errors => capture_headers,
-      capture_alert_count => capture_alerts,
-      capture_frame_rate_hz => capture_frame_rate,
-      capture_frame_rate_valid => capture_frame_rate_valid,
+      m_axis_tdata => physical_raw_stream.data,
+      m_axis_tkeep => physical_raw_stream.keep,
+      m_axis_tvalid => physical_raw_stream.valid,
+      m_axis_tready => physical_raw_stream.ready,
+      m_axis_tlast => physical_raw_stream.last,
+      capture_frame_count => physical_frame_count,
+      capture_overflow_count => physical_overflows,
+      capture_header_errors => physical_headers,
+      capture_alert_count => physical_alerts,
+      capture_frame_rate_hz => physical_frame_rate,
+      capture_frame_rate_valid => physical_frame_rate_valid,
       adc_dclk => adc_dclk,
       adc_drdy_n => adc_drdy_n,
       adc_dout => adc_dout,
       adc_reset_n => adc_reset_n,
       adc_start_n => adc_start_n,
       adc_convst_sar => adc_convst_sar
+    );
+
+  simulator : entity work.adc_simulator
+    generic map (
+      G_ACLK_HZ => 99999001,
+      G_PACKET_FRAMES => 256
+    )
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      s_axi_awaddr => s_axi_simulator_awaddr,
+      s_axi_awvalid => s_axi_simulator_awvalid,
+      s_axi_awready => s_axi_simulator_awready,
+      s_axi_wdata => s_axi_simulator_wdata,
+      s_axi_wstrb => s_axi_simulator_wstrb,
+      s_axi_wvalid => s_axi_simulator_wvalid,
+      s_axi_wready => s_axi_simulator_wready,
+      s_axi_bresp => s_axi_simulator_bresp,
+      s_axi_bvalid => s_axi_simulator_bvalid,
+      s_axi_bready => s_axi_simulator_bready,
+      s_axi_araddr => s_axi_simulator_araddr,
+      s_axi_arvalid => s_axi_simulator_arvalid,
+      s_axi_arready => s_axi_simulator_arready,
+      s_axi_rdata => s_axi_simulator_rdata,
+      s_axi_rresp => s_axi_simulator_rresp,
+      s_axi_rvalid => s_axi_simulator_rvalid,
+      s_axi_rready => s_axi_simulator_rready,
+      m_axis_tdata => simulator_raw_stream.data,
+      m_axis_tkeep => simulator_raw_stream.keep,
+      m_axis_tvalid => simulator_raw_stream.valid,
+      m_axis_tready => simulator_raw_stream.ready,
+      m_axis_tlast => simulator_raw_stream.last,
+      source_select_o => simulator_selected,
+      frame_count_o => simulator_frame_count,
+      frame_rate_hz_o => simulator_frame_rate,
+      frame_rate_valid_o => simulator_frame_rate_valid,
+      saturation_count_o => simulator_saturations
+    );
+
+  source_mux : entity work.adc_source_mux
+    port map (
+      select_simulator_i => simulator_selected,
+      physical_tdata_i => physical_raw_stream.data,
+      physical_tkeep_i => physical_raw_stream.keep,
+      physical_tvalid_i => physical_raw_stream.valid,
+      physical_tready_o => physical_raw_stream.ready,
+      physical_tlast_i => physical_raw_stream.last,
+      simulator_tdata_i => simulator_raw_stream.data,
+      simulator_tkeep_i => simulator_raw_stream.keep,
+      simulator_tvalid_i => simulator_raw_stream.valid,
+      simulator_tready_o => simulator_raw_stream.ready,
+      simulator_tlast_i => simulator_raw_stream.last,
+      m_axis_tdata_o => raw_stream.data,
+      m_axis_tkeep_o => raw_stream.keep,
+      m_axis_tvalid_o => raw_stream.valid,
+      m_axis_tready_i => raw_stream.ready,
+      m_axis_tlast_o => raw_stream.last
     );
 
   conversion : entity work.adc_conversion

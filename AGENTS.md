@@ -14,7 +14,8 @@
   heartbeat, fan routing, clocks, resets, and external ports.
 - `SourceData/DesignFile/MeterCore/` is the single metering module-reference
   boundary. Its VHDL hierarchy owns AD7771 capture, runtime conversion, RMS
-  processing, VLA frequency measurement, the result hub, and MTR1 packetization.
+  processing, VLA frequency measurement, the raw ADC simulator/source mux, the
+  result hub, and MTR1 packetization.
 - Treat `SourceData` HDL, constraints, block designs, and maintained Tcl as
   design inputs. Treat `vivado_gen` runtime products and block-design generated
   HDL/IP products as regenerable unless explicitly tracked by the repository.
@@ -28,14 +29,19 @@
   treated as a persistent frame-valid indication.
 - Assert `TLAST` after the configured packet count. The default is 256 frames,
   2048 AXI beats, or 8192 bytes per DMA packet.
-- AXI Quad SPI, capture, conversion, and processing AXI-Lite registers are
-  RPU-owned. Linux exclusively owns both SG-enabled S2MM DMA engines and the
-  waveform correlation/control registers.
+- AXI Quad SPI, capture, conversion, processing, and simulator AXI-Lite
+  registers are RPU-owned. Linux exclusively owns both SG-enabled S2MM DMA
+  engines and the waveform correlation/control registers.
 - Current addresses are AXI Quad SPI `0xB0010000`, capture `0xB0020000`, AXI
   meter DMA `0xB0030000`, conversion `0xB0040000`, processing `0xB0050000`,
   waveform DMA `0xB0060000`, and waveform control `0xB0070000`. Address-map
-  changes require a new XSA and coordinated Linux/device-tree updates; changes
-  to RPU-owned segments also require coordinated RPU updates.
+  The raw ADC simulator/source-selection register block is `0xB0080000`.
+  Address-map changes require a new XSA and coordinated Linux/device-tree
+  updates; changes to RPU-owned segments also require coordinated RPU updates.
+- The physical receiver and simulator both feed the raw 32-bit AXI4-Stream
+  boundary before conversion. Only the selected source may receive `TREADY`,
+  and software must stop capture before switching sources. CH7 remains present
+  internally but is zero and invalid in the default simulator configuration.
 - The raw waveform branch emits 64-byte WFM1 headers plus 1024 eight-channel
   frames. It is observational and must never backpressure ADC capture, RMS,
   frequency, or MTR1 production. Its short XPM FIFO may drop waveform frames

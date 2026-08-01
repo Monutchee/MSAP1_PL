@@ -33,6 +33,9 @@ set vhdl2008_sources [list \
   [file join $design_root MeterProcessing meter_frequency_estimator.vhd] \
   [file join $design_root MeterProcessing meter_frequency.vhd] \
   [file join $design_root MeterProcessing meter_rms.vhd] \
+  [file join $design_root MeterCore adc_simulator_pkg.vhd] \
+  [file join $design_root MeterCore adc_simulator.vhd] \
+  [file join $design_root MeterCore adc_source_mux.vhd] \
   [file join $design_root MeterCore meter_waveform_axi_regs.vhd] \
   [file join $design_root MeterCore meter_waveform.vhd]]
 set dependency_wrappers [list \
@@ -42,6 +45,7 @@ set core_vhdl2008_sources [list \
   [file join $design_root MeterCore meter_core.vhd]]
 set boundary_wrapper [file join $design_root MeterCore MeterCore_Wrapper.vhd]
 set testbench [file join $design_root MeterCore tb meter_core_tb.sv]
+set simulator_testbench [file join $design_root MeterCore tb adc_simulator_tb.sv]
 
 file delete -force $work_root
 file mkdir $work_root
@@ -65,6 +69,17 @@ if {![string match "*PASS: meter_core_tb*" $simulation_log]} {
   error "MeterCore integration simulation did not report PASS"
 }
 
+puts [exec $xvlog --sv $simulator_testbench 2>@1]
+puts [exec $xelab -a --mt off adc_simulator_tb \
+  -s adc_simulator_tb_sim 2>@1]
+set simulator_axsim [file join $work_root xsim.dir adc_simulator_tb_sim axsim]
+set simulator_log \
+  [exec env "LD_LIBRARY_PATH=$simulator_libraries" $simulator_axsim 2>@1]
+puts $simulator_log
+if {![string match "*PASS: adc_simulator_tb*" $simulator_log]} {
+  error "ADC simulator simulation did not report PASS"
+}
+
 cd $original_dir
 file delete -force $work_root
-puts "MeterCore mixed-language integration simulation PASS"
+puts "MeterCore and ADC simulator mixed-language simulations PASS"

@@ -275,15 +275,26 @@ begin
 
           when EST_WAIT_INTERPOLATION =>
             if divider_done = '1' then
-              if divider_zero = '1' or divider_quotient(79 downto 16) /=
-                 to_unsigned(0, 64) then
+              -- The interpolation fraction is in Q16 samples and its closed
+              -- interval is [0, 1].  A current sample exactly equal to zero
+              -- produces 1.0 (65536), which is a valid crossing at the next
+              -- sample boundary rather than an overflow.  Normalize that
+              -- endpoint to a zero fractional part on the next sample index.
+              if divider_zero = '1' or
+                 divider_quotient > to_unsigned(65536, DIVIDER_WIDTH) then
                 arithmetic_error <= '1';
                 rejected_count <= rejected_count + 1;
                 state <= EST_IDLE;
               else
-                crossing_timestamp :=
-                  (resize(pending_prev_seq, 64) sll 16) +
-                  resize(divider_quotient(15 downto 0), 64);
+                if divider_quotient =
+                   to_unsigned(65536, DIVIDER_WIDTH) then
+                  crossing_timestamp :=
+                    (resize(pending_prev_seq + 1, 64) sll 16);
+                else
+                  crossing_timestamp :=
+                    (resize(pending_prev_seq, 64) sll 16) +
+                    resize(divider_quotient(15 downto 0), 64);
+                end if;
 
                 if mode_i = FREQUENCY_MODE_ROLLING_TIME then
                   if time_start_valid = '0' then

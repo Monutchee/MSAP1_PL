@@ -76,6 +76,24 @@ module meter_core_tb;
   wire wave_rvalid;
   logic wave_rready = 1'b1;
 
+  logic [7:0] sim_awaddr = '0;
+  logic sim_awvalid = 1'b0;
+  wire sim_awready;
+  logic [31:0] sim_wdata = '0;
+  logic [3:0] sim_wstrb = 4'hf;
+  logic sim_wvalid = 1'b0;
+  wire sim_wready;
+  wire [1:0] sim_bresp;
+  wire sim_bvalid;
+  logic sim_bready = 1'b1;
+  logic [7:0] sim_araddr = '0;
+  logic sim_arvalid = 1'b0;
+  wire sim_arready;
+  wire [31:0] sim_rdata;
+  wire [1:0] sim_rresp;
+  wire sim_rvalid;
+  logic sim_rready = 1'b1;
+
   wire [31:0] meter_tdata;
   wire [3:0] meter_tkeep;
   wire meter_tvalid;
@@ -177,6 +195,23 @@ module meter_core_tb;
     .s_axi_waveform_rresp(wave_rresp),
     .s_axi_waveform_rvalid(wave_rvalid),
     .s_axi_waveform_rready(wave_rready),
+    .s_axi_simulator_awaddr(sim_awaddr),
+    .s_axi_simulator_awvalid(sim_awvalid),
+    .s_axi_simulator_awready(sim_awready),
+    .s_axi_simulator_wdata(sim_wdata),
+    .s_axi_simulator_wstrb(sim_wstrb),
+    .s_axi_simulator_wvalid(sim_wvalid),
+    .s_axi_simulator_wready(sim_wready),
+    .s_axi_simulator_bresp(sim_bresp),
+    .s_axi_simulator_bvalid(sim_bvalid),
+    .s_axi_simulator_bready(sim_bready),
+    .s_axi_simulator_araddr(sim_araddr),
+    .s_axi_simulator_arvalid(sim_arvalid),
+    .s_axi_simulator_arready(sim_arready),
+    .s_axi_simulator_rdata(sim_rdata),
+    .s_axi_simulator_rresp(sim_rresp),
+    .s_axi_simulator_rvalid(sim_rvalid),
+    .s_axi_simulator_rready(sim_rready),
     .m_axis_meter_tdata(meter_tdata),
     .m_axis_meter_tkeep(meter_tkeep),
     .m_axis_meter_tvalid(meter_tvalid),

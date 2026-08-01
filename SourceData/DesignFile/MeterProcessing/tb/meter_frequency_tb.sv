@@ -113,6 +113,27 @@ module meter_frequency_tb;
     drive_50_hz_from(0, sample_count);
   endtask
 
+  task automatic drive_exact_zero_50_hz(input int unsigned sample_count);
+    longint signed microvolts;
+    begin
+      for (int unsigned sample_index = 0;
+           sample_index < sample_count; sample_index++) begin
+        // Model the simulator LUT endpoint explicitly: each positive-going
+        // crossing moves from a negative sample to a sample that is exactly
+        // zero. Its interpolation fraction is 1.0 (65536 in Q16), not an
+        // arithmetic overflow.
+        case (sample_index % 20)
+          0, 10: microvolts = 0;
+          1, 2, 3, 4, 5, 6, 7, 8, 9:
+            microvolts = 64'sd2000000;
+          default: microvolts = -64'sd2000000;
+        endcase
+        send_sample(sample_index, microvolts);
+      end
+      repeat (260) @(posedge clock);
+    end
+  endtask
+
   task automatic verify_sine(
     input int unsigned new_generation,
     input int unsigned new_sample_rate,
@@ -205,6 +226,18 @@ module meter_frequency_tb;
     // waveform sampled at 19.2 kframe/s must remain 60 Hz, not the erroneous
     // 100 Hz produced by scaling it with the requested 32 kSPS value.
     verify_sine(32'h1234_0301, 19_200, 60_000);
+
+    // The PL simulator's sine table contains exact zero entries. Verify that
+    // an aligned negative-to-zero transition is accepted as the following
+    // sample boundary and does not increment the rejection counter.
+    measured_frame_rate = 1_000;
+    apply_configuration(32'h1234_0401, 32'h0000_0a63, 32'd1_000);
+    drive_exact_zero_50_hz(225);
+    assert (status[1] && frequency_millihz == 32'd50000 &&
+            status[23:16] == 8'd10)
+      else $fatal(1,
+        "exact-zero crossing result is incorrect: %0d mHz status=%h",
+        frequency_millihz, status);
 
     assert (rejected_count == 0)
       else $fatal(1, "valid waveform produced rejected crossings");
