@@ -243,6 +243,31 @@ module grid_cycle_timing_tb;
     assert (half_cycle_count > 0 && cycle_sequence > 0)
       else $fatal(1, "cycle/half-cycle strobes missing");
 
+    // ---- Closed-block provenance is atomic across APPLY ----
+    // The 12-cycle 60 Hz block above is closed but its metadata may not
+    // have been consumed yet (the RMS result is still in flight in the
+    // real pipeline). Applying a 50 Hz configuration now must NOT relabel
+    // the finished block: nominal, cycle count, first sample, and flags
+    // all describe the block as it closed.
+    counter_check = block_first_sample;
+    @(negedge clock);
+    config_grid = {15'd0, 1'b1, 8'd50, 8'd10};
+    config_window = 32'd100;
+    apply_toggle = ~apply_toggle;
+    repeat (3) @(posedge clock);
+    assert (block_nominal_hz == 60)
+      else $fatal(1, "closed-block nominal relabeled by APPLY: %0d",
+                  block_nominal_hz);
+    assert (block_cycle_count == 12)
+      else $fatal(1, "closed-block cycle count changed by APPLY");
+    assert (block_first_sample == counter_check)
+      else $fatal(1, "closed-block first sample changed by APPLY");
+    assert (block_flags[0] && !block_flags[1])
+      else $fatal(1, "closed-block flags changed by APPLY");
+    // The new configuration is active for FUTURE blocks only.
+    assert (active_grid == {15'd0, 1'b1, 8'd50, 8'd10})
+      else $fatal(1, "50 Hz configuration did not become active");
+
     $display("PASS: grid_cycle_timing_tb");
     $finish;
   end

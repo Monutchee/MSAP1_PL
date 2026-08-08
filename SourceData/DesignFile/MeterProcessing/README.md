@@ -33,6 +33,12 @@ both modules always agree on block membership. The frame carrying the
 closing crossing is the last frame of its block, making consecutive blocks
 gapless by construction: `first(N+1) = first(N) + count(N)`.
 
+All closed-block provenance (first sample, cycle count, nominal frequency,
+flags) is latched together at the block-close event and held until the next
+close. An APPLY that lands between a close and the result hub consuming the
+metadata therefore cannot relabel the finished block with the new nominal
+frequency; the new configuration affects future blocks only.
+
 Lock behaviour: startup and every APPLY begin unlocked; the first qualified
 rising crossing closes the initial partial block and locks. If the reference
 becomes unusable or no crossing arrives for a quarter of the fallback window,
