@@ -4,6 +4,7 @@ use ieee.numeric_std.all;
 
 library work;
 use work.meter_frequency_pkg.all;
+use work.grid_timing_pkg.all;
 
 entity MeterResultHub_Wrapper is
   port (
@@ -32,6 +33,13 @@ entity MeterResultHub_Wrapper is
     capture_overflows_i     : in  std_logic_vector(31 downto 0);
     capture_alerts_i        : in  std_logic_vector(31 downto 0);
     packetizer_drop_count_i : in  std_logic_vector(31 downto 0);
+    -- Basic-block provenance from grid_cycle_timing. These describe the most
+    -- recently closed block and are stable until the next close, which
+    -- covers the RMS calculation latency before result_valid arrives here.
+    block_first_sample_i    : in  std_logic_vector(63 downto 0);
+    block_cycle_count_i     : in  std_logic_vector(7 downto 0);
+    block_nominal_hz_i      : in  std_logic_vector(7 downto 0);
+    block_flags_i           : in  std_logic_vector(2 downto 0);
     record_data_o           : out std_logic_vector(2047 downto 0);
     record_valid_o          : out std_logic;
     record_ready_i          : in  std_logic;
@@ -81,7 +89,11 @@ begin
           valid_mask := voltage_valid_mask_i or current_valid_mask_i;
 
           next_record(31 downto 0) := x"3152544D"; -- little-endian bytes "MTR1"
-          next_record(63 downto 32) := x"00010001"; -- format 1, periodic meter record
+          -- Format 2: word 6 carries the ACTUAL sample count of the basic
+          -- block (variable in cycle mode), word 15 the timing/provenance
+          -- word and words 60/61 the 64-bit first-sample index. Everything
+          -- else keeps its format-1 meaning.
+          next_record(63 downto 32) := MTR1_FORMAT_V2;
           next_record(95 downto 64) := std_logic_vector(to_unsigned(256, 32));
           next_record(127 downto 96) := result_sequence_i;
           next_record(159 downto 128) := config_generation_i;
@@ -95,6 +107,22 @@ begin
           next_record(415 downto 384) := packetizer_drop_count_i;
           next_record(447 downto 416) := std_logic_vector(hub_drop_count);
           next_record(479 downto 448) := capture_alerts_i;
+
+          -- Word 15: basic-block timing word. Nominal frequency and cycle
+          -- count identify the block shape; the flags say whether the
+          -- boundary came from zero crossings or the free-run fallback.
+          next_record((MTR1_TIMING_WORD * 32) + MTR1_TIMING_NOMINAL_LSB + 7
+                      downto (MTR1_TIMING_WORD * 32) +
+                             MTR1_TIMING_NOMINAL_LSB) := block_nominal_hz_i;
+          next_record((MTR1_TIMING_WORD * 32) + MTR1_TIMING_CYCLES_LSB + 7
+                      downto (MTR1_TIMING_WORD * 32) +
+                             MTR1_TIMING_CYCLES_LSB) := block_cycle_count_i;
+          next_record((MTR1_TIMING_WORD * 32) + MTR1_TIMING_LOCKED_BIT) :=
+            block_flags_i(GRID_BLOCK_FLAG_LOCKED);
+          next_record((MTR1_TIMING_WORD * 32) + MTR1_TIMING_FALLBACK_BIT) :=
+            block_flags_i(GRID_BLOCK_FLAG_FALLBACK);
+          next_record((MTR1_TIMING_WORD * 32) + MTR1_TIMING_FIRST_BLOCK_BIT) :=
+            block_flags_i(GRID_BLOCK_FLAG_FIRST_BLOCK);
 
           for channel_index in 0 to 7 loop
             if current_valid_mask_i(channel_index) = '1' then
@@ -142,6 +170,16 @@ begin
           next_record((MTR1_FREQUENCY_SEQUENCE_WORD * 32) + 31 downto
                       MTR1_FREQUENCY_SEQUENCE_WORD * 32) :=
             frequency_sequence_i;
+
+          -- Words 60/61: first sample index of this block on the 64-bit
+          -- free-running measurement counter. The last index is derived by
+          -- consumers as first + count - 1; words 62/63 stay reserved.
+          next_record((MTR1_FIRST_SAMPLE_LOW_WORD * 32) + 31 downto
+                      MTR1_FIRST_SAMPLE_LOW_WORD * 32) :=
+            block_first_sample_i(31 downto 0);
+          next_record((MTR1_FIRST_SAMPLE_HIGH_WORD * 32) + 31 downto
+                      MTR1_FIRST_SAMPLE_HIGH_WORD * 32) :=
+            block_first_sample_i(63 downto 32);
 
           if record_valid = '1' and record_ready_i = '0' then
             hub_drop_count <= hub_drop_count + 1;

@@ -138,6 +138,11 @@ begin
       frequency_period_q16_samples_i => (others => '0'),
       frequency_measurement_sequence_i => (others => '0'),
       frequency_rejected_count_i => (others => '0'),
+      -- Grid-cycle timing lives in MeterCore; this wrapper reports the
+      -- reset default (60 Hz, 12 cycles, enabled) and no status.
+      grid_shadow_config_o => open,
+      grid_active_config_i => x"00013C0C",
+      grid_status_i => (others => '0'),
       active_generation_i => active_generation,
       result_sequence_i => result_sequence,
       result_drop_count_i => result_drop_count,
@@ -161,6 +166,9 @@ begin
       config_enable_i => shadow_enable,
       config_dc_remove_i => shadow_dc_remove,
       config_apply_toggle_i => apply_toggle,
+      -- Legacy wrapper: always the sample-count window, no cycle timing.
+      cycle_mode_i => '0',
+      frame_closes_block_i => '0',
       active_generation_o => active_generation,
       status_o => core_status,
       result_valid_o => result_valid_o,

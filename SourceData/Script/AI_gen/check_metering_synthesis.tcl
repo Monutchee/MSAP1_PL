@@ -23,6 +23,7 @@ set design_root [file join $project_root SourceData DesignFile]
 set_param general.maxThreads 2
 
 read_vhdl -vhdl2008 [file join $design_root MeterCommon metering_pkg.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterCommon grid_timing_pkg.vhd]
 read_vhdl -vhdl2008 [file join $design_root Ad7771Capture ad7771_receiver.vhd]
 read_vhdl -vhdl2008 [file join $design_root Ad7771Capture ad7771_axi_regs.vhd]
 read_vhdl -vhdl2008 [file join $design_root Ad7771Capture ad7771_dclk_meter.vhd]
@@ -36,6 +37,7 @@ read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_zero_crossing.
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_frequency_estimator.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_frequency.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_rms.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing grid_cycle_timing.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore adc_simulator_pkg.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore adc_simulator.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore adc_source_mux.vhd]

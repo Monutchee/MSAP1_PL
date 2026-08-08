@@ -23,6 +23,7 @@ file mkdir $work_root
 
 set common_vhdl [list \
   [file join $design_root MeterCommon metering_pkg.vhd] \
+  [file join $design_root MeterCommon grid_timing_pkg.vhd] \
   [file join $design_root AdcConversion adc_conversion_axi_regs.vhd] \
   [file join $design_root AdcConversion adc_conversion.vhd] \
   [file join $design_root MeterProcessing meter_frequency_pkg.vhd] \
@@ -32,6 +33,7 @@ set common_vhdl [list \
   [file join $design_root MeterProcessing meter_frequency_estimator.vhd] \
   [file join $design_root MeterProcessing meter_frequency.vhd] \
   [file join $design_root MeterProcessing meter_rms.vhd] \
+  [file join $design_root MeterProcessing grid_cycle_timing.vhd] \
   [file join $design_root MeterProcessing MeterResultHub_Wrapper.vhd] \
   [file join $design_root MeterProcessing MeterPacketizer_Wrapper.vhd]]
 
@@ -66,6 +68,9 @@ run_test $work_root voltage_rms_tb $common_vhdl $wrapper_vhdl \
   $xvhdl $xvlog $xelab $simulator_libraries
 run_test $work_root meter_packet_tb $common_vhdl $wrapper_vhdl \
   [file join $design_root MeterProcessing tb meter_packet_tb.sv] \
+  $xvhdl $xvlog $xelab $simulator_libraries
+run_test $work_root grid_cycle_timing_tb $common_vhdl $wrapper_vhdl \
+  [file join $design_root MeterProcessing tb grid_cycle_timing_tb.sv] \
   $xvhdl $xvlog $xelab $simulator_libraries
 
 puts "All metering pipeline simulations PASS"

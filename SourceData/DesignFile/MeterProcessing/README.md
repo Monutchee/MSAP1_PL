@@ -2,16 +2,47 @@
 
 The meter-processing stage computes block RMS for current channels 0 through 3
 and voltage channels 4 through 6 from one coherent converted-sample window.
-The default window is 6,400 frames, which is exactly 200 ms at 32 kSPS.
+
+The measurement unit is an IEC 61000-4-30 basic measurement block, defined by
+grid cycles rather than time: 10 complete cycles at a declared 50 Hz nominal,
+12 at 60 Hz (`grid_cycle_timing`). The block therefore lasts approximately
+200 ms but tracks the actual grid frequency. `SHADOW_WINDOW_SAMPLES` remains
+the free-run fallback window used while the voltage reference is unusable
+(and the whole block-close source when cycle timing is disabled); software
+programs it to the nominal block length, 6,400 frames at 32 kSPS.
 Mean-corrected AC RMS uses
 
 ```text
 sqrt((N * sum(x^2) - sum(x)^2) / N^2)
 ```
 
-with 128-bit accumulators and multi-cycle unsigned division and integer square
-root. Zero-referenced total RMS uses `sqrt(sum(x^2) / N)`. Accumulation of the
-next window continues while the previous snapshot is evaluated.
+where `N` is the number of samples actually accumulated in the block (equal
+to the configured window only in fixed-window mode), with 128-bit
+accumulators and multi-cycle unsigned division and integer square root.
+Zero-referenced total RMS uses `sqrt(sum(x^2) / N)`. Accumulation of the next
+window continues while the previous snapshot is evaluated.
+
+## Grid-cycle timing
+
+`grid_cycle_timing` observes the frames accepted by the RMS engine and the
+qualified crossings of the shared zero-cross detector (both the registered
+outputs used by the frequency estimator and a combinational same-frame view).
+It counts complete cycles and marks the frame that closes each basic block;
+the marker travels through the RMS input pipeline with the frame itself, so
+both modules always agree on block membership. The frame carrying the
+closing crossing is the last frame of its block, making consecutive blocks
+gapless by construction: `first(N+1) = first(N) + count(N)`.
+
+Lock behaviour: startup and every APPLY begin unlocked; the first qualified
+rising crossing closes the initial partial block and locks. If the reference
+becomes unusable or no crossing arrives for a quarter of the fallback window,
+the lock drops, blocks close on the fallback sample count, and the next
+qualified crossing closes the running block early and re-locks. Blocks that
+did not close on a counted crossing carry the `free_run_fallback` flag.
+
+The component also produces `cycle_boundary`, `half_cycle_boundary` (from
+the falling-crossing view), and `cycle_sequence` strobes for a future PQ
+event engine; nothing consumes them yet.
 
 ## VLA frequency measurement
 
@@ -90,24 +121,43 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
 | `0x60` | `FREQUENCY_PERIOD_Q16_SAMPLES` | averaged period |
 | `0x64` | `FREQUENCY_MEASUREMENT_SEQUENCE` | accepted result counter |
 | `0x68` | `FREQUENCY_REJECTED_COUNT` | rejected arithmetic/range results |
+| `0x6c` | `GRID_SHADOW_CONFIG` | [7:0] cycles/block, [15:8] nominal Hz, [16] enable |
+| `0x70` | `GRID_ACTIVE_CONFIG` | committed grid-timing readback |
+| `0x74` | `GRID_STATUS` | [0] locked, [1] reference usable, [2] enabled, [15:8] cycles in open block |
 
-Frequency shadow fields commit on the existing processing `APPLY` toggle at
-the same frame boundary as RMS. Applying a new configuration clears crossing
-history, preventing an interval from spanning configuration generations.
+Frequency and grid shadow fields commit on the existing processing `APPLY`
+toggle at the same frame boundary as RMS. Applying a new configuration clears
+crossing history and restarts block tracking, preventing an interval or a
+basic block from spanning configuration generations. The RPU derives the
+cycle count from the declared nominal frequency (50 Hz → 10, 60 Hz → 12);
+the PL does not validate the pairing.
 
 ## 256-byte periodic meter record
 
 Words 0 through 15 form the header. Word 0 is ASCII `MTR1`, word 1 is
-format/version `0x00010001`, and word 2 is the byte length (`256`). The header
-also contains result sequence, configuration generation, sample rate, window
-size, valid/status masks, capture frame/header/overflow/alert counters, and
-result-drop counters.
+format/version `0x00010002`, and word 2 is the byte length (`256`). The header
+also contains result sequence (the basic-block sequence), configuration
+generation, sample rate, valid/status masks, capture
+frame/header/overflow/alert counters, and result-drop counters.
+
+Format 2 changes versus the original `0x00010001`:
+
+- Word 6 carries the **actual** sample count of the basic block. In cycle
+  mode this varies with grid frequency; format 1 reported the configured
+  window.
+- Word 15 is the basic-block timing word: bits [7:0] declared nominal
+  frequency in Hz, bits [15:8] complete cycles in the block, bit 16
+  `cycle_locked`, bit 17 `free_run_fallback`, bit 18
+  `first_block_after_apply`.
+- Words 60/61 are the low/high halves of the block's first sample index on
+  the 64-bit free-running conversion sample counter. The last index is
+  `first + count - 1` by construction and is deliberately not recorded.
 
 Words 16 through 55 contain five words per channel: signed mean micro-units,
 unsigned raw ADC RMS counts, and signed 64-bit RMS micro-units. Word 56 is
 frequency in millihertz, word 57 contains frequency status/mode/reference/cycle
 fields, word 58 is the averaged Q16 period, and word 59 is its measurement
-sequence. Words 60 through 63 remain reserved for power, energy, demand, and PQ.
+sequence. Words 62 and 63 remain reserved.
 
 The synchronized capture counters are internal MeterCore signals connecting
 the capture entity directly to `MeterResultHub_Wrapper`; they do not cross the

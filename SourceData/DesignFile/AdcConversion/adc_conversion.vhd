@@ -62,7 +62,12 @@ architecture rtl of adc_conversion is
   signal output_data       : std_logic_vector(511 downto 0) := (others => '0');
   signal output_user       : std_logic_vector(383 downto 0) := (others => '0');
   signal output_valid      : std_logic := '0';
-  signal sample_sequence   : unsigned(31 downto 0) := (others => '0');
+  -- 64-bit free-running measurement timebase. It counts accepted complete
+  -- frames from reset only: configuration apply and Linux time changes never
+  -- touch it, so downstream cycle/block timing can rely on a monotonic,
+  -- gapless sample index. At 32 kSPS a 64-bit counter never wraps in the
+  -- product lifetime; the AXI register keeps exposing the low 32 bits.
+  signal sample_sequence   : unsigned(63 downto 0) := (others => '0');
   signal saturation_seen   : std_logic := '0';
   signal apply_waiting     : std_logic;
   signal can_accept        : std_logic;
@@ -98,7 +103,7 @@ begin
       active_enable_i => active_enable,
       apply_pending_i => apply_waiting,
       saturation_seen_i => saturation_seen,
-      sample_sequence_i => std_logic_vector(sample_sequence)
+      sample_sequence_i => std_logic_vector(sample_sequence(31 downto 0))
     );
 
   apply_waiting <= apply_toggle xor apply_seen;
@@ -119,7 +124,7 @@ begin
     variable next_frame      : std_logic_vector(511 downto 0);
     variable next_raw_frame  : std_logic_vector(255 downto 0);
     variable next_user       : std_logic_vector(383 downto 0);
-    variable next_sequence   : unsigned(31 downto 0);
+    variable next_sequence   : unsigned(63 downto 0);
     variable saturated       : std_logic;
   begin
     if rising_edge(aclk) then
@@ -183,7 +188,12 @@ begin
           if channel_index = 7 then
             next_sequence := sample_sequence + 1;
             next_user := (others => '0');
-            next_user(31 downto 0) := std_logic_vector(next_sequence);
+            next_user(TUSER_SAMPLE_INDEX_LOW_MSB downto
+                      TUSER_SAMPLE_INDEX_LOW_LSB) :=
+              std_logic_vector(next_sequence(31 downto 0));
+            next_user(TUSER_SAMPLE_INDEX_HIGH_MSB downto
+                      TUSER_SAMPLE_INDEX_HIGH_LSB) :=
+              std_logic_vector(next_sequence(63 downto 32));
             next_user(63 downto 32) := active_generation;
             next_user(71 downto 64) := active_valid_mask when active_enable = '1' else x"00";
             next_user(72) := saturation_seen or saturated;

@@ -48,6 +48,9 @@ module meter_packet_tb;
     .capture_header_errors_i(32'd2), .capture_overflows_i(32'd3),
     .capture_alerts_i(32'd4),
     .packetizer_drop_count_i(packet_drop_count),
+    .block_first_sample_i(64'h0000_0001_8000_0021),
+    .block_cycle_count_i(8'd12), .block_nominal_hz_i(8'd60),
+    .block_flags_i(3'b001),
     .record_data_o(record_data), .record_valid_o(record_valid),
     .record_ready_i(record_ready), .hub_drop_count_o(hub_drop_count)
   );
@@ -77,7 +80,7 @@ module meter_packet_tb;
       record_index = beat_count / 64;
       case (record_word)
         0: assert (axis_data == 32'h3152_544d) else $fatal(1, "bad magic");
-        1: assert (axis_data == 32'h0001_0001) else $fatal(1, "bad format");
+        1: assert (axis_data == 32'h0001_0002) else $fatal(1, "bad format");
         2: assert (axis_data == 32'd256) else $fatal(1, "bad length");
         3: begin
           case (record_index)
@@ -94,7 +97,14 @@ module meter_packet_tb;
         10: assert (axis_data == 32'd2) else $fatal(1, "bad header count");
         11: assert (axis_data == 32'd3) else $fatal(1, "bad overflow count");
         14: assert (axis_data == 32'd4) else $fatal(1, "bad alert count");
+        // Word 15 packs nominal Hz, cycle count, and the cycle_locked flag.
+        15: assert (axis_data == {13'd0, 3'b001, 8'd12, 8'd60})
+          else $fatal(1, "bad timing word");
         38: assert (axis_data == 32'd596820) else $fatal(1, "bad channel RMS count");
+        60: assert (axis_data == 32'h8000_0021) else $fatal(1, "bad first sample low");
+        61: assert (axis_data == 32'h0000_0001) else $fatal(1, "bad first sample high");
+        62: assert (axis_data == 32'd0) else $fatal(1, "word 62 not reserved");
+        63: assert (axis_data == 32'd0) else $fatal(1, "word 63 not reserved");
       endcase
       assert (axis_keep == 4'hf) else $fatal(1, "bad TKEEP");
       assert (axis_last == (record_word == 63))

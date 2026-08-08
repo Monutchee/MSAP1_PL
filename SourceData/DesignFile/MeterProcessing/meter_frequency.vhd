@@ -40,7 +40,15 @@ entity meter_frequency is
     frequency_millihz_o        : out word32_t;
     period_q16_samples_o       : out word32_t;
     measurement_sequence_o     : out word32_t;
-    rejected_count_o           : out word32_t
+    rejected_count_o           : out word32_t;
+
+    -- Combinational crossing view of the shared detector, valid during
+    -- frame_accept_i. Grid-cycle timing consumes these so basic-block
+    -- boundaries use the same qualified crossings as the frequency
+    -- measurement without duplicating the detector.
+    rising_crossing_now_o      : out std_logic;
+    falling_crossing_now_o     : out std_logic;
+    reference_valid_now_o      : out std_logic
   );
 end entity;
 
@@ -90,6 +98,7 @@ begin
   active_hysteresis_uv_o <= active_hysteresis_uv;
   status_o <= frequency_status;
   estimator_enabled <= active_control(0) and measured_frame_rate_valid_i;
+  reference_valid_now_o <= sample_valid;
 
   process (all)
     variable status_value : word32_t := (others => '0');
@@ -164,7 +173,9 @@ begin
       previous_sample_q16_o => crossing_prev_sample,
       current_sample_q16_o => crossing_curr_sample,
       armed_o => detector_armed,
-      reference_valid_o => reference_valid
+      reference_valid_o => reference_valid,
+      rising_crossing_now_o => rising_crossing_now_o,
+      falling_crossing_now_o => falling_crossing_now_o
     );
 
   estimator : entity work.meter_frequency_estimator

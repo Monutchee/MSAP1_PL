@@ -9,9 +9,16 @@ use xpm.vcomponents.all;
 --
 -- Every accepted converted frame still carries the original eight 32-bit ADC
 -- words in TUSER[383:128]. This module copies that payload into an XPM FIFO,
--- adds a 64-bit frame sequence and PL tick, and emits fixed WFM1 DMA blocks.
--- It intentionally has no ready output: a stopped waveform DMA drops waveform
--- frames and increments drop_count_o without disturbing RMS or meter records.
+-- adds the frame's 64-bit sample index and the PL tick, and emits fixed WFM1
+-- DMA blocks. It intentionally has no ready output: a stopped waveform DMA
+-- drops waveform frames and increments drop_count_o without disturbing RMS
+-- or meter records.
+--
+-- sequence_o carries the conversion-domain sample index of the most recently
+-- accepted frame (delivered with the frame via sample_index_i), not a local
+-- count. The Linux correlation latch therefore captures the same monotonic
+-- measurement timebase that MTR1 basic blocks reference, and UTC mapping
+-- needs no separate counter domain.
 entity meter_waveform is
   generic (
     G_FRAMES_PER_BLOCK : positive := 1024;
@@ -23,6 +30,7 @@ entity meter_waveform is
 
     frame_accept_i            : in std_logic;
     raw_frame_i               : in std_logic_vector(255 downto 0);
+    sample_index_i            : in std_logic_vector(63 downto 0);
     config_generation_i       : in std_logic_vector(31 downto 0);
     measured_frame_rate_hz_i  : in std_logic_vector(31 downto 0);
     measured_frame_rate_valid_i : in std_logic;
@@ -251,7 +259,9 @@ begin
         end if;
 
         if frame_accept_i = '1' then
-          next_sequence := frame_sequence + 1;
+          -- The sample index arrives with the frame itself, so the value
+          -- latched here is exactly the index MTR1 records reference.
+          next_sequence := unsigned(sample_index_i);
           frame_sequence <= next_sequence;
           if enable_i = '1' and fifo_full = '0' and fifo_reset_busy = '0' then
             fifo_din(C_RAW_MSB downto C_RAW_LSB) <= raw_frame_i;
