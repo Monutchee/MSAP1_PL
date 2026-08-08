@@ -221,6 +221,22 @@ architecture structural of meter_core is
   signal waveform_block_count : std_logic_vector(31 downto 0);
   signal waveform_status      : std_logic_vector(31 downto 0);
   signal conversion_frame_accept : std_logic;
+  signal waveform_sample_index   : std_logic_vector(63 downto 0);
+
+  -- Grid-cycle timing: configuration, the shared detector's combinational
+  -- crossing view, and the closed-block provenance handed to the hub.
+  signal grid_shadow_config       : std_logic_vector(31 downto 0);
+  signal grid_active_config       : std_logic_vector(31 downto 0);
+  signal grid_status              : std_logic_vector(31 downto 0);
+  signal grid_frame_closes_block  : std_logic;
+  signal grid_cycle_mode          : std_logic;
+  signal rising_crossing_now      : std_logic;
+  signal falling_crossing_now     : std_logic;
+  signal reference_valid_now      : std_logic;
+  signal block_first_sample       : std_logic_vector(63 downto 0);
+  signal block_cycle_count        : std_logic_vector(7 downto 0);
+  signal block_nominal_hz         : std_logic_vector(7 downto 0);
+  signal block_flags              : std_logic_vector(2 downto 0);
 begin
   capture_frame_count <= simulator_frame_count when simulator_selected = '1' else physical_frame_count;
   capture_overflows <= (others => '0') when simulator_selected = '1' else physical_overflows;
@@ -368,6 +384,12 @@ begin
   -- stopped waveform DMA cannot backpressure RMS or ADC acquisition.
   conversion_frame_accept <= converted_source.valid and converted_source.ready;
 
+  -- The 64-bit sample index travels with each frame in TUSER (low word in
+  -- bits 31:0, high word in bits 105:74), so every tap along the pipeline
+  -- observes the same measurement timebase regardless of FIFO depth.
+  waveform_sample_index <= converted_source.user(105 downto 74) &
+                           converted_source.user(31 downto 0);
+
   waveform_registers : entity work.meter_waveform_axi_regs
     port map (
       aclk => aclk,
@@ -408,6 +430,7 @@ begin
       aresetn => aresetn,
       frame_accept_i => conversion_frame_accept,
       raw_frame_i => converted_source.user(383 downto 128),
+      sample_index_i => waveform_sample_index,
       config_generation_i => converted_source.user(63 downto 32),
       measured_frame_rate_hz_i => capture_frame_rate,
       measured_frame_rate_valid_i => capture_frame_rate_valid,
@@ -532,6 +555,9 @@ begin
       frequency_period_q16_samples_i => frequency_period_q16,
       frequency_measurement_sequence_i => frequency_sequence,
       frequency_rejected_count_i => frequency_rejected,
+      grid_shadow_config_o => grid_shadow_config,
+      grid_active_config_i => grid_active_config,
+      grid_status_i => grid_status,
       active_generation_i => active_generation,
       result_sequence_i => result_sequence,
       result_drop_count_i => result_drop_count,
@@ -567,7 +593,40 @@ begin
       frequency_millihz_o => frequency_millihz,
       period_q16_samples_o => frequency_period_q16,
       measurement_sequence_o => frequency_sequence,
-      rejected_count_o => frequency_rejected
+      rejected_count_o => frequency_rejected,
+      rising_crossing_now_o => rising_crossing_now,
+      falling_crossing_now_o => falling_crossing_now,
+      reference_valid_now_o => reference_valid_now
+    );
+
+  -- Grid-cycle timing derives IEC 61000-4-30 basic-block boundaries from the
+  -- same qualified zero crossings the frequency engine uses. Like the
+  -- frequency and waveform branches it only observes accepted frames and can
+  -- never backpressure the stream.
+  grid_timing : entity work.grid_cycle_timing
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      frame_accept_i => engine_valid,
+      sample_index_low_i => converted_fifo.user(31 downto 0),
+      sample_index_high_i => converted_fifo.user(105 downto 74),
+      rising_crossing_i => rising_crossing_now,
+      falling_crossing_i => falling_crossing_now,
+      reference_valid_i => reference_valid_now,
+      config_grid_i => grid_shadow_config,
+      config_window_samples_i => shadow_window_samples,
+      config_apply_toggle_i => apply_toggle,
+      active_grid_o => grid_active_config,
+      status_o => grid_status,
+      frame_closes_block_o => grid_frame_closes_block,
+      cycle_mode_o => grid_cycle_mode,
+      cycle_boundary_o => open,
+      half_cycle_boundary_o => open,
+      cycle_sequence_o => open,
+      block_first_sample_o => block_first_sample,
+      block_cycle_count_o => block_cycle_count,
+      block_nominal_hz_o => block_nominal_hz,
+      block_flags_o => block_flags
     );
 
   rms_engine : entity work.meter_rms
@@ -592,6 +651,8 @@ begin
       config_enable_i => shadow_enable,
       config_dc_remove_i => shadow_dc_remove,
       config_apply_toggle_i => apply_toggle,
+      cycle_mode_i => grid_cycle_mode,
+      frame_closes_block_i => grid_frame_closes_block,
       active_generation_o => active_generation,
       status_o => processing_status,
       result_valid_o => result_valid,
@@ -634,6 +695,10 @@ begin
       capture_overflows_i => capture_overflows,
       capture_alerts_i => capture_alerts,
       packetizer_drop_count_i => packetizer_drop_count,
+      block_first_sample_i => block_first_sample,
+      block_cycle_count_i => block_cycle_count,
+      block_nominal_hz_i => block_nominal_hz,
+      block_flags_i => block_flags,
       record_data_o => record_data,
       record_valid_o => record_valid,
       record_ready_i => record_ready,

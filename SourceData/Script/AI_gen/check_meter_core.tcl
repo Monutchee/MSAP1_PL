@@ -20,6 +20,7 @@ if {[info exists ::env(LD_LIBRARY_PATH)] && $::env(LD_LIBRARY_PATH) ne ""} {
 
 set vhdl2008_sources [list \
   [file join $design_root MeterCommon metering_pkg.vhd] \
+  [file join $design_root MeterCommon grid_timing_pkg.vhd] \
   [file join $design_root Ad7771Capture ad7771_receiver.vhd] \
   [file join $design_root Ad7771Capture ad7771_axi_regs.vhd] \
   [file join $design_root Ad7771Capture ad7771_dclk_meter.vhd] \
@@ -33,6 +34,7 @@ set vhdl2008_sources [list \
   [file join $design_root MeterProcessing meter_frequency_estimator.vhd] \
   [file join $design_root MeterProcessing meter_frequency.vhd] \
   [file join $design_root MeterProcessing meter_rms.vhd] \
+  [file join $design_root MeterProcessing grid_cycle_timing.vhd] \
   [file join $design_root MeterCore adc_simulator_pkg.vhd] \
   [file join $design_root MeterCore adc_simulator.vhd] \
   [file join $design_root MeterCore adc_source_mux.vhd] \

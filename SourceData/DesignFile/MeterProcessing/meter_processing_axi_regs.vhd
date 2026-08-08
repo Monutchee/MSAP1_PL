@@ -4,6 +4,7 @@ use ieee.numeric_std.all;
 
 library work;
 use work.meter_frequency_pkg.all;
+use work.grid_timing_pkg.all;
 use work.metering_pkg.all;
 
 entity meter_processing_axi_regs is
@@ -53,6 +54,12 @@ entity meter_processing_axi_regs is
     frequency_measurement_sequence_i   : in  word32_t;
     frequency_rejected_count_i         : in  word32_t;
 
+    -- Grid-cycle timing configuration. The shadow commits on the shared
+    -- APPLY toggle alongside the RMS and frequency configuration.
+    grid_shadow_config_o               : out word32_t;
+    grid_active_config_i               : in  word32_t;
+    grid_status_i                      : in  word32_t;
+
     active_generation_i     : in  word32_t;
     result_sequence_i       : in  word32_t;
     result_drop_count_i     : in  word32_t;
@@ -81,6 +88,7 @@ architecture rtl of meter_processing_axi_regs is
     std_logic_vector(to_unsigned(70000, 32));
   signal frequency_shadow_hysteresis_uv   : word32_t :=
     std_logic_vector(to_unsigned(1000000, 32));
+  signal grid_shadow_config    : word32_t := GRID_CONFIG_DEFAULT;
   signal apply_toggle          : std_logic := '0';
   signal bvalid                : std_logic := '0';
   signal rvalid                : std_logic := '0';
@@ -111,6 +119,7 @@ begin
   frequency_shadow_minimum_millihz_o <= frequency_shadow_minimum_millihz;
   frequency_shadow_maximum_millihz_o <= frequency_shadow_maximum_millihz;
   frequency_shadow_hysteresis_uv_o <= frequency_shadow_hysteresis_uv;
+  grid_shadow_config_o <= grid_shadow_config;
 
   process (aclk)
     variable address_word : natural range 0 to 63;
@@ -134,6 +143,7 @@ begin
           std_logic_vector(to_unsigned(70000, 32));
         frequency_shadow_hysteresis_uv <=
           std_logic_vector(to_unsigned(1000000, 32));
+        grid_shadow_config <= GRID_CONFIG_DEFAULT;
         apply_toggle <= '0';
         bvalid <= '0';
         rvalid <= '0';
@@ -185,6 +195,9 @@ begin
             when FREQUENCY_REG_SHADOW_HYSTERESIS_UV / 4 =>
               frequency_shadow_hysteresis_uv <= apply_write_strobes(
                 frequency_shadow_hysteresis_uv, s_axi_wdata, s_axi_wstrb);
+            when GRID_REG_SHADOW_CONFIG / 4 =>
+              grid_shadow_config <= apply_write_strobes(
+                grid_shadow_config, s_axi_wdata, s_axi_wstrb);
             when others => null;
           end case;
           bvalid <= '1';
@@ -242,6 +255,9 @@ begin
               rdata <= frequency_measurement_sequence_i;
             when FREQUENCY_REG_REJECTED_COUNT / 4 =>
               rdata <= frequency_rejected_count_i;
+            when GRID_REG_SHADOW_CONFIG / 4 => rdata <= grid_shadow_config;
+            when GRID_REG_ACTIVE_CONFIG / 4 => rdata <= grid_active_config_i;
+            when GRID_REG_STATUS / 4 => rdata <= grid_status_i;
             when others => rdata <= (others => '0');
           end case;
           rvalid <= '1';

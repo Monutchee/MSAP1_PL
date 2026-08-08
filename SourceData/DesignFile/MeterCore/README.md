@@ -163,6 +163,18 @@ brackets that write with `CLOCK_TAI` reads, providing an uncertainty-bounded
 mapping from raw sample sequence to wall time without placing timestamps in
 RPMsg.
 
+The "frame sequence" latched here is the conversion stage's 64-bit
+free-running sample index, delivered with each frame in TUSER (low word in
+bits 31:0, high word in bits 105:74). It is the same monotonic measurement
+timebase that MTR1 format-2 basic blocks reference in words 60/61, so a
+correlation read maps basic-block sample ranges to UTC directly. Because the
+waveform branch taps the stream before the conversion-to-processing
+elasticity FIFO while RMS consumes after it, a latched value can lead the RMS
+tap by up to the FIFO depth (16 frames, 0.5 ms at 32 kSPS); the counter value
+itself travels with the frame and is identical at both taps. The counter is
+never reset by configuration apply or by Linux time changes — only by PL
+reset.
+
 ## Verification
 
 Run the end-to-end mixed-language test and focused synthesis from the

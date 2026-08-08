@@ -29,6 +29,16 @@ entity meter_rms is
     config_dc_remove_i      : in  std_logic;
     config_apply_toggle_i   : in  std_logic;
 
+    -- Cycle-based basic-block close (IEC 61000-4-30). When cycle_mode_i is
+    -- high the window closes only on frame_closes_block_i, which is valid on
+    -- the same clock as the accepted frame and travels through the input
+    -- pipeline with it, so grid_cycle_timing and this engine always agree on
+    -- block membership. When low, the legacy sample-count close applies.
+    -- Both signals commit on the same APPLY toggle as this engine's own
+    -- configuration, so no separate active copy is needed here.
+    cycle_mode_i            : in  std_logic;
+    frame_closes_block_i    : in  std_logic;
+
     active_generation_o     : out word32_t;
     status_o                : out word32_t;
     result_valid_o          : out std_logic;
@@ -95,7 +105,9 @@ architecture rtl of meter_rms is
   signal sample_stage_value     : signed64_array_t := (others => (others => '0'));
   signal sample_stage_raw       : signed32_array_t := (others => (others => '0'));
   signal sample_stage_valid_mask: std_logic_vector(7 downto 0) := (others => '0');
+  signal sample_stage_closes    : std_logic := '0';
   signal square_stage_valid     : std_logic := '0';
+  signal square_stage_closes    : std_logic := '0';
   signal square_stage_value     : unsigned128_array_t := (others => (others => '0'));
   signal square_stage_sample    : signed64_array_t := (others => (others => '0'));
   signal square_stage_raw_value : unsigned64_array_t := (others => (others => '0'));
@@ -210,6 +222,8 @@ begin
         sample_count <= (others => '0');
         sample_stage_valid <= '0';
         square_stage_valid <= '0';
+        sample_stage_closes <= '0';
+        square_stage_closes <= '0';
         calc_state <= CALC_IDLE;
         calc_channel <= 0;
         calc_raw_mode <= '0';
@@ -240,6 +254,8 @@ begin
           sample_count <= (others => '0');
           sample_stage_valid <= '0';
           square_stage_valid <= '0';
+          sample_stage_closes <= '0';
+          square_stage_closes <= '0';
           calc_state <= CALC_IDLE;
           calc_raw_mode <= '0';
           result_mask <= (others => '0');
@@ -249,6 +265,8 @@ begin
           -- overrides these defaults, allowing one accepted frame per clock.
           sample_stage_valid <= '0';
           square_stage_valid <= '0';
+          sample_stage_closes <= '0';
+          square_stage_closes <= '0';
 
           -- A malformed or stale-generation frame invalidates both the active
           -- window and every in-flight arithmetic stage. This preserves the
@@ -284,6 +302,7 @@ begin
               end loop;
               sample_stage_valid_mask <= s_axis_tuser(71 downto 64);
               sample_stage_valid <= '1';
+              sample_stage_closes <= frame_closes_block_i;
             end if;
 
             -- Stage 1: perform and register the converted and raw squares.
@@ -304,6 +323,7 @@ begin
               end loop;
               square_stage_valid_mask <= sample_stage_valid_mask;
               square_stage_valid <= '1';
+              square_stage_closes <= sample_stage_closes;
             end if;
 
             -- Stage 2: accumulation and window snapshot use only registered
@@ -335,8 +355,14 @@ begin
                   resize(square_stage_raw_value(rms_index), 96);
               end loop;
 
+              -- Window close. In cycle mode the boundary marker that
+              -- travelled with this frame decides; blocks then vary in
+              -- length with the actual grid frequency. In legacy mode the
+              -- configured sample count decides, exactly as before.
               window_value := unsigned(active_window_samples);
-              if window_value /= 0 and sample_count + 1 >= window_value then
+              if (cycle_mode_i = '1' and square_stage_closes = '1') or
+                 (cycle_mode_i = '0' and window_value /= 0 and
+                  sample_count + 1 >= window_value) then
                 if calc_state = CALC_IDLE then
                   snapshot_sum <= sum_next;
                   snapshot_square <= square_next;
@@ -344,7 +370,11 @@ begin
                   raw_snapshot_square <= raw_square_next;
                   snapshot_generation <= active_generation;
                   snapshot_sample_rate <= active_sample_rate;
-                  snapshot_window <= active_window_samples;
+                  -- Divide by the number of samples actually accumulated,
+                  -- not the configured window: cycle-aligned blocks rarely
+                  -- land exactly on the configured count. In legacy mode
+                  -- both values are identical, so behaviour is unchanged.
+                  snapshot_window <= std_logic_vector(sample_count + 1);
                   snapshot_valid_mask <= active_valid_mask and
                                          square_stage_valid_mask;
                   snapshot_dc_remove <= active_dc_remove;

@@ -14,8 +14,20 @@
   heartbeat, fan routing, clocks, resets, and external ports.
 - `SourceData/DesignFile/MeterCore/` is the single metering module-reference
   boundary. Its VHDL hierarchy owns AD7771 capture, runtime conversion, RMS
-  processing, VLA frequency measurement, the raw ADC simulator/source mux, the
+  processing, VLA frequency measurement, grid-cycle timing for IEC 61000-4-30
+  basic measurement blocks (`MeterProcessing/grid_cycle_timing.vhd`, contract
+  in `MeterCommon/grid_timing_pkg.vhd`), the raw ADC simulator/source mux, the
   result hub, and MTR1 packetization.
+- The conversion stage owns the 64-bit free-running sample index (low word in
+  `TUSER[31:0]`, high word in `TUSER[105:74]`). It is the measurement
+  timebase: never reset it on configuration apply and never step it for time
+  synchronization. MTR1 format `0x00010002` references it in words 60/61 and
+  the waveform correlation block latches it for Linux UTC mapping.
+- Grid-cycle timing registers live in the processing block: `GRID_SHADOW_CONFIG`
+  `0x6C`, `GRID_ACTIVE_CONFIG` `0x70`, `GRID_STATUS` `0x74` (RPU-owned,
+  committed by the shared `CONTROL.APPLY` toggle). Like the frequency and
+  waveform branches, grid timing is observational: it must never backpressure
+  ADC capture, RMS, or MTR1 production.
 - Treat `SourceData` HDL, constraints, block designs, and maintained Tcl as
   design inputs. Treat `vivado_gen` runtime products and block-design generated
   HDL/IP products as regenerable unless explicitly tracked by the repository.
@@ -73,6 +85,7 @@ vivado -mode batch -source SourceData/Script/AI_gen/check_ad7771_capture.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_heartbeat.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_meter_core.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_meter_frequency.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/check_metering_pipeline.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_metering_synthesis.tcl -tclargs MeterCore_Wrapper
 vivado -mode batch -source SourceData/Script/AI_gen/verify_ad7771_design.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/synth_ad7771_design.tcl

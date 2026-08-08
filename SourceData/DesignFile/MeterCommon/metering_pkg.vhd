@@ -9,6 +9,24 @@ package metering_pkg is
   subtype sword64_t is signed(63 downto 0);
   subtype uword64_t is unsigned(63 downto 0);
 
+  -- Converted-frame TUSER layout (384 bits, one beat per 8-channel frame).
+  -- The 64-bit free-running sample index is split so bits 31:0 keep their
+  -- original position: existing consumers of the low word stay unchanged
+  -- while the high word rides in a previously unused TUSER region.
+  --
+  --   [31:0]    sample index, low word (was the 32-bit sample sequence)
+  --   [63:32]   active configuration generation
+  --   [71:64]   valid channel mask
+  --   [72]      saturation sticky flag
+  --   [73]      source-packet TLAST
+  --   [105:74]  sample index, high word
+  --   [127:106] unused
+  --   [383:128] eight raw 32-bit ADC words (waveform branch)
+  constant TUSER_SAMPLE_INDEX_LOW_LSB  : natural := 0;
+  constant TUSER_SAMPLE_INDEX_LOW_MSB  : natural := 31;
+  constant TUSER_SAMPLE_INDEX_HIGH_LSB : natural := 74;
+  constant TUSER_SAMPLE_INDEX_HIGH_MSB : natural := 105;
+
   type word32_array_t is array (natural range <>) of word32_t;
   type sword64_array_t is array (natural range <>) of sword64_t;
   type uword128_array_t is array (natural range <>) of unsigned(127 downto 0);

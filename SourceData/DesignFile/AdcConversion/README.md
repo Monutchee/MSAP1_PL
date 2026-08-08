@@ -8,7 +8,17 @@ one microamp, depending on the configured channel.
 `TUSER[383:128]` carries the eight signed raw 32-bit ADC lanes for aggregate
 count-domain metering inside PL. It is consumed by `MeterProcessing` and is
 never packetized as continuous waveform data for Linux. `TUSER[127:0]` holds
-sequence, configuration generation, validity, saturation, and packet status.
+the sample index, configuration generation, validity, saturation, and packet
+status.
+
+The sample index is a 64-bit free-running measurement timebase counting
+accepted complete frames from PL reset. It is never reset or stepped by
+configuration apply or Linux time changes, so grid-cycle timing and basic
+measurement blocks can reference ADC samples unambiguously for the product
+lifetime (a 64-bit counter cannot wrap at any supported rate). The low word
+stays in `TUSER[31:0]` for existing consumers; the high word rides in
+`TUSER[105:74]` (see `metering_pkg`). The `SAMPLE_SEQUENCE` register keeps
+exposing the low 32 bits.
 
 The stage contains no board constants. Software writes unsigned Q16.16
 micro-unit-per-count coefficients to shadow registers, then commits them with

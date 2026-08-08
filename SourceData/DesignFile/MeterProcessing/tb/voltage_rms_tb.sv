@@ -43,6 +43,10 @@ module voltage_rms_tb;
     .config_valid_mask_i(config_mask), .config_enable_i(config_enable),
     .config_dc_remove_i(config_dc_remove),
     .config_apply_toggle_i(config_apply_toggle),
+    // Legacy sample-count close; cycle mode is covered by grid_cycle_timing_tb
+    // and the meter_core integration test.
+    .cycle_mode_i(1'b0),
+    .frame_closes_block_i(1'b0),
     .active_generation_o(active_generation), .status_o(status),
     .result_valid_o(result_valid), .result_sequence_o(result_sequence),
     .result_generation_o(result_generation),

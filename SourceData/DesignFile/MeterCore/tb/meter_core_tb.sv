@@ -384,9 +384,9 @@ module meter_core_tb;
     end
   endtask
 
-  task automatic send_frame(input integer frame_number);
+  // Serial transmission of whatever build_* task last placed in lanes[].
+  task automatic transmit_frame;
     begin
-      build_frame(frame_number);
       adc_drdy_n = 1'b0;
       repeat (3) @(posedge adc_dclk);
       @(posedge adc_dclk);
@@ -402,6 +402,33 @@ module meter_core_tb;
       end
       @(negedge adc_dclk);
       #1;
+    end
+  endtask
+
+  task automatic send_frame(input integer frame_number);
+    begin
+      build_frame(frame_number);
+      transmit_frame();
+    end
+  endtask
+
+  // Frame with a synthetic grid waveform on CH6/Va: +10 for the first half
+  // of a 20-frame cycle, -10 for the second half. The rising edge at each
+  // cycle start gives the zero-crossing detector one qualified crossing per
+  // cycle once the hysteresis is configured below the amplitude.
+  task automatic send_grid_frame(input integer cycle_position);
+    logic [7:0] header;
+    logic signed [23:0] grid_sample;
+    begin
+      build_frame(cycle_position);
+      grid_sample = (cycle_position % 20) < 10 ? 24'sd10 : -24'sd10;
+      header = {1'b0, 3'd6, 4'h0};
+      words[6] = {header, grid_sample};
+      lanes[0] = {words[0], words[1]};
+      lanes[1] = {words[2], words[3]};
+      lanes[2] = {words[4], words[5]};
+      lanes[3] = {words[6], words[7]};
+      transmit_frame();
     end
   endtask
 
@@ -436,6 +463,8 @@ module meter_core_tb;
   task automatic check_meter_word(input integer word_index,
                                   input integer expected_sequence,
                                   input integer expected_generation,
+                                  input logic [31:0] expected_timing,
+                                  input logic [31:0] expected_first_sample,
                                   input integer rms0,
                                   input integer rms1,
                                   input integer rms2,
@@ -446,7 +475,7 @@ module meter_core_tb;
     begin
       case (word_index)
         0: assert (meter_tdata == 32'h3152_544d) else $fatal(1, "bad MTR1 magic");
-        1: assert (meter_tdata == 32'h0001_0001) else $fatal(1, "bad record format");
+        1: assert (meter_tdata == 32'h0001_0002) else $fatal(1, "bad record format");
         2: assert (meter_tdata == 32'd256) else $fatal(1, "bad record length");
         3: assert (meter_tdata == expected_sequence) else $fatal(1, "bad result sequence");
         4: assert (meter_tdata == expected_generation) else $fatal(1, "bad generation");
@@ -454,6 +483,9 @@ module meter_core_tb;
         6: assert (meter_tdata == 32'd4) else $fatal(1, "bad RMS window");
         7: assert (meter_tdata[7:0] == 8'h7f) else $fatal(1, "bad valid mask");
         8: assert (meter_tdata == 0) else $fatal(1, "unexpected result status");
+        15: assert (meter_tdata == expected_timing)
+          else $fatal(1, "bad timing word %08h, expected %08h",
+                      meter_tdata, expected_timing);
         10: assert (meter_tdata == 0) else $fatal(1, "header errors are non-zero");
         11: assert (meter_tdata == 0) else $fatal(1, "FIFO overflows are non-zero");
         12: assert (meter_tdata == 0) else $fatal(1, "packetizer drops are non-zero");
@@ -494,6 +526,12 @@ module meter_core_tb;
         48: assert (meter_tdata == rms6) else $fatal(1, "CH6 raw RMS mismatch: %0d", meter_tdata);
         49: assert ($signed(meter_tdata) == rms6) else $fatal(1, "CH6 RMS mismatch: %0d", $signed(meter_tdata));
         50: assert (meter_tdata == 0) else $fatal(1, "CH6 RMS high mismatch");
+        60: assert (meter_tdata == expected_first_sample)
+          else $fatal(1, "bad first sample %0d, expected %0d",
+                      meter_tdata, expected_first_sample);
+        61: assert (meter_tdata == 0) else $fatal(1, "bad first sample high");
+        62: assert (meter_tdata == 0) else $fatal(1, "word 62 not reserved");
+        63: assert (meter_tdata == 0) else $fatal(1, "word 63 not reserved");
         default: ;
       endcase
     end
@@ -501,6 +539,8 @@ module meter_core_tb;
 
   task automatic consume_record(input integer expected_sequence,
                                 input integer expected_generation,
+                                input logic [31:0] expected_timing,
+                                input logic [31:0] expected_first_sample,
                                 input integer rms0,
                                 input integer rms1,
                                 input integer rms2,
@@ -520,6 +560,7 @@ module meter_core_tb;
           assert (meter_tlast == (word_index == 63))
             else $fatal(1, "meter TLAST at word %0d", word_index);
           check_meter_word(word_index, expected_sequence, expected_generation,
+                           expected_timing, expected_first_sample,
                            rms0, rms1, rms2, rms3,
                            rms4, rms5, rms6);
           word_index = word_index + 1;
@@ -530,8 +571,83 @@ module meter_core_tb;
     end
   endtask
 
+  // Consume one record checking only the header and basic-block timing
+  // words. Used by the cycle-mode scenario, whose channel values follow the
+  // grid waveform rather than the fixed legacy pattern.
+  task automatic consume_timing_record(input integer expected_sequence,
+                                       input integer expected_generation,
+                                       input logic [31:0] expected_count,
+                                       input logic [31:0] expected_timing,
+                                       input logic [31:0] expected_first_sample);
+    integer word_index;
+    begin
+      @(negedge clock);
+      meter_tready = 1'b1;
+      word_index = 0;
+      while (word_index < 64) begin
+        @(posedge clock);
+        if (meter_tvalid && meter_tready) begin
+          assert (meter_tkeep == 4'hf) else $fatal(1, "bad meter TKEEP");
+          assert (meter_tlast == (word_index == 63))
+            else $fatal(1, "meter TLAST at word %0d", word_index);
+          case (word_index)
+            0: assert (meter_tdata == 32'h3152_544d) else $fatal(1, "bad MTR1 magic");
+            1: assert (meter_tdata == 32'h0001_0002) else $fatal(1, "bad record format");
+            2: assert (meter_tdata == 32'd256) else $fatal(1, "bad record length");
+            3: assert (meter_tdata == expected_sequence) else $fatal(1, "bad result sequence");
+            4: assert (meter_tdata == expected_generation) else $fatal(1, "bad generation");
+            6: assert (meter_tdata == expected_count)
+              else $fatal(1, "bad block sample count %0d, expected %0d",
+                          meter_tdata, expected_count);
+            15: assert (meter_tdata == expected_timing)
+              else $fatal(1, "bad timing word %08h, expected %08h",
+                          meter_tdata, expected_timing);
+            60: assert (meter_tdata == expected_first_sample)
+              else $fatal(1, "bad first sample %0d, expected %0d",
+                          meter_tdata, expected_first_sample);
+            61: assert (meter_tdata == 0) else $fatal(1, "bad first sample high");
+            default: ;
+          endcase
+          word_index = word_index + 1;
+        end
+      end
+      @(negedge clock);
+      meter_tready = 1'b0;
+    end
+  endtask
+
+  // Configure a cycle-mode generation: 50 Hz nominal with 2 cycles per
+  // block (kept small for simulation), hysteresis below the +/-10 grid
+  // amplitude so crossings qualify, and a fallback window that neither
+  // expires before the first crossing nor unlocks between 20-frame cycles.
+  task automatic configure_meter_cycle(input logic [31:0] generation);
+    begin
+      conversion_write(8'h10, generation);
+      conversion_write(8'h14, 32'h0000_007f);
+      for (int index = 0; index < 8; index++)
+        conversion_write(8'h18 + index * 4, 32'd65536);
+      conversion_write(8'h08, 32'h0000_0003);
+
+      processing_write(8'h10, generation);
+      processing_write(8'h14, 32'd20);
+      processing_write(8'h18, 32'd120);
+      processing_write(8'h1c, 32'h0000_007f);
+      processing_write(8'h40, 32'd5);
+      processing_write(8'h6c, 32'h0001_3202);
+      processing_write(8'h08, 32'h0000_0003);
+
+      repeat (8) @(posedge clock);
+      processing_read(8'h20, read_value);
+      assert (read_value == generation)
+        else $fatal(1, "cycle-mode generation mismatch");
+      processing_read(8'h70, read_value);
+      assert (read_value == 32'h0001_3202)
+        else $fatal(1, "grid active configuration mismatch");
+    end
+  endtask
+
   initial begin : watchdog
-    #1_000_000;
+    #2_000_000;
     $fatal(1, "MeterCore integration test timed out");
   end
 
@@ -568,13 +684,17 @@ module meter_core_tb;
     assert (read_value == 8)
       else $fatal(1, "capture stalled behind meter DMA: %0d frames", read_value);
 
-    consume_record(1, 42, 10, 2, 4, 5, 3, 4, 5);
-    consume_record(2, 42, 10, 2, 4, 5, 3, 4, 5);
+    // Cycle timing is enabled by default but CH6 never crosses zero with
+    // the legacy pattern and the 1 V default hysteresis, so blocks close on
+    // the free-run fallback: word 15 carries nominal 60 Hz, zero cycles,
+    // and the fallback flag (plus first-block after each APPLY).
+    consume_record(1, 42, 32'h0006_003c, 32'd1, 10, 2, 4, 5, 3, 4, 5);
+    consume_record(2, 42, 32'h0002_003c, 32'd5, 10, 2, 4, 5, 3, 4, 5);
 
     configure_meter(32'd43, 1'b0);
     for (int frame = 8; frame < 12; frame++)
       send_frame(frame);
-    consume_record(3, 43, 22, 20, 8, 5, 10, 20, 8);
+    consume_record(3, 43, 32'h0006_003c, 32'd9, 22, 20, 8, 5, 10, 20, 8);
 
     repeat (20) @(posedge clock);
     capture_read(8'h10, read_value);
@@ -595,6 +715,38 @@ module meter_core_tb;
     waveform_read(8'h30, read_value);
     assert (read_value == 0)
       else $fatal(1, "waveform branch dropped frames before its FIFO filled");
+
+    // ---- Cycle-mode scenario: 50 Hz nominal, 2 cycles per basic block ----
+    // The grid waveform on CH6 has a 20-frame period, so each basic block
+    // spans 40 frames. Startup is unlocked, so the first qualified crossing
+    // (frame position 20, absolute sample 33) closes a 21-sample partial
+    // block flagged fallback + first-block; the following blocks are
+    // crossing-aligned, exactly 2 cycles / 40 samples each, and gapless:
+    // first sample 13, then 34, then 74.
+    configure_meter_cycle(32'd44);
+    // Consume each record after its closing crossing so the packetizer's
+    // two-deep latest-wins buffer never has to replace a pending record.
+    for (int position = 0; position <= 20; position++)
+      send_grid_frame(position);
+    consume_timing_record(4, 44, 32'd21, 32'h0006_0032, 32'd13);
+    for (int position = 21; position <= 60; position++)
+      send_grid_frame(position);
+    consume_timing_record(5, 44, 32'd40, 32'h0001_0232, 32'd34);
+    for (int position = 61; position <= 100; position++)
+      send_grid_frame(position);
+    consume_timing_record(6, 44, 32'd40, 32'h0001_0232, 32'd74);
+
+    repeat (20) @(posedge clock);
+    capture_read(8'h10, read_value);
+    assert (read_value == 113)
+      else $fatal(1, "cycle-mode frame count mismatch: %0d", read_value);
+    processing_read(8'h28, read_value);
+    assert (read_value == 0) else $fatal(1, "cycle-mode RMS result drop");
+    processing_read(8'h74, read_value);
+    assert (read_value[0]) else $fatal(1, "grid timing not locked");
+    waveform_read(8'h28, read_value);
+    assert (read_value == 113)
+      else $fatal(1, "waveform sample index low word mismatch");
 
     $display("PASS: meter_core_tb");
     $finish;
