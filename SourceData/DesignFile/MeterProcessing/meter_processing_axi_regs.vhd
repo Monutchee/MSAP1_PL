@@ -5,6 +5,7 @@ use ieee.numeric_std.all;
 library work;
 use work.meter_frequency_pkg.all;
 use work.grid_timing_pkg.all;
+use work.measurement_record_bus_pkg.all;
 use work.metering_pkg.all;
 
 entity meter_processing_axi_regs is
@@ -59,6 +60,14 @@ entity meter_processing_axi_regs is
     grid_shadow_config_o               : out word32_t;
     grid_active_config_i               : in  word32_t;
     grid_status_i                      : in  word32_t;
+
+    -- 150/180-cycle aggregation health (read-only).
+    agg_status_i                       : in  word32_t;
+    agg_record_count_i                 : in  word32_t;
+    agg_reset_count_i                  : in  word32_t;
+    agg_ineligible_count_i             : in  word32_t;
+    agg_continuity_count_i             : in  word32_t;
+    agg_drop_count_i                   : in  word32_t;
 
     active_generation_i     : in  word32_t;
     result_sequence_i       : in  word32_t;
@@ -258,6 +267,12 @@ begin
             when GRID_REG_SHADOW_CONFIG / 4 => rdata <= grid_shadow_config;
             when GRID_REG_ACTIVE_CONFIG / 4 => rdata <= grid_active_config_i;
             when GRID_REG_STATUS / 4 => rdata <= grid_status_i;
+            when AGG_REG_STATUS / 4 => rdata <= agg_status_i;
+            when AGG_REG_RECORD_COUNT / 4 => rdata <= agg_record_count_i;
+            when AGG_REG_RESET_COUNT / 4 => rdata <= agg_reset_count_i;
+            when AGG_REG_INELIGIBLE_COUNT / 4 => rdata <= agg_ineligible_count_i;
+            when AGG_REG_CONTINUITY_COUNT / 4 => rdata <= agg_continuity_count_i;
+            when AGG_REG_DROP_COUNT / 4 => rdata <= agg_drop_count_i;
             when others => rdata <= (others => '0');
           end case;
           rvalid <= '1';

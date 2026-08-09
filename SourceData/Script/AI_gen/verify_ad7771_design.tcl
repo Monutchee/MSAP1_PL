@@ -32,6 +32,7 @@ set vhdl2008_sources [list \
     [file join $design_dir HeatBeat_Controller HeatBeat_Controller.vhd] \
     [file join $design_dir MeterCommon metering_pkg.vhd] \
     [file join $design_dir MeterCommon grid_timing_pkg.vhd] \
+    [file join $design_dir MeterCommon measurement_record_bus_pkg.vhd] \
     [file join $design_dir Ad7771Capture ad7771_receiver.vhd] \
     [file join $design_dir Ad7771Capture ad7771_axi_regs.vhd] \
     [file join $design_dir Ad7771Capture ad7771_dclk_meter.vhd] \
@@ -46,6 +47,9 @@ set vhdl2008_sources [list \
     [file join $design_dir MeterProcessing meter_frequency.vhd] \
     [file join $design_dir MeterProcessing meter_rms.vhd] \
     [file join $design_dir MeterProcessing grid_cycle_timing.vhd] \
+    [file join $design_dir MeterProcessing meter_cycle_aggregator.vhd] \
+    [file join $design_dir MeterProcessing aggregate_record_producer.vhd] \
+    [file join $design_dir MeterProcessing measurement_record_arbiter.vhd] \
     [file join $design_dir MeterCore adc_simulator_pkg.vhd] \
     [file join $design_dir MeterCore adc_simulator.vhd] \
     [file join $design_dir MeterCore adc_source_mux.vhd] \

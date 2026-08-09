@@ -130,6 +130,12 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
 | `0x6c` | `GRID_SHADOW_CONFIG` | [7:0] cycles/block, [15:8] nominal Hz, [16] enable |
 | `0x70` | `GRID_ACTIVE_CONFIG` | committed grid-timing readback |
 | `0x74` | `GRID_STATUS` | [0] locked, [1] reference usable, [2] enabled, [15:8] cycles in open block |
+| `0x78` | `AGG_STATUS` | [4:0] basic blocks in the open aggregate, [8] aggregate in progress |
+| `0x7c` | `AGG_RECORD_COUNT` | completed 150/180-cycle aggregates |
+| `0x80` | `AGG_RESET_COUNT` | partial aggregates discarded (any cause) |
+| `0x84` | `AGG_INELIGIBLE_COUNT` | Basic inputs rejected by the eligibility rule |
+| `0x88` | `AGG_CONTINUITY_COUNT` | sequence or sample-range discontinuities between Basic inputs |
+| `0x8c` | `AGG_DROP_COUNT` | aggregate records replaced before transport |
 
 Frequency and grid shadow fields commit on the existing processing `APPLY`
 toggle at the same frame boundary as RMS. Applying a new configuration clears
@@ -137,6 +143,67 @@ crossing history and restarts block tracking, preventing an interval or a
 basic block from spanning configuration generations. The RPU derives the
 cycle count from the declared nominal frequency (50 Hz → 10, 60 Hz → 12);
 the PL does not validate the pairing.
+
+## 150/180-cycle aggregation and the measurement record bus
+
+`meter_cycle_aggregator` consumes the internal Basic measurement result
+event -- the same event the Basic record producer consumes -- and aggregates
+exactly 15 consecutive eligible Basic blocks into one 150-cycle (50 Hz) or
+180-cycle (60 Hz) fundamental aggregate. It is an aggregator of
+standardized Basic results, not a second RMS engine over raw samples, and
+the close event is 15 blocks, never a 3-second timer.
+
+Aggregation rules: RMS lanes use the square root of the arithmetic mean of
+the squares of the 15 Basic values (unweighted, computed in the internal
+Q16 domain; floor division and floor root, 132-bit accumulators that
+cannot overflow at 15 x the maximum input). Frequency is the arithmetic
+mean of the 15 sampled values, published only when all inputs were valid.
+
+Eligibility mirrors the APU rule: cycle-locked, not fallback, not the
+first block after APPLY, and an exact 10/12 cycle count. Membership of one
+interval additionally requires the same configuration generation, the same
+nominal frequency, the same sample rate, consecutive Basic result
+sequences (modulo 2^32), and gapless sample ranges. Sequence continuity
+and sample-range continuity are both enforced because they catch different
+faults -- a lost result event versus a sample-domain discontinuity -- so
+neither replaces the other. The sample-rate test is defensive: the
+configuration fingerprint already makes a rate change alter the
+generation, but MTR2 reports one sample rate for the whole interval, so
+the invariant is checked directly. Any violation discards the partial
+aggregate (counted per cause in the `AGG_*` registers); an ineligible
+block never seeds the next aggregate, so a rejected block can never be
+silently replaced by a later one inside the same interval.
+
+Both producers publish complete 256-byte records on the measurement
+record bus (`measurement_record_bus_pkg`): the Basic producer
+(`MeterResultHub_Wrapper`, MTR1 format 2) and the aggregate producer
+(`aggregate_record_producer`, MTR2). A deterministic fixed-priority
+arbiter (`measurement_record_arbiter`, Basic first) forwards records to
+the single existing packetizer and AXI DMA channel; each producer holds
+its newest pending record with a drop counter, so a stalled DMA can never
+backpressure measurement. Future producers (harmonics, PQ events) add an
+arbiter port, not a new DMA path. RPMsg remains control-plane only;
+measurement records stay on DMA.
+
+## 256-byte MTR2 aggregate record
+
+Word 0 is the container magic `MTR1`, word 1 is `0x00020001` (aggregate
+fundamental record, version 1), word 2 is the byte length (256). Word 3 is
+the independent aggregate sequence; words 9/10 carry the first/last Basic
+sequence so the relationship between the streams is explicit. Word 6 is
+the total sample count of the interval, words 12/13 the 64-bit first
+sample index (last = first + count - 1, derived), and word 11 packs the
+basic block count (15), nominal frequency, and total cycle count
+(150/180). Word 8 carries arithmetic/complete/frequency-valid status;
+only complete aggregates are ever emitted, and the APU decoder rejects any
+record that declares otherwise. The word 32 frequency mean is
+informational only: the standardized Class A frequency product has its own
+measurement interval and is not implemented in this tier, so the APU
+carries the value for diagnostics without advertising it as a valid
+measurement. Words 16..31 hold eight
+channels x two words of aggregate RMS in signed 64-bit micro-units, word
+32 the aggregate frequency in millihertz, and all remaining words are
+reserved zero.
 
 ## 256-byte periodic meter record
 

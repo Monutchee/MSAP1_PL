@@ -4,6 +4,9 @@ use ieee.std_logic_1164.all;
 library xpm;
 use xpm.vcomponents.all;
 
+library work;
+use work.measurement_record_bus_pkg.all;
+
 -- Structural integration for the complete ADC-to-meter-record datapath.
 -- Vendor/platform integration remains outside this entity in TopDesign.bd.
 entity meter_core is
@@ -212,6 +215,37 @@ architecture structural of meter_core is
   signal record_ready         : std_logic;
   signal hub_drop_count       : std_logic_vector(31 downto 0);
   signal packetizer_drop_count: std_logic_vector(31 downto 0);
+
+  -- Measurement record bus: Basic (hub) and aggregate producers meet at
+  -- the arbiter, which feeds the single existing packetizer/DMA path.
+  signal basic_result           : basic_measurement_result_t;
+  signal aggregate_valid        : std_logic;
+  signal aggregate_sequence     : std_logic_vector(31 downto 0);
+  signal aggregate_generation   : std_logic_vector(31 downto 0);
+  signal aggregate_sample_rate  : std_logic_vector(31 downto 0);
+  signal aggregate_samples      : std_logic_vector(31 downto 0);
+  signal aggregate_valid_mask   : std_logic_vector(7 downto 0);
+  signal aggregate_arithmetic   : std_logic;
+  signal aggregate_freq_valid   : std_logic;
+  signal aggregate_first_seq    : std_logic_vector(31 downto 0);
+  signal aggregate_last_seq     : std_logic_vector(31 downto 0);
+  signal aggregate_nominal      : std_logic_vector(7 downto 0);
+  signal aggregate_cycles       : std_logic_vector(15 downto 0);
+  signal aggregate_first_sample : std_logic_vector(63 downto 0);
+  signal aggregate_rms_q16      : std_logic_vector(511 downto 0);
+  signal aggregate_freq_millihz : std_logic_vector(31 downto 0);
+  signal agg_status             : std_logic_vector(31 downto 0);
+  signal agg_record_count       : std_logic_vector(31 downto 0);
+  signal agg_reset_count        : std_logic_vector(31 downto 0);
+  signal agg_ineligible_count   : std_logic_vector(31 downto 0);
+  signal agg_continuity_count   : std_logic_vector(31 downto 0);
+  signal agg_record_data        : measurement_record_t;
+  signal agg_record_valid       : std_logic;
+  signal agg_record_ready       : std_logic;
+  signal agg_drop_count         : std_logic_vector(31 downto 0);
+  signal bus_record_data        : measurement_record_t;
+  signal bus_record_valid       : std_logic;
+  signal bus_record_ready       : std_logic;
 
   signal waveform_enable      : std_logic;
   signal waveform_clear_stats : std_logic;
@@ -558,6 +592,12 @@ begin
       grid_shadow_config_o => grid_shadow_config,
       grid_active_config_i => grid_active_config,
       grid_status_i => grid_status,
+      agg_status_i => agg_status,
+      agg_record_count_i => agg_record_count,
+      agg_reset_count_i => agg_reset_count,
+      agg_ineligible_count_i => agg_ineligible_count,
+      agg_continuity_count_i => agg_continuity_count,
+      agg_drop_count_i => agg_drop_count,
       active_generation_i => active_generation,
       result_sequence_i => result_sequence,
       result_drop_count_i => result_drop_count,
@@ -705,13 +745,99 @@ begin
       hub_drop_count_o => hub_drop_count
     );
 
+  -- The internal Basic measurement result event: one bundle consumed by
+  -- both the Basic record producer (the hub above) and the cycle
+  -- aggregator, so the aggregator operates on standardized Basic results,
+  -- never on decoded MTR1 packets or raw samples.
+  basic_result.valid <= result_valid;
+  basic_result.result_sequence <= result_sequence;
+  basic_result.generation <= result_generation;
+  basic_result.sample_rate_hz <= result_sample_rate;
+  basic_result.sample_count <= result_window;
+  basic_result.valid_mask <= meter_result.valid_mask;
+  basic_result.status <= result_status;
+  basic_result.rms_q16 <= meter_result.rms_q16;
+  basic_result.first_sample <= block_first_sample;
+  basic_result.cycle_count <= block_cycle_count;
+  basic_result.nominal_hz <= block_nominal_hz;
+  basic_result.flags <= block_flags;
+  basic_result.frequency_millihz <= frequency_millihz;
+  -- FREQUENCY_STATUS_VALID (meter_frequency_pkg bit 1).
+  basic_result.frequency_valid <= frequency_status(1);
+
+  cycle_aggregator : entity work.meter_cycle_aggregator
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      basic_i => basic_result,
+      config_apply_toggle_i => apply_toggle,
+      aggregate_valid_o => aggregate_valid,
+      aggregate_sequence_o => aggregate_sequence,
+      aggregate_generation_o => aggregate_generation,
+      aggregate_sample_rate_o => aggregate_sample_rate,
+      aggregate_samples_o => aggregate_samples,
+      aggregate_valid_mask_o => aggregate_valid_mask,
+      aggregate_arithmetic_o => aggregate_arithmetic,
+      aggregate_freq_valid_o => aggregate_freq_valid,
+      aggregate_first_seq_o => aggregate_first_seq,
+      aggregate_last_seq_o => aggregate_last_seq,
+      aggregate_nominal_o => aggregate_nominal,
+      aggregate_cycles_o => aggregate_cycles,
+      aggregate_first_sample_o => aggregate_first_sample,
+      aggregate_rms_q16_o => aggregate_rms_q16,
+      aggregate_freq_millihz_o => aggregate_freq_millihz,
+      status_o => agg_status,
+      record_count_o => agg_record_count,
+      reset_count_o => agg_reset_count,
+      ineligible_count_o => agg_ineligible_count,
+      continuity_count_o => agg_continuity_count
+    );
+
+  aggregate_producer : entity work.aggregate_record_producer
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      aggregate_valid_i => aggregate_valid,
+      aggregate_sequence_i => aggregate_sequence,
+      aggregate_generation_i => aggregate_generation,
+      aggregate_sample_rate_i => aggregate_sample_rate,
+      aggregate_samples_i => aggregate_samples,
+      aggregate_valid_mask_i => aggregate_valid_mask,
+      aggregate_arithmetic_i => aggregate_arithmetic,
+      aggregate_freq_valid_i => aggregate_freq_valid,
+      aggregate_first_seq_i => aggregate_first_seq,
+      aggregate_last_seq_i => aggregate_last_seq,
+      aggregate_nominal_i => aggregate_nominal,
+      aggregate_cycles_i => aggregate_cycles,
+      aggregate_first_sample_i => aggregate_first_sample,
+      aggregate_rms_q16_i => aggregate_rms_q16,
+      aggregate_freq_millihz_i => aggregate_freq_millihz,
+      record_data_o => agg_record_data,
+      record_valid_o => agg_record_valid,
+      record_ready_i => agg_record_ready,
+      drop_count_o => agg_drop_count
+    );
+
+  record_arbiter : entity work.measurement_record_arbiter
+    port map (
+      basic_record_i => record_data,
+      basic_valid_i => record_valid,
+      basic_ready_o => record_ready,
+      aggregate_record_i => agg_record_data,
+      aggregate_valid_i => agg_record_valid,
+      aggregate_ready_o => agg_record_ready,
+      m_record_o => bus_record_data,
+      m_valid_o => bus_record_valid,
+      m_ready_i => bus_record_ready
+    );
+
   packetizer : entity work.MeterPacketizer_Wrapper
     port map (
       aclk => aclk,
       aresetn => aresetn,
-      record_data_i => record_data,
-      record_valid_i => record_valid,
-      record_ready_o => record_ready,
+      record_data_i => bus_record_data,
+      record_valid_i => bus_record_valid,
+      record_ready_o => bus_record_ready,
       m_axis_meter_tdata => m_axis_meter_tdata,
       m_axis_meter_tkeep => m_axis_meter_tkeep,
       m_axis_meter_tvalid => m_axis_meter_tvalid,

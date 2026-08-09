@@ -143,6 +143,13 @@ begin
       grid_shadow_config_o => open,
       grid_active_config_i => x"00013C0C",
       grid_status_i => (others => '0'),
+      -- The 150/180-cycle aggregator also lives in MeterCore only.
+      agg_status_i => (others => '0'),
+      agg_record_count_i => (others => '0'),
+      agg_reset_count_i => (others => '0'),
+      agg_ineligible_count_i => (others => '0'),
+      agg_continuity_count_i => (others => '0'),
+      agg_drop_count_i => (others => '0'),
       active_generation_i => active_generation,
       result_sequence_i => result_sequence,
       result_drop_count_i => result_drop_count,
