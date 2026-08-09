@@ -620,6 +620,121 @@ module meter_core_tb;
   // block (kept small for simulation), hysteresis below the +/-10 grid
   // amplitude so crossings qualify, and a fallback window that neither
   // expires before the first crossing nor unlocks between 20-frame cycles.
+  // Frame with an 8-frame-period grid waveform on CH6 (four +10 samples,
+  // four -10). Used by the aggregation scenario so 10-cycle blocks stay
+  // short enough to simulate: one block = 80 frames.
+  task automatic send_grid_frame8(input integer cycle_position);
+    logic [7:0] header;
+    logic signed [23:0] grid_sample;
+    begin
+      build_frame(cycle_position);
+      grid_sample = (cycle_position % 8) < 4 ? 24'sd10 : -24'sd10;
+      header = {1'b0, 3'd6, 4'h0};
+      words[6] = {header, grid_sample};
+      lanes[0] = {words[0], words[1]};
+      lanes[1] = {words[2], words[3]};
+      lanes[2] = {words[4], words[5]};
+      lanes[3] = {words[6], words[7]};
+      transmit_frame();
+    end
+  endtask
+
+  // Cycle-mode configuration with REAL Class A shape (50 Hz -> 10 cycles
+  // per block) so the aggregator accepts the blocks. The fallback window
+  // (800) exceeds the relock time and the stale threshold (200) exceeds
+  // the 8-frame cycle spacing.
+  task automatic configure_meter_aggregate(input logic [31:0] generation);
+    begin
+      conversion_write(8'h10, generation);
+      conversion_write(8'h14, 32'h0000_007f);
+      for (int index = 0; index < 8; index++)
+        conversion_write(8'h18 + index * 4, 32'd65536);
+      conversion_write(8'h08, 32'h0000_0003);
+
+      processing_write(8'h10, generation);
+      processing_write(8'h14, 32'd20);
+      processing_write(8'h18, 32'd800);
+      processing_write(8'h1c, 32'h0000_007f);
+      processing_write(8'h40, 32'd5);
+      processing_write(8'h6c, 32'h0001_320a);
+      processing_write(8'h08, 32'h0000_0003);
+
+      repeat (8) @(posedge clock);
+      processing_read(8'h20, read_value);
+      assert (read_value == generation)
+        else $fatal(1, "aggregate-mode generation mismatch");
+      processing_read(8'h70, read_value);
+      assert (read_value == 32'h0001_320a)
+        else $fatal(1, "aggregate-mode grid configuration mismatch");
+    end
+  endtask
+
+  // Consume one MTR2 aggregate record and check every meaningful word.
+  task automatic consume_mtr2_record(input integer expected_sequence,
+                                     input integer expected_generation,
+                                     input logic [31:0] expected_samples,
+                                     input logic [31:0] expected_first_basic,
+                                     input logic [31:0] expected_last_basic,
+                                     input logic [31:0] expected_shape,
+                                     input logic [31:0] expected_first_lo);
+    integer word_index;
+    begin
+      @(negedge clock);
+      meter_tready = 1'b1;
+      word_index = 0;
+      while (word_index < 64) begin
+        @(posedge clock);
+        if (meter_tvalid && meter_tready) begin
+          assert (meter_tkeep == 4'hf) else $fatal(1, "MTR2 bad TKEEP");
+          assert (meter_tlast == (word_index == 63))
+            else $fatal(1, "MTR2 TLAST at word %0d", word_index);
+          case (word_index)
+            0: assert (meter_tdata == 32'h3152_544d) else $fatal(1, "MTR2 magic");
+            1: assert (meter_tdata == 32'h0002_0001) else $fatal(1, "MTR2 format");
+            2: assert (meter_tdata == 32'd256) else $fatal(1, "MTR2 length");
+            3: assert (meter_tdata == expected_sequence) else $fatal(1, "MTR2 sequence");
+            4: assert (meter_tdata == expected_generation) else $fatal(1, "MTR2 generation");
+            5: assert (meter_tdata == 32'd20) else $fatal(1, "MTR2 sample rate");
+            6: assert (meter_tdata == expected_samples)
+              else $fatal(1, "MTR2 samples %0d != %0d", meter_tdata, expected_samples);
+            7: assert (meter_tdata == 32'h7f) else $fatal(1, "MTR2 mask");
+            // complete=1, frequency invalid (no DRDY baseline in sim),
+            // no arithmetic error.
+            8: assert (meter_tdata == 32'h0000_0002)
+              else $fatal(1, "MTR2 status %08h", meter_tdata);
+            9: assert (meter_tdata == expected_first_basic)
+              else $fatal(1, "MTR2 first basic");
+            10: assert (meter_tdata == expected_last_basic)
+              else $fatal(1, "MTR2 last basic");
+            11: assert (meter_tdata == expected_shape)
+              else $fatal(1, "MTR2 shape %08h != %08h", meter_tdata, expected_shape);
+            12: assert (meter_tdata == expected_first_lo)
+              else $fatal(1, "MTR2 first sample %0d", meter_tdata);
+            13: assert (meter_tdata == 0) else $fatal(1, "MTR2 first sample high");
+            // Uniform blocks: the aggregate equals the per-block RMS in
+            // micro-units (zero-referenced, no DC removal).
+            16: assert (meter_tdata == 32'd22) else $fatal(1, "MTR2 CH0: %0d", meter_tdata);
+            17: assert (meter_tdata == 0) else $fatal(1, "MTR2 CH0 high");
+            18: assert (meter_tdata == 32'd20) else $fatal(1, "MTR2 CH1: %0d", meter_tdata);
+            20: assert (meter_tdata == 32'd8) else $fatal(1, "MTR2 CH2: %0d", meter_tdata);
+            22: assert (meter_tdata == 32'd5) else $fatal(1, "MTR2 CH3: %0d", meter_tdata);
+            24: assert (meter_tdata == 32'd10) else $fatal(1, "MTR2 CH4: %0d", meter_tdata);
+            26: assert (meter_tdata == 32'd20) else $fatal(1, "MTR2 CH5: %0d", meter_tdata);
+            28: assert (meter_tdata == 32'd10) else $fatal(1, "MTR2 CH6: %0d", meter_tdata);
+            30: assert (meter_tdata == 0) else $fatal(1, "MTR2 CH7 must be zero");
+            32: assert (meter_tdata == 0) else $fatal(1, "MTR2 frequency must be invalid");
+            62: assert (meter_tdata == 0) else $fatal(1, "MTR2 word 62 reserved");
+            63: assert (meter_tdata == 0) else $fatal(1, "MTR2 word 63 reserved");
+            default: ;
+          endcase
+          word_index = word_index + 1;
+        end
+      end
+      @(negedge clock);
+      meter_tready = 1'b0;
+    end
+  endtask
+
   task automatic configure_meter_cycle(input logic [31:0] generation);
     begin
       conversion_write(8'h10, generation);
@@ -647,7 +762,7 @@ module meter_core_tb;
   endtask
 
   initial begin : watchdog
-    #2_000_000;
+    #12_000_000;
     $fatal(1, "MeterCore integration test timed out");
   end
 
@@ -747,6 +862,45 @@ module meter_core_tb;
     waveform_read(8'h28, read_value);
     assert (read_value == 113)
       else $fatal(1, "waveform sample index low word mismatch");
+
+    // ---- 150-cycle aggregation scenario: 50 Hz, real 10-cycle blocks ----
+    // The relock block (9 samples, abs 114..122) is ineligible; the next 15
+    // locked 80-sample blocks (r8..r22) form exactly one 150-cycle
+    // aggregate: first sample 123, 1200 samples, uniform channel values so
+    // the aggregate equals the per-block RMS.
+    configure_meter_aggregate(32'd45);
+    for (int position = 0; position <= 8; position++)
+      send_grid_frame8(position);
+    consume_timing_record(7, 45, 32'd9, 32'h0006_0032, 32'd114);
+    for (int block = 0; block < 15; block++) begin
+      for (int position = 9 + block * 80; position <= 88 + block * 80;
+           position++)
+        send_grid_frame8(position);
+      consume_timing_record(8 + block, 45, 32'd80, 32'h0001_0a32,
+                            32'd123 + block * 80);
+    end
+    consume_mtr2_record(1, 45, 32'd1200, 32'd8, 32'd22,
+                        32'h0096_320f, 32'd123);
+
+    repeat (20) @(posedge clock);
+    capture_read(8'h10, read_value);
+    assert (read_value == 1322)
+      else $fatal(1, "aggregate scenario frame count: %0d", read_value);
+    processing_read(8'h7c, read_value);
+    assert (read_value == 1) else $fatal(1, "aggregate record count");
+    processing_read(8'h84, read_value);
+    assert (read_value == 7)
+      else $fatal(1, "aggregate ineligible count: %0d", read_value);
+    processing_read(8'h80, read_value);
+    assert (read_value == 0) else $fatal(1, "unexpected aggregate resets");
+    processing_read(8'h88, read_value);
+    assert (read_value == 0) else $fatal(1, "unexpected continuity errors");
+    processing_read(8'h8c, read_value);
+    assert (read_value == 0) else $fatal(1, "unexpected aggregate drops");
+    processing_read(8'h28, read_value);
+    assert (read_value == 0) else $fatal(1, "RMS result drop in aggregation");
+    processing_read(8'h2c, read_value);
+    assert (read_value == 0) else $fatal(1, "packetizer drop in aggregation");
 
     $display("PASS: meter_core_tb");
     $finish;

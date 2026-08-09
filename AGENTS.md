@@ -28,6 +28,14 @@
   committed by the shared `CONTROL.APPLY` toggle). Like the frequency and
   waveform branches, grid timing is observational: it must never backpressure
   ADC capture, RMS, or MTR1 production.
+- The 150/180-cycle aggregator (`MeterProcessing/meter_cycle_aggregator.vhd`)
+  consumes the internal Basic result event and publishes MTR2 records
+  (`0x00020001`) through the measurement record bus
+  (`MeterCommon/measurement_record_bus_pkg.vhd`, arbiter + producers in
+  `MeterProcessing/`). Aggregate health registers occupy `0x78`-`0x8C` in the
+  processing block. Aggregates are formed from exactly 15 eligible Basic
+  results -- never from raw samples or a wall-clock timer -- and aggregate
+  data never travels over RPMsg.
 - Treat `SourceData` HDL, constraints, block designs, and maintained Tcl as
   design inputs. Treat `vivado_gen` runtime products and block-design generated
   HDL/IP products as regenerable unless explicitly tracked by the repository.

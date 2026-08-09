@@ -14,6 +14,7 @@ set_property source_mgmt_mode All [current_project]
 set vhdl_2008_sources [list \
   [file join $design_root MeterCommon metering_pkg.vhd] \
   [file join $design_root MeterCommon grid_timing_pkg.vhd] \
+  [file join $design_root MeterCommon measurement_record_bus_pkg.vhd] \
   [file join $design_root Ad7771Capture ad7771_receiver.vhd] \
   [file join $design_root Ad7771Capture ad7771_axi_regs.vhd] \
   [file join $design_root Ad7771Capture ad7771_dclk_meter.vhd] \
@@ -28,6 +29,9 @@ set vhdl_2008_sources [list \
   [file join $design_root MeterProcessing meter_frequency.vhd] \
   [file join $design_root MeterProcessing meter_rms.vhd] \
   [file join $design_root MeterProcessing grid_cycle_timing.vhd] \
+  [file join $design_root MeterProcessing meter_cycle_aggregator.vhd] \
+  [file join $design_root MeterProcessing aggregate_record_producer.vhd] \
+  [file join $design_root MeterProcessing measurement_record_arbiter.vhd] \
   [file join $design_root MeterCore adc_simulator_pkg.vhd] \
   [file join $design_root MeterCore adc_simulator.vhd] \
   [file join $design_root MeterCore adc_source_mux.vhd] \
