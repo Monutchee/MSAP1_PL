@@ -41,7 +41,14 @@ use work.measurement_record_bus_pkg.all;
 --   * cycle_count matches the nominal (50 Hz -> 10, 60 Hz -> 12)
 --   * same configuration generation as the blocks already accumulated
 --   * same nominal frequency as the blocks already accumulated
+--   * same sample rate as the blocks already accumulated (MTR2 carries one
+--     sample rate for the whole interval, so the invariant is explicit here
+--     rather than inferred from the generation)
+--   * consecutive Basic result sequences (modulo 2**32)
 --   * gapless: first_sample = previous first_sample + previous count
+-- Sequence continuity and sample-range continuity are BOTH required: they
+-- catch different faults (a lost result event versus a sample-domain
+-- discontinuity), so neither replaces the other.
 -- Any violation resets the partial aggregate (counted per cause); an
 -- eligible block that caused a generation/nominal/continuity reset seeds a
 -- fresh aggregate so the engine re-aligns on the next natural boundary. An
@@ -119,6 +126,10 @@ architecture rtl of meter_cycle_aggregator is
   signal agg_total_samples  : unsigned(31 downto 0) := (others => '0');
   signal agg_total_cycles   : unsigned(15 downto 0) := (others => '0');
   signal expected_next_first: unsigned(63 downto 0) := (others => '0');
+  -- Next Basic result sequence required by the open aggregate. Unsigned
+  -- arithmetic wraps naturally at 2**32, so 0xFFFFFFFF -> 0x00000000 stays
+  -- consecutive without a special case.
+  signal expected_next_seq  : unsigned(31 downto 0) := (others => '0');
   signal mask_and           : std_logic_vector(7 downto 0) := (others => '0');
   signal freq_sum           : unsigned(35 downto 0) := (others => '0');
   signal freq_all_valid     : std_logic := '0';
@@ -220,7 +231,6 @@ begin
 
   process (aclk)
     variable seed        : boolean;
-    variable accept      : boolean;
     variable sample_q16  : signed(63 downto 0);
     variable magnitude   : unsigned(63 downto 0);
     variable square      : unsigned(127 downto 0);
@@ -236,6 +246,7 @@ begin
         state <= S_IDLE;
         apply_seen <= '0';
         blocks_accumulated <= (others => '0');
+        expected_next_seq <= (others => '0');
         square_acc <= (others => (others => '0'));
         freq_sum <= (others => '0');
         freq_all_valid <= '0';
@@ -277,63 +288,70 @@ begin
             blocks_accumulated <= (others => '0');
           else
             seed := blocks_accumulated = 0;
-            accept := true;
             if not seed then
               if basic_i.generation /= agg_generation or
-                 unsigned(basic_i.nominal_hz) /= agg_nominal then
-                -- Generation or nominal change: the partial aggregate is
-                -- discarded and this block seeds the next one.
+                 unsigned(basic_i.nominal_hz) /= agg_nominal or
+                 basic_i.sample_rate_hz /= agg_sample_rate then
+                -- Generation, nominal, or sample-rate change: the partial
+                -- aggregate is discarded and this block seeds the next one.
+                -- The sample-rate test is defensive -- the configuration
+                -- fingerprint makes a rate change also change the
+                -- generation -- but MTR2 reports one rate for the whole
+                -- interval, so the invariant is enforced directly.
                 reset_count <= reset_count + 1;
                 seed := true;
-              elsif unsigned(basic_i.first_sample) /= expected_next_first then
+              elsif unsigned(basic_i.result_sequence) /= expected_next_seq or
+                    unsigned(basic_i.first_sample) /= expected_next_first then
+                -- A lost or reordered Basic result (sequence) or a
+                -- sample-domain discontinuity (first sample) both mean the
+                -- 15 inputs would not describe one contiguous interval.
                 continuity_count <= continuity_count + 1;
                 reset_count <= reset_count + 1;
                 seed := true;
               end if;
             end if;
 
-            if accept then
-              if seed then
-                agg_generation <= basic_i.generation;
-                agg_nominal <= unsigned(basic_i.nominal_hz);
-                agg_sample_rate <= basic_i.sample_rate_hz;
-                agg_first_sample <= unsigned(basic_i.first_sample);
-                agg_first_seq <= basic_i.result_sequence;
-                agg_total_samples <= unsigned(basic_i.sample_count);
-                agg_total_cycles <=
-                  resize(unsigned(basic_i.cycle_count), 16);
-                mask_and <= basic_i.valid_mask;
-                freq_sum <= resize(
-                  unsigned(basic_i.frequency_millihz), 36);
-                freq_all_valid <= basic_i.frequency_valid;
-                arithmetic_flag <= basic_i.status(0);
-                square_acc <= (others => (others => '0'));
-                blocks_accumulated <= to_unsigned(1, 5);
-                capture_finalize <= '0';
-              else
-                agg_total_samples <= agg_total_samples +
-                  unsigned(basic_i.sample_count);
-                agg_total_cycles <= agg_total_cycles +
-                  resize(unsigned(basic_i.cycle_count), 16);
-                mask_and <= mask_and and basic_i.valid_mask;
-                freq_sum <= freq_sum + resize(
-                  unsigned(basic_i.frequency_millihz), 36);
-                freq_all_valid <= freq_all_valid and
-                  basic_i.frequency_valid;
-                arithmetic_flag <= arithmetic_flag or basic_i.status(0);
-                blocks_accumulated <= blocks_accumulated + 1;
-                capture_finalize <= '0';
-                if blocks_accumulated + 1 = AGGREGATE_BASIC_BLOCKS then
-                  capture_finalize <= '1';
-                end if;
+            if seed then
+              agg_generation <= basic_i.generation;
+              agg_nominal <= unsigned(basic_i.nominal_hz);
+              agg_sample_rate <= basic_i.sample_rate_hz;
+              agg_first_sample <= unsigned(basic_i.first_sample);
+              agg_first_seq <= basic_i.result_sequence;
+              agg_total_samples <= unsigned(basic_i.sample_count);
+              agg_total_cycles <=
+                resize(unsigned(basic_i.cycle_count), 16);
+              mask_and <= basic_i.valid_mask;
+              freq_sum <= resize(
+                unsigned(basic_i.frequency_millihz), 36);
+              freq_all_valid <= basic_i.frequency_valid;
+              arithmetic_flag <= basic_i.status(0);
+              square_acc <= (others => (others => '0'));
+              blocks_accumulated <= to_unsigned(1, 5);
+              capture_finalize <= '0';
+            else
+              agg_total_samples <= agg_total_samples +
+                unsigned(basic_i.sample_count);
+              agg_total_cycles <= agg_total_cycles +
+                resize(unsigned(basic_i.cycle_count), 16);
+              mask_and <= mask_and and basic_i.valid_mask;
+              freq_sum <= freq_sum + resize(
+                unsigned(basic_i.frequency_millihz), 36);
+              freq_all_valid <= freq_all_valid and
+                basic_i.frequency_valid;
+              arithmetic_flag <= arithmetic_flag or basic_i.status(0);
+              blocks_accumulated <= blocks_accumulated + 1;
+              capture_finalize <= '0';
+              if blocks_accumulated + 1 = AGGREGATE_BASIC_BLOCKS then
+                capture_finalize <= '1';
               end if;
-              agg_last_seq <= basic_i.result_sequence;
-              expected_next_first <= unsigned(basic_i.first_sample) +
-                resize(unsigned(basic_i.sample_count), 64);
-              capture_rms <= basic_i.rms_q16;
-              work_channel <= 0;
-              state <= S_SQUARE;
             end if;
+            agg_last_seq <= basic_i.result_sequence;
+            expected_next_seq <= unsigned(basic_i.result_sequence) + 1;
+            expected_next_first <= unsigned(basic_i.first_sample) +
+              resize(unsigned(basic_i.sample_count), 64);
+            capture_rms <= basic_i.rms_q16;
+            work_channel <= 0;
+            state <= S_SQUARE;
           end if;
         else
           case state is

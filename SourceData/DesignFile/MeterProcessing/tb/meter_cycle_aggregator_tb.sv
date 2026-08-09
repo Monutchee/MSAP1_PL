@@ -317,6 +317,63 @@ module meter_cycle_aggregator_tb;
       else $fatal(1, "T9: RMS unaffected by frequency validity");
     assert (record_count == 9) else $fatal(1, "T9: record count");
 
+    // ---- T10: Basic sequence gap resets, gapped block reseeds -----------
+    // Only the sequence chain is broken here; the sample-index chain stays
+    // continuous, so this isolates the sequence-continuity rule.
+    for (int c = 0; c < 7; c++) rms_in[c] = 64'd4000 << 16;
+    for (int b = 0; b < 8; b++)
+      send_basic(rms_in, 32'd17, 60, 32'd25600, 3'b001, 32'd60000, 1);
+    next_seq += 1;               // lose one Basic result event
+    first_seq_expect = next_seq;
+    first_sample_expect = next_first;
+    for (int b = 0; b < 15; b++)
+      send_basic(rms_in, 32'd17, 60, 32'd25600, 3'b001, 32'd60000, 1);
+    wait_aggregate(seen);
+    assert (seen) else $fatal(1, "T10: no aggregate after the sequence gap");
+    assert (agg_first_seq == first_seq_expect &&
+            agg_last_seq == first_seq_expect + 14)
+      else $fatal(1, "T10: aggregate must restart at the gapped block");
+    assert (agg_first_sample == first_sample_expect)
+      else $fatal(1, "T10: first sample after sequence gap");
+    assert (continuity_count == 2)
+      else $fatal(1, "T10: sequence gap must count as a continuity error: %0d",
+                  continuity_count);
+    assert (record_count == 10) else $fatal(1, "T10: record count");
+
+    // ---- T11: uint32 sequence wrap stays consecutive ---------------------
+    // 0xFFFFFFF8 .. 0x00000006 is 15 consecutive blocks modulo 2**32.
+    next_seq = 32'hFFFF_FFF8;
+    first_seq_expect = next_seq;
+    for (int b = 0; b < 15; b++)
+      send_basic(rms_in, 32'd18, 60, 32'd25600, 3'b001, 32'd60000, 1);
+    wait_aggregate(seen);
+    assert (seen) else $fatal(1, "T11: sequence wrap must stay continuous");
+    assert (agg_first_seq == 32'hFFFF_FFF8 && agg_last_seq == 32'h0000_0006)
+      else $fatal(1, "T11: wrapped span %08h..%08h",
+                  agg_first_seq, agg_last_seq);
+    assert (continuity_count == 2)
+      else $fatal(1, "T11: wrap must not be treated as a discontinuity");
+    assert (record_count == 11) else $fatal(1, "T11: record count");
+
+    // ---- T12: sample-rate change mid-aggregate resets and reseeds -------
+    // Sequence and sample chains stay continuous, so only the sample-rate
+    // rule can fire: the continuity counter must therefore NOT move.
+    for (int b = 0; b < 8; b++)
+      send_basic(rms_in, 32'd19, 60, 32'd25600, 3'b001, 32'd60000, 1);
+    b_rate = 32'd32000;
+    first_seq_expect = next_seq;
+    for (int b = 0; b < 15; b++)
+      send_basic(rms_in, 32'd19, 60, 32'd25600, 3'b001, 32'd60000, 1);
+    wait_aggregate(seen);
+    assert (seen) else $fatal(1, "T12: no aggregate after the rate change");
+    assert (agg_first_seq == first_seq_expect)
+      else $fatal(1, "T12: rate change must reset the partial aggregate");
+    assert (agg_rate == 32'd32000)
+      else $fatal(1, "T12: aggregate must carry the new sample rate");
+    assert (continuity_count == 2)
+      else $fatal(1, "T12: rate change is not a continuity error");
+    assert (record_count == 12) else $fatal(1, "T12: record count");
+
     assert (reset_count > 0) else $fatal(1, "reset diagnostics missing");
     $display("PASS: meter_cycle_aggregator_tb");
     $finish;

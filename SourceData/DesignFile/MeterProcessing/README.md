@@ -134,7 +134,7 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
 | `0x7c` | `AGG_RECORD_COUNT` | completed 150/180-cycle aggregates |
 | `0x80` | `AGG_RESET_COUNT` | partial aggregates discarded (any cause) |
 | `0x84` | `AGG_INELIGIBLE_COUNT` | Basic inputs rejected by the eligibility rule |
-| `0x88` | `AGG_CONTINUITY_COUNT` | sample-range discontinuities between Basic inputs |
+| `0x88` | `AGG_CONTINUITY_COUNT` | sequence or sample-range discontinuities between Basic inputs |
 | `0x8c` | `AGG_DROP_COUNT` | aggregate records replaced before transport |
 
 Frequency and grid shadow fields commit on the existing processing `APPLY`
@@ -160,12 +160,19 @@ cannot overflow at 15 x the maximum input). Frequency is the arithmetic
 mean of the 15 sampled values, published only when all inputs were valid.
 
 Eligibility mirrors the APU rule: cycle-locked, not fallback, not the
-first block after APPLY, exact 10/12 cycle count, same configuration
-generation, same nominal frequency, and gapless sample ranges. Any
-violation discards the partial aggregate (counted per cause in the
-`AGG_*` registers); an ineligible block never seeds the next aggregate,
-so a rejected block can never be silently replaced by a later one inside
-the same interval.
+first block after APPLY, and an exact 10/12 cycle count. Membership of one
+interval additionally requires the same configuration generation, the same
+nominal frequency, the same sample rate, consecutive Basic result
+sequences (modulo 2^32), and gapless sample ranges. Sequence continuity
+and sample-range continuity are both enforced because they catch different
+faults -- a lost result event versus a sample-domain discontinuity -- so
+neither replaces the other. The sample-rate test is defensive: the
+configuration fingerprint already makes a rate change alter the
+generation, but MTR2 reports one sample rate for the whole interval, so
+the invariant is checked directly. Any violation discards the partial
+aggregate (counted per cause in the `AGG_*` registers); an ineligible
+block never seeds the next aggregate, so a rejected block can never be
+silently replaced by a later one inside the same interval.
 
 Both producers publish complete 256-byte records on the measurement
 record bus (`measurement_record_bus_pkg`): the Basic producer
@@ -188,7 +195,12 @@ the total sample count of the interval, words 12/13 the 64-bit first
 sample index (last = first + count - 1, derived), and word 11 packs the
 basic block count (15), nominal frequency, and total cycle count
 (150/180). Word 8 carries arithmetic/complete/frequency-valid status;
-only complete aggregates are ever emitted. Words 16..31 hold eight
+only complete aggregates are ever emitted, and the APU decoder rejects any
+record that declares otherwise. The word 32 frequency mean is
+informational only: the standardized Class A frequency product has its own
+measurement interval and is not implemented in this tier, so the APU
+carries the value for diagnostics without advertising it as a valid
+measurement. Words 16..31 hold eight
 channels x two words of aggregate RMS in signed 64-bit micro-units, word
 32 the aggregate frequency in millihertz, and all remaining words are
 reserved zero.
