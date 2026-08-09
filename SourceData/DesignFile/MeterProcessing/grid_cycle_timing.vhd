@@ -97,6 +97,7 @@ architecture rtl of grid_cycle_timing is
 
   signal closed_first_sample : unsigned(63 downto 0) := (others => '0');
   signal closed_cycle_count  : unsigned(7 downto 0) := (others => '0');
+  signal closed_nominal_hz   : unsigned(7 downto 0) := to_unsigned(60, 8);
   signal closed_flags        : std_logic_vector(2 downto 0) := (others => '0');
 
   signal close_locked   : std_logic;
@@ -114,7 +115,11 @@ begin
   cycle_sequence_o <= std_logic_vector(cycle_sequence);
   block_first_sample_o <= std_logic_vector(closed_first_sample);
   block_cycle_count_o <= std_logic_vector(closed_cycle_count);
-  block_nominal_hz_o <= std_logic_vector(active_nominal);
+  -- The nominal frequency is latched together with the other closed-block
+  -- registers, never taken from the live active configuration: an APPLY
+  -- that lands between a block close and the result hub consuming the
+  -- metadata must not relabel the finished block with the new nominal.
+  block_nominal_hz_o <= std_logic_vector(closed_nominal_hz);
   block_flags_o <= closed_flags;
 
   status : process (all)
@@ -179,6 +184,7 @@ begin
         first_block_flag <= '1';
         closed_first_sample <= (others => '0');
         closed_cycle_count <= (others => '0');
+        closed_nominal_hz <= to_unsigned(60, 8);
         closed_flags <= (others => '0');
       elsif config_apply_toggle_i /= apply_seen then
         -- Same commit discipline as the RMS and frequency engines: copy the
@@ -234,6 +240,7 @@ begin
           -- This frame is the last frame of the closing block. Publish the
           -- block's provenance and open the next block at index + 1.
           closed_first_sample <= start_index;
+          closed_nominal_hz <= active_nominal;
           if close_locked = '1' then
             closed_cycle_count <= cycles_in_block + 1;
           else
