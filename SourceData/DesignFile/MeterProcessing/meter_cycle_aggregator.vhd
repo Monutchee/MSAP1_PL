@@ -34,6 +34,11 @@ use work.measurement_record_bus_pkg.all;
 -- 64-bit Q16 inputs -> 126-bit squares -> 132-bit accumulators (15 x 2^126
 -- cannot overflow) -> bit-serial floor division by 15 -> 128-bit radicand
 -- -> 64-bit floor square root. Nothing relies on implicit truncation.
+-- The squaring step is pipelined over three clocks per channel (lane mux and
+-- magnitude, multiply, accumulate) purely so no single path has to carry all
+-- three at the AXI clock period. The accumulated values are identical to a
+-- single-cycle implementation; only the state walk is longer, which is free
+-- here because Basic results arrive ~200 ms apart.
 --
 -- A Basic input only enters an aggregate when ALL of the following hold,
 -- mirroring the APU's class_a_aggregation_eligible() rule:
@@ -98,7 +103,9 @@ architecture rtl of meter_cycle_aggregator is
 
   type state_t is (
     S_IDLE,
-    S_SQUARE,        -- square + accumulate one captured input, per channel
+    S_SQUARE_LOAD,   -- per channel: select the Q16 lane, take its magnitude
+    S_SQUARE_MULT,   -- per channel: square the magnitude
+    S_SQUARE_ACC,    -- per channel: add the square to the accumulator
     S_DIV_PREP,      -- per-channel finalize: mean = acc / 15
     S_DIV_RUN,
     S_SQRT_MULTIPLY, -- 64-bit floor root of the 128-bit mean
@@ -140,6 +147,9 @@ architecture rtl of meter_cycle_aggregator is
   signal capture_rms      : std_logic_vector(511 downto 0) := (others => '0');
   signal capture_finalize : std_logic := '0';
   signal work_channel     : natural range 0 to C_CHANNELS - 1 := 0;
+  -- Squaring pipeline registers, one stage boundary each (see S_SQUARE_*).
+  signal square_magnitude : unsigned(63 downto 0) := (others => '0');
+  signal square_product   : unsigned(127 downto 0) := (others => '0');
 
   -- Shared bit-serial divider (dividend/15) and binary-search square root,
   -- following the meter_rms implementation pattern. Division and root are
@@ -232,8 +242,6 @@ begin
   process (aclk)
     variable seed        : boolean;
     variable sample_q16  : signed(63 downto 0);
-    variable magnitude   : unsigned(63 downto 0);
-    variable square      : unsigned(127 downto 0);
     variable rem_shift   : unsigned(AGGREGATE_ACCUMULATOR_BITS downto 0);
     variable quot_next   : unsigned(AGGREGATE_ACCUMULATOR_BITS - 1 downto 0);
     variable mid_sum     : unsigned(64 downto 0);
@@ -351,27 +359,37 @@ begin
               resize(unsigned(basic_i.sample_count), 64);
             capture_rms <= basic_i.rms_q16;
             work_channel <= 0;
-            state <= S_SQUARE;
+            state <= S_SQUARE_LOAD;
           end if;
         else
           case state is
             when S_IDLE =>
               null;
 
-            when S_SQUARE =>
-              -- One channel per clock: square the captured Q16 RMS value
-              -- and add it to the 132-bit accumulator. RMS magnitudes are
-              -- non-negative; the signed lane is normalized defensively.
+            when S_SQUARE_LOAD =>
+              -- Select this channel's captured Q16 RMS lane out of the
+              -- 512-bit capture register and register its magnitude. RMS
+              -- magnitudes are non-negative; the signed lane is normalized
+              -- defensively.
               sample_q16 := signed(capture_rms(
                 (work_channel * 64) + 63 downto work_channel * 64));
               if sample_q16 < 0 then
-                magnitude := unsigned(-sample_q16);
+                square_magnitude <= unsigned(-sample_q16);
               else
-                magnitude := unsigned(sample_q16);
+                square_magnitude <= unsigned(sample_q16);
               end if;
-              square := magnitude * magnitude;
+              state <= S_SQUARE_MULT;
+
+            when S_SQUARE_MULT =>
+              -- The 64x64 multiply owns a clock period of its own so the
+              -- DSP cascade does not share one with the lane mux ahead of
+              -- it or the 132-bit accumulate behind it.
+              square_product <= square_magnitude * square_magnitude;
+              state <= S_SQUARE_ACC;
+
+            when S_SQUARE_ACC =>
               square_acc(work_channel) <= square_acc(work_channel) +
-                resize(square, AGGREGATE_ACCUMULATOR_BITS);
+                resize(square_product, AGGREGATE_ACCUMULATOR_BITS);
               if work_channel = C_CHANNELS - 1 then
                 if capture_finalize = '1' then
                   work_channel <= 0;
@@ -381,6 +399,7 @@ begin
                 end if;
               else
                 work_channel <= work_channel + 1;
+                state <= S_SQUARE_LOAD;
               end if;
 
             when S_DIV_PREP =>
