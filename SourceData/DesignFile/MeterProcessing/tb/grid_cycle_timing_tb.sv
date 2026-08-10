@@ -136,6 +136,19 @@ module grid_cycle_timing_tb;
         else $fatal(1, "first_block_after_apply flag mismatch");
       assert (block_nominal_hz == expected_nominal)
         else $fatal(1, "nominal frequency mismatch");
+      // The provenance self-check must never fire in legitimate operation.
+      // The chained block start and the start derived from live state
+      // (closing index minus frames already counted) agree in every scenario
+      // this bench drives: locked blocks, off-nominal fast and slow blocks,
+      // a block that closes on its own first frame, the free-run fallback,
+      // re-lock, the first block after reset, and blocks spanning an APPLY.
+      // A repair here means the derivation is wrong, not that hardware
+      // misbehaved.
+      // status[3] = provenance repaired (sticky), status[31:24] = repair count.
+      assert (status[3] == 1'b0 && status[31:24] == 8'd0)
+        else $fatal(1,
+          "provenance repair fired on a legitimate close (sticky=%0b count=%0d)",
+          status[3], status[31:24]);
       expected_first = sample_index + 1;
       close_count = close_count + 1;
     end
@@ -268,7 +281,15 @@ module grid_cycle_timing_tb;
     assert (active_grid == {15'd0, 1'b1, 8'd50, 8'd10})
       else $fatal(1, "50 Hz configuration did not become active");
 
-    $display("PASS: grid_cycle_timing_tb");
+    // No legitimate scenario in this bench may have repaired a provenance.
+    assert (status[3] == 1'b0 && status[31:24] == 8'd0)
+      else $fatal(1, "provenance repairs recorded across the run: count=%0d",
+                  status[31:24]);
+    assert (close_count > 0)
+      else $fatal(1, "no blocks closed, provenance check never exercised");
+
+    $display("PASS: grid_cycle_timing_tb (%0d closes, 0 provenance repairs)",
+             close_count);
     $finish;
   end
 

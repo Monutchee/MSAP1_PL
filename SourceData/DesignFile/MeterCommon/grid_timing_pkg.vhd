@@ -34,14 +34,24 @@ package grid_timing_pkg is
   constant GRID_CONFIG_ENABLE_BIT  : natural := 16;
 
   -- GRID_STATUS layout:
-  --   [0]    locked: block boundaries currently derive from zero crossings
-  --   [1]    reference channel usable on the most recent frame
-  --   [2]    cycle timing enabled (active configuration)
-  --   [15:8] complete cycles counted in the current open block
+  --   [0]     locked: block boundaries currently derive from zero crossings
+  --   [1]     reference channel usable on the most recent frame
+  --   [2]     cycle timing enabled (active configuration)
+  --   [3]     block provenance was repaired at least once since reset (sticky)
+  --   [15:8]  complete cycles counted in the current open block
+  --   [31:24] saturating count of repaired block provenances
+  -- Bits 3 and [31:24] are additive: a reader that masks only the older
+  -- fields is unaffected. A non-zero repair count means the chained block
+  -- start disagreed with the value derived from live state, so the published
+  -- provenance was corrected rather than emitted wrong. It is a hardware
+  -- fault indicator, not a normal operating condition: it must read zero on
+  -- a healthy board.
   constant GRID_STATUS_LOCKED_BIT     : natural := 0;
   constant GRID_STATUS_REFERENCE_BIT  : natural := 1;
   constant GRID_STATUS_ENABLED_BIT    : natural := 2;
+  constant GRID_STATUS_PROVENANCE_BIT : natural := 3;
   constant GRID_STATUS_CYCLES_LSB     : natural := 8;
+  constant GRID_STATUS_REPAIRS_LSB    : natural := 24;
 
   constant GRID_CYCLES_50HZ : natural := 10;
   constant GRID_CYCLES_60HZ : natural := 12;

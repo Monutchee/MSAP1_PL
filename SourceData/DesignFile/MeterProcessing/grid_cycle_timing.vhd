@@ -100,6 +100,20 @@ architecture rtl of grid_cycle_timing is
   signal closed_nominal_hz   : unsigned(7 downto 0) := to_unsigned(60, 8);
   signal closed_flags        : std_logic_vector(2 downto 0) := (others => '0');
 
+  -- Provenance self-check, reported through GRID_STATUS. current_first_sample
+  -- has to hold the block start for a whole ~200 ms block, which makes it the
+  -- longest-lived value in the record; these count the closes where it did
+  -- not survive and had to be corrected. Zero on a healthy board.
+  signal provenance_repaired : std_logic := '0';
+  signal provenance_repairs  : unsigned(7 downto 0) := (others => '0');
+
+  -- Redundant copy of the published block start, written on the same edge.
+  -- The published value has to survive from the close until the RMS result
+  -- reaches the hub, and then until the next close: a disturbance in that
+  -- window cannot be recomputed from live state, so it is held twice and
+  -- scrubbed. A single disturbance hits one copy, never both.
+  signal closed_first_sample_alt : unsigned(63 downto 0) := (others => '0');
+
   signal close_locked   : std_logic;
   signal close_relock   : std_logic;
   signal close_fallback : std_logic;
@@ -129,8 +143,11 @@ begin
     value(GRID_STATUS_LOCKED_BIT) := locked;
     value(GRID_STATUS_REFERENCE_BIT) := reference_seen;
     value(GRID_STATUS_ENABLED_BIT) := active_enable;
+    value(GRID_STATUS_PROVENANCE_BIT) := provenance_repaired;
     value(GRID_STATUS_CYCLES_LSB + 7 downto GRID_STATUS_CYCLES_LSB) :=
       std_logic_vector(cycles_in_block);
+    value(GRID_STATUS_REPAIRS_LSB + 7 downto GRID_STATUS_REPAIRS_LSB) :=
+      std_logic_vector(provenance_repairs);
     status_o <= value;
   end process;
 
@@ -161,7 +178,8 @@ begin
   frame_closes_block_o <= frame_closes;
 
   process (aclk)
-    variable start_index : unsigned(63 downto 0);
+    variable start_index   : unsigned(63 downto 0);
+    variable derived_index : unsigned(63 downto 0);
   begin
     if rising_edge(aclk) then
       cycle_boundary_o <= '0';
@@ -183,9 +201,12 @@ begin
         block_start_pending <= '1';
         first_block_flag <= '1';
         closed_first_sample <= (others => '0');
+        closed_first_sample_alt <= (others => '0');
         closed_cycle_count <= (others => '0');
         closed_nominal_hz <= to_unsigned(60, 8);
         closed_flags <= (others => '0');
+        provenance_repaired <= '0';
+        provenance_repairs <= (others => '0');
       elsif config_apply_toggle_i /= apply_seen then
         -- Same commit discipline as the RMS and frequency engines: copy the
         -- complete shadow set in one cycle and restart block tracking, so
@@ -207,6 +228,30 @@ begin
         first_block_flag <= '1';
       elsif frame_accept_i = '1' and active_enable = '1' then
         reference_seen <= reference_valid_i;
+
+        -- Scrub the already-published block start against its redundant copy.
+        -- Zero is not a reachable index: adc_conversion issues index 1 for the
+        -- first accepted frame and the counter is free-running and monotonic,
+        -- so a zero on one copy only is a disturbed register, never data. This
+        -- runs on every accepted frame, so a disturbance is corrected within
+        -- one frame period (~7.8 us at 128 kSPS) rather than persisting for the
+        -- rest of the block (~200 ms) -- comfortably ahead of the ~45 us the
+        -- RMS engine needs before the hub samples this provenance. A close in
+        -- the same cycle overrides the scrub below with the fresh value, which
+        -- is the correct precedence.
+        if closed_first_sample = 0 and closed_first_sample_alt /= 0 then
+          closed_first_sample <= closed_first_sample_alt;
+          provenance_repaired <= '1';
+          if provenance_repairs /= x"FF" then
+            provenance_repairs <= provenance_repairs + 1;
+          end if;
+        elsif closed_first_sample_alt = 0 and closed_first_sample /= 0 then
+          closed_first_sample_alt <= closed_first_sample;
+          provenance_repaired <= '1';
+          if provenance_repairs /= x"FF" then
+            provenance_repairs <= provenance_repairs + 1;
+          end if;
+        end if;
 
         -- The first accepted frame after an apply (or reset) opens the
         -- block; afterwards block starts chain from the previous close.
@@ -239,8 +284,59 @@ begin
         if frame_closes = '1' then
           -- This frame is the last frame of the closing block. Publish the
           -- block's provenance and open the next block at index + 1.
+          --
+          -- Provenance self-check. current_first_sample is chained forward
+          -- from the previous close, so it must survive the whole block --
+          -- about 200 ms, or 25 600 samples at 128 kSPS. That makes it by far
+          -- the longest-lived contributor to the record, and it is the ONLY
+          -- source of words 60/61: if it is disturbed, the hub publishes the
+          -- disturbed value as authoritative and the APU turns it into a
+          -- confidently wrong UTC anchor with a small error bound.
+          --
+          -- Because blocks are gapless by construction the same quantity is
+          -- independently derivable from state that is refreshed every frame:
+          -- the closing frame's index minus the frames already counted in
+          -- this block. The two agree in every legitimate case, including a
+          -- block that closes on its own first frame (samples_in_block = 0)
+          -- and the first block after reset or APPLY (block_start_pending
+          -- took start_index straight from sample_index).
+          --
+          -- A disagreement is therefore not a legitimate operating state. The
+          -- derived value wins because it depends only on short-lived state,
+          -- and the event is counted in GRID_STATUS instead of being emitted
+          -- as a silently wrong timestamp anchor. This corrects the record
+          -- rather than hiding the fault: a non-zero repair count is a
+          -- hardware defect indicator that software must surface.
+          derived_index := sample_index - resize(samples_in_block, 64);
+          if start_index /= derived_index then
+            start_index := derived_index;
+            provenance_repaired <= '1';
+            -- Saturate: the count is a fault indicator, not a metric, and
+            -- must never wrap back to a healthy-looking zero.
+            if provenance_repairs /= x"FF" then
+              provenance_repairs <= provenance_repairs + 1;
+            end if;
+          end if;
           closed_first_sample <= start_index;
-          closed_nominal_hz <= active_nominal;
+          closed_first_sample_alt <= start_index;
+          -- The nominal frequency is configuration echoed by the PL, never a
+          -- measurement, and it can only ever be 50 or 60: those are the only
+          -- values the RPU writes and it is latched once at APPLY. An
+          -- impossible nominal at close time is the same class of fault as a
+          -- disturbed first-sample chain, and it is more damaging: the APU
+          -- rejects the ENTIRE record on an invalid nominal, discarding good
+          -- electrical data with it. Hold the last good label and count the
+          -- event instead. (A close that repairs both the first sample and the
+          -- nominal still counts once -- this is a fault indicator, not a
+          -- precise metric.)
+          if active_nominal = 50 or active_nominal = 60 then
+            closed_nominal_hz <= active_nominal;
+          else
+            provenance_repaired <= '1';
+            if provenance_repairs /= x"FF" then
+              provenance_repairs <= provenance_repairs + 1;
+            end if;
+          end if;
           if close_locked = '1' then
             closed_cycle_count <= cycles_in_block + 1;
           else
