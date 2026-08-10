@@ -126,8 +126,9 @@ module meter_cycle_aggregator_tb;
       next_seq += 1;
       if (chain_first)
         next_first += 64'(sample_count);
-      // Cover the 7-cycle square/accumulate walk before the next event.
-      repeat (12) @(posedge clock);
+      // Cover the 21-cycle square/accumulate walk (7 channels x 3 pipelined
+      // stages) before the next event.
+      repeat (26) @(posedge clock);
     end
   endtask
 
