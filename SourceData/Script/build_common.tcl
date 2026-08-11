@@ -263,12 +263,96 @@ proc pl_build_require_run_complete {run hint} {
     return $status
 }
 
-# Wait for a launched run and turn anything other than completion into an
-# error, so the stage never reports success on a failed or aborted run.
-proc pl_build_finish_run {run} {
+proc pl_build_elapsed {seconds} {
+    return [format "%d:%02d:%02d" [expr {$seconds / 3600}] \
+        [expr {($seconds % 3600) / 60}] [expr {$seconds % 60}]]
+}
+
+# A ten-cell bar over the run's own PROGRESS percentage. Vivado reports
+# progress in 10% steps, so finer cells would only imply precision that the
+# underlying value does not have.
+proc pl_build_progress_bar {progress} {
+    set percent 0
+    regexp {(\d+)} $progress -> percent
+    set filled [expr {$percent / 10}]
+    return [format "\[%s%s\] %3d%%" [string repeat "#" $filled] \
+        [string repeat "." [expr {10 - $filled}]] $percent]
+}
+
+# Runs Vivado currently reports as running, top-level ones first
+# (pl_build_runs ordering).
+proc pl_build_running_runs {} {
+    set active {}
+    foreach run [pl_build_runs] {
+        set status [pl_build_property [get_runs $run] STATUS]
+        if {[string match -nocase "*running*" $status]} {
+            lappend active $run
+        }
+    }
+    return $active
+}
+
+# Wait for a launched run, reporting progress, and turn anything other than
+# completion into an error so the stage never reports success on a failed or
+# aborted run.
+#
+# wait_on_run blocks silently, so a stage that takes tens of minutes used to
+# print one line and then show no sign of life for the rest of it. Poll the
+# run's STATUS and PROGRESS instead -- the same values the GUI's Design Runs
+# window shows -- and print a line whenever they change, plus a heartbeat
+# while they do not. A top-level run stays queued until the out-of-context
+# block-design and IP runs it depends on finish, so name those while they are
+# the ones doing the work; that early phase is otherwise the longest silence
+# in the whole build.
+#
+# The loop is presentation only. wait_on_run still decides when the run is
+# really finished (it returns immediately when it already is), so a stale or
+# unexpected property value can delay a message but can never let a stage
+# continue over an unfinished run.
+proc pl_build_finish_run {run {poll_seconds 5} {heartbeat_seconds 60}} {
+    set started [clock seconds]
+    set last_line ""
+    set last_print 0
+
+    while {1} {
+        set object [get_runs $run]
+        set status [pl_build_property $object STATUS]
+        set progress [pl_build_property $object PROGRESS]
+        set elapsed [expr {[clock seconds] - $started}]
+
+        set detail $status
+        if {![string match -nocase "*running*" $status]} {
+            set others {}
+            foreach active [pl_build_running_runs] {
+                if {$active ne $run} {
+                    lappend others $active
+                }
+            }
+            if {[llength $others] > 0} {
+                set detail "$status -- waiting on [join $others {, }]"
+            }
+        }
+
+        set line "[pl_build_progress_bar $progress] $detail"
+        if {$line ne $last_line || \
+                $elapsed - $last_print >= $heartbeat_seconds} {
+            puts "PL_BUILD_PROGRESS=$run [pl_build_elapsed $elapsed] $line"
+            flush stdout
+            set last_line $line
+            set last_print $elapsed
+        }
+
+        if {$progress eq "100%" || [string match "*Complete*" $status] || \
+                [string match -nocase "*error*" $status]} {
+            break
+        }
+        after [expr {$poll_seconds * 1000}]
+    }
+
     wait_on_run $run
     set status [get_property STATUS [get_runs $run]]
     puts "PL_BUILD_RUN=$run"
+    puts "PL_BUILD_ELAPSED=[pl_build_elapsed [expr {[clock seconds] - $started}]]"
     puts "PL_BUILD_STATUS=$status"
     if {![string match "*Complete*" $status] || \
             [string match -nocase "*error*" $status]} {
