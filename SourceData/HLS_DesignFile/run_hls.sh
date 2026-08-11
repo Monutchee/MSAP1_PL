@@ -47,7 +47,10 @@ case "$#" in
             die "not inside an HLS component; pass the component directory"
         ;;
     1)
+        # Accept the component path relative to the caller's directory or
+        # to this tree's root.
         COMPONENT_DIR="$(resolve_component "$1")" || \
+            COMPONENT_DIR="$(resolve_component "${HLS_ROOT}/$1")" || \
             die "no vitis-comp.json at or above '$1' inside ${HLS_ROOT}"
         ;;
     *)

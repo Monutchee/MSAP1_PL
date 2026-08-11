@@ -886,11 +886,9 @@ module meter_core_tb;
     capture_read(8'h10, read_value);
     assert (read_value == 1322)
       else $fatal(1, "aggregate scenario frame count: %0d", read_value);
-    // The MTR2 record is produced at the selected engine's emit while
-    // AGG_RECORD_COUNT stays on the RTL engine (HLS_AGGREGATE_PRODUCER in
-    // meter_core): with the HLS engine producing, the record can be
-    // consumed a few microseconds before the RTL engine's own emit
-    // increments the register, so poll instead of assuming an order.
+    // AGG_RECORD_COUNT updates at the engine's emit and the MTR2 record
+    // follows through the producer/packetizer; poll rather than assume
+    // any ordering between record consumption and the register.
     begin : wait_aggregate_record_count
       int guard = 0;
       processing_read(8'h7c, read_value);

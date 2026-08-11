@@ -40,9 +40,7 @@ set vhdl_2008_sources [list \
   [file join $design_root MeterProcessing meter_frequency.vhd] \
   [file join $design_root MeterProcessing meter_rms.vhd] \
   [file join $design_root MeterProcessing grid_cycle_timing.vhd] \
-  [file join $design_root MeterProcessing meter_cycle_aggregator.vhd] \
   [file join $design_root MeterProcessing meter_cycle_aggregator_hls_shim.vhd] \
-  [file join $design_root MeterProcessing meter_aggregator_compare.vhd] \
   [file join $design_root MeterProcessing aggregate_record_producer.vhd] \
   [file join $design_root MeterProcessing measurement_record_arbiter.vhd] \
   [file join $design_root MeterCore adc_simulator_pkg.vhd] \

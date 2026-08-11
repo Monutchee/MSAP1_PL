@@ -1,0 +1,16 @@
+# The Vitis HLS build regenerates each component's compile_commands.json
+# with flags only the Vitis clang plugin understands; stock clangd rejects
+# them and then loses the include paths. Strip them and supply the HLS
+# headers so IDE code intelligence keeps working (adjust the include path
+# with the installed Xilinx version).
+CompileFlags:
+  Remove:
+    - -fhls
+    - -fhls-tb
+    - -fhlstoplevel=*
+    - -hls-syn-headers-dir=*
+    - -hls-sim-headers-dir=*
+    - --gcc-toolchain=*
+  Add:
+    - -I/opt/Xilinx/2025.2/Vitis/include
+    - -Wno-unknown-pragmas

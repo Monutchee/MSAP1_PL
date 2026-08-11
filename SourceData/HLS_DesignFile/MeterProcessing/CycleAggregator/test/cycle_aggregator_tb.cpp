@@ -3,13 +3,13 @@
 
 #include "cycle_aggregator.hpp"
 
-// C testbench for hls_cycle_aggregator.
+// C testbench for hls_cycle_aggregator -- the engine's primary bench.
 //
-// This is a port of the RTL unit test
-// (SourceData/DesignFile/MeterProcessing/tb/meter_cycle_aggregator_tb.sv):
-// the same twelve scenarios T1..T12, the same golden arithmetic
-// (an independent binary-search floor square root, exactly the SV bench's
-// algorithm), and the same expected header/counter values. Because results
+// The twelve scenarios T1..T12 and their expected header/counter values
+// originate from the retired RTL engine's unit test (git history:
+// tb/meter_cycle_aggregator_tb.sv); the golden arithmetic is an
+// independent binary-search floor square root, deliberately a different
+// algorithm than the engine's restoring root. Because results
 // are only observable as output beats, expectations are checked in stream
 // order after the full stimulus has been driven; "no aggregate may appear
 // here" assertions from the RTL bench become exact-count plus

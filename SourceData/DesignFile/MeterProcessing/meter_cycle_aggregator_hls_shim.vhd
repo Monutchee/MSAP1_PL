@@ -6,11 +6,12 @@ library work;
 use work.metering_pkg.all;
 use work.measurement_record_bus_pkg.all;
 
--- Integration shim for the HLS 150/180-cycle aggregator trial.
+-- Integration shim for the HLS 150/180-cycle aggregation engine (the
+-- sole MTR2 aggregate source; the hand-written RTL engine it was trialed
+-- against retired after the compared deployment -- see git history).
 --
--- Presents the same event-style boundary as meter_cycle_aggregator so
--- meter_core can instantiate both engines symmetrically, and adapts it to
--- the HLS core's two AXI4-Stream interfaces:
+-- Presents the metering event-style boundary to meter_core and adapts it
+-- to the HLS core's two AXI4-Stream interfaces:
 --
 --   * Input: each single-cycle Basic result event is packed into one
 --     808-bit beat and held until the core accepts it. The shim never

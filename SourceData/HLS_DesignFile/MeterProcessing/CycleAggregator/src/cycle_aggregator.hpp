@@ -4,17 +4,24 @@
 #include <ap_int.h>
 #include <hls_stream.h>
 
-// HLS trial implementation of the IEC 61000-4-30 150/180-cycle aggregator.
+// The IEC 61000-4-30 150/180-cycle aggregation engine (normative source;
+// it replaced the hand-written RTL engine after a compared deployment --
+// meter_cycle_aggregator.vhd in git history).
 //
-// Functional contract: identical to the hand-written RTL engine
-// (SourceData/DesignFile/MeterProcessing/meter_cycle_aggregator.vhd). The
-// aggregate is formed from exactly CAGG_BASIC_BLOCKS (15) consecutive
-// eligible Basic measurement results -- never a wall-clock timer, never a
-// second RMS engine over raw samples. Aggregation arithmetic is pinned:
+// Functional contract: the aggregate is formed from exactly
+// CAGG_BASIC_BLOCKS (15) consecutive eligible Basic measurement results
+// -- never a wall-clock timer, never a second RMS engine over raw
+// samples. Aggregation arithmetic is pinned:
 //   RMS lanes:  agg = floor(sqrt(floor(sum(x_i^2) / 15))), Q16 domain
 //   frequency:  floor(sum(f_i) / 15), published only when all 15 valid
-// Eligibility, seeding, reset and continuity rules mirror the RTL; see the
-// RTL header comment for the normative description.
+// A Basic result enters an aggregate only when cycle-locked, not in
+// free-run fallback, not the first block after APPLY, carrying the
+// nominal's exact cycle count (50 Hz -> 10, 60 Hz -> 12), matching the
+// open aggregate's generation, nominal, and sample rate, with
+// consecutive result sequences (modulo 2**32) and gapless sample ranges;
+// any violation discards the partial aggregate (counted per cause), an
+// eligible violator seeds afresh, an ineligible block never seeds. This
+// mirrors the APU's class_a_aggregation_eligible() rule.
 //
 // Interface contract: one AXI4-Stream input beat per Basic result event and
 // one AXI4-Stream output beat per completed aggregate. The design is

@@ -46,13 +46,10 @@ set common_vhdl [list \
   [file join $design_root MeterProcessing meter_frequency.vhd] \
   [file join $design_root MeterProcessing meter_rms.vhd] \
   [file join $design_root MeterProcessing grid_cycle_timing.vhd] \
-  [file join $design_root MeterProcessing meter_cycle_aggregator.vhd] \
   [file join $design_root MeterProcessing meter_cycle_aggregator_hls_shim.vhd] \
   [file join $design_root MeterProcessing aggregate_record_producer.vhd] \
   [file join $design_root MeterProcessing measurement_record_arbiter.vhd] \
   [file join $design_root MeterProcessing MeterResultHub_Wrapper.vhd] \
-  [file join $design_root MeterProcessing tb meter_cycle_aggregator_tbshim.vhd] \
-  [file join $design_root MeterProcessing tb meter_cycle_aggregator_hls_tbshim.vhd] \
   [file join $design_root MeterProcessing MeterPacketizer_Wrapper.vhd]]
 
 set wrapper_vhdl [list \
@@ -92,11 +89,10 @@ run_test $work_root meter_packet_tb $common_vhdl $wrapper_vhdl \
 run_test $work_root grid_cycle_timing_tb $common_vhdl $wrapper_vhdl \
   [file join $design_root MeterProcessing tb grid_cycle_timing_tb.sv] \
   $xvhdl $xvlog $xelab $simulator_libraries
-run_test $work_root meter_cycle_aggregator_tb $common_vhdl $wrapper_vhdl \
-  [file join $design_root MeterProcessing tb meter_cycle_aggregator_tb.sv] \
-  $xvhdl $xvlog $xelab $simulator_libraries
-run_test $work_root meter_aggregator_equivalence_tb $common_vhdl $wrapper_vhdl \
-  [file join $design_root MeterProcessing tb meter_aggregator_equivalence_tb.sv] \
-  $xvhdl $xvlog $xelab $simulator_libraries
+# The 150/180-cycle aggregation engine is HLS
+# (HLS_DesignFile/MeterProcessing/CycleAggregator): its twelve-scenario
+# golden bench runs as C simulation and C/RTL co-simulation on every
+# make_HLS.sh / run_hls.sh build, and check_meter_core.tcl validates a
+# complete MTR2 record through the shim and engine in the real pipeline.
 
 puts "All metering pipeline simulations PASS"

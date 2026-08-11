@@ -28,28 +28,35 @@
   committed by the shared `CONTROL.APPLY` toggle). Like the frequency and
   waveform branches, grid timing is observational: it must never backpressure
   ADC capture, RMS, or MTR1 production.
-- The 150/180-cycle aggregator (`MeterProcessing/meter_cycle_aggregator.vhd`)
-  consumes the internal Basic result event and publishes MTR2 records
-  (`0x00020001`) through the measurement record bus
+- The 150/180-cycle aggregation engine is Vitis HLS
+  (`SourceData/HLS_DesignFile/MeterProcessing/CycleAggregator`;
+  `cycle_aggregator.hpp`/`.cpp` are the normative sources -- the
+  hand-written RTL engine it replaced lives in git history). It consumes
+  the internal Basic result event through
+  `MeterProcessing/meter_cycle_aggregator_hls_shim.vhd` and publishes MTR2
+  records (`0x00020001`) through the measurement record bus
   (`MeterCommon/measurement_record_bus_pkg.vhd`, arbiter + producers in
-  `MeterProcessing/`). Aggregate health registers occupy `0x78`-`0x8C` in the
-  processing block. Aggregates are formed from exactly 15 eligible Basic
-  results -- never from raw samples or a wall-clock timer -- and aggregate
-  data never travels over RPMsg.
-- `SourceData/HLS_DesignFile/` holds Vitis HLS components. The first is the
-  cycle-aggregator trial (`MeterProcessing/CycleAggregator`): C++ sources are
+  `MeterProcessing/`). Aggregates are formed from exactly 15 eligible
+  Basic results -- never from raw samples or a wall-clock timer -- and
+  aggregate data never travels over RPMsg. Like every metrology observer
+  it must never backpressure measurement. Health registers `0x78`-`0x98`
+  in the processing block are "as of the last emitted aggregate" (the
+  counters ride in the engine's beat); `AGG_STATUS` `0x78` and the
+  reserved mismatch register `0x94` read zero. The AXI4-Stream beat
+  layouts in `cycle_aggregator.hpp` and the shim must stay in lock step.
+- `SourceData/HLS_DesignFile/` holds Vitis HLS components: C++ sources are
   the design input; the shared `HLS_DesignFile/run_hls.sh [component]`
   verifies one component (csim + C/RTL cosim), packages the IP, and unpacks
   it into the generated (untracked) Vivado IP repository
   `SourceData/HLS_DesignFile/ip_repo/`. Nothing in the flow is
-  per-component: new components need no new scripts. The project consumes the engine as a
-  packaged-IP customization: `ip_repo` is registered in `ip_repo_paths` and
-  the tracked XCI at `SourceData/IP/hls_cycle_aggregator_ip/` instantiates
-  it inside the MeterCore module reference (`SUPPORTS_MODREF=1`); only the
-  `.xci` under `SourceData/IP/` is tracked, its output products are not.
-  The non-project check scripts compile the packaged RTL directly from
-  `ip_repo/CycleAggregator/hdl/verilog` with the module-name binding in
-  `DesignFile/MeterProcessing/tb/hls_cycle_aggregator_ip.v`. A fresh
+  per-component: new components need no new scripts. The project consumes
+  each engine as a packaged-IP customization: `ip_repo` is registered in
+  `ip_repo_paths` and tracked XCIs under `SourceData/IP/<name>_ip/`
+  instantiate the packaged definitions inside the MeterCore module
+  reference (`SUPPORTS_MODREF=1`); only the `.xci` is tracked, its output
+  products are not. The non-project check scripts compile the packaged RTL
+  directly from `ip_repo/<Name>/hdl/verilog` with the module-name binding
+  in `DesignFile/MeterProcessing/tb/hls_cycle_aggregator_ip.v`. A fresh
   checkout must run `make_HLS.sh` (or `HLS_DesignFile/run_hls.sh`) first;
   the check scripts fail with that instruction when the repository is
   absent. After any HLS source change: `run_hls.sh`, then
@@ -60,17 +67,7 @@
   `SourceData/IP/<name>_ip` from each package's own VLNV; only a new
   component's shim VHDL is added by hand). Vivado does not lock projects and a live GUI
   session saves its own state over batch edits: when the project is open in
-  a GUI, source these scripts in that session's Tcl console, never batch. Both
-  aggregator engines run in `meter_core` and `meter_aggregator_compare`
-  scores them against each other continuously (mismatch/record/drop
-  registers `0x90`-`0x98`); the `HLS_AGGREGATE_PRODUCER` constant in
-  `meter_core.vhd` selects which engine feeds the MTR2 record producer
-  (currently the HLS engine, via `meter_cycle_aggregator_hls_shim`), and
-  flipping it is the entire promotion/revert step. The `AGG_*` health
-  registers `0x78`-`0x88` stay on the RTL engine, whose counters match the
-  HLS engine's at every emit. Neither engine may ever backpressure
-  measurement. The AXI4-Stream beat layouts in `cycle_aggregator.hpp` and
-  the shim must stay in lock step.
+  a GUI, source these scripts in that session's Tcl console, never batch.
 - Treat `SourceData` HDL, constraints, block designs, and maintained Tcl as
   design inputs. Treat `vivado_gen` runtime products and block-design generated
   HDL/IP products as regenerable unless explicitly tracked by the repository.
@@ -138,11 +135,11 @@ vivado -mode batch -source SourceData/Script/AI_gen/implement_ad7771_design.tcl
 - Run the focused capture check for RTL changes and BD verification for any
   integration change. Run synthesis for interface, clock, reset, or constraint
   changes. Run implementation before handing a new XSA to RPU/Yocto.
-- For cycle-aggregator changes (either implementation), the pipeline check
-  runs the RTL unit test and the RTL/HLS equivalence test
-  (`tb/meter_aggregator_equivalence_tb.sv`);
-  `vivado -mode batch -source SourceData/Script/AI_gen/compare_aggregator_synthesis.tcl`
-  produces the side-by-side utilization/timing comparison.
+- For cycle-aggregator changes, `HLS_DesignFile/run_hls.sh` (or
+  `make_HLS.sh`) runs the twelve-scenario golden bench as C simulation and
+  C/RTL co-simulation on the generated core, and `check_meter_core.tcl`
+  validates a complete MTR2 record through the shim and engine inside the
+  real pipeline.
 - Implementation must complete timing/CDC/DRC/I/O review and exports the
   bitstream-inclusive XSA to `../runtime-generated/bin_file/MSAP1_PL.xsa`.
 

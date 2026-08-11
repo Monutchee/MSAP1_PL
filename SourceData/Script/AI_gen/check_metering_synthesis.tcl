@@ -47,9 +47,7 @@ read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_frequency_esti
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_frequency.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_rms.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing grid_cycle_timing.vhd]
-read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_cycle_aggregator.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_cycle_aggregator_hls_shim.vhd]
-read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_aggregator_compare.vhd]
 read_verilog [lsort [glob -directory $hls_aggregator_hdl *.v]]
 # Binds the IP-customization module name over the packaged RTL for this
 # non-project flow (the project gets the same module from the XCI).

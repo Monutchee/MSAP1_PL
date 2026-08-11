@@ -1,13 +1,15 @@
-# CycleAggregator — HLS trial of the 150/180-cycle aggregator
+# CycleAggregator — the 150/180-cycle aggregation engine
 
-A Vitis HLS (2025.2) implementation of the IEC 61000-4-30 150/180-cycle
-aggregation contract, built to evaluate HLS as an implementation route
-against the hand-written engine
-(`SourceData/DesignFile/MeterProcessing/meter_cycle_aggregator.vhd`).
-The functional rules — 15 eligible Basic results, `floor(sqrt(floor(
-sum(x_i^2)/15)))` per RMS lane, `floor(sum(f_i)/15)` for frequency,
-eligibility/seeding/continuity handling — are the RTL engine's, pinned by
-its header comment and by `MeterCommon/measurement_record_bus_pkg.vhd`.
+The Vitis HLS (2025.2) implementation of the IEC 61000-4-30 150/180-cycle
+aggregation contract, and the meter's production MTR2 aggregate source.
+It began as a trial against a hand-written VHDL engine and replaced it
+after a compared hardware deployment showed bit-exact agreement (the RTL
+engine lives in git history; the comparison numbers are in
+`doc/hls_cycle_aggregator_trial.md`). The functional rules — 15 eligible
+Basic results, `floor(sqrt(floor(sum(x_i^2)/15)))` per RMS lane,
+`floor(sum(f_i)/15)` for frequency, eligibility/seeding/continuity
+handling — are pinned by `src/cycle_aggregator.hpp` (normative) and
+`MeterCommon/measurement_record_bus_pkg.vhd`.
 
 ## Layout
 
@@ -81,15 +83,14 @@ mismatch count `0x94`, shim drop count `0x98` (see
 
 ## Verification
 
-- `run_hls.sh`: C simulation and C/RTL co-simulation of the T1–T12 port.
-- `check_metering_pipeline.tcl`: includes
-  `tb/meter_aggregator_equivalence_tb.sv`, which drives the RTL engine
-  and this engine (through the real shim) with identical stimulus and
-  requires field-for-field agreement on every aggregate.
-- `check_meter_core.tcl`, `check_metering_module_references.tcl`,
-  `check_metering_synthesis.tcl`: cover the MeterCore integration.
-- `compare_aggregator_synthesis.tcl`: side-by-side out-of-context
-  utilization/timing of both implementations.
+- `../../run_hls.sh` (and `make_HLS.sh`): the twelve-scenario golden
+  bench (`test/cycle_aggregator_tb.cpp`) runs as C simulation and as
+  C/RTL co-simulation of the generated core on every build.
+- `check_meter_core.tcl`: validates a complete MTR2 record word-by-word
+  through the real pipeline — ADC simulator to DMA stream — covering the
+  shim's beat packing and this engine in integration.
+- `check_metering_module_references.tcl`, `check_metering_synthesis.tcl`:
+  cover the MeterCore boundary and synthesis.
 
 ## Trial results (2025.2, xck26-sfvc784-2LV-c, 100 MHz)
 
