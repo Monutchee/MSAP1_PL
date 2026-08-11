@@ -79,3 +79,71 @@ SourceData/BlockDesign/**/*_stub.vhdl
 SourceData/BlockDesign/**/*_sv.sv
 SourceData/BlockDesign/**/*_sv.sveo
 xsim.dir/
+
+
+# For Vitis HLS
+
+# Vitis Unified IDE workspace state
+_ide/
+# HLS generated build/output directories
+**/build/
+
+# Generated Vivado IP repository holding the unpacked HLS packages. On a
+# fresh checkout, run make_HLS.sh (or a component's run_hls.sh) before
+# opening the Vivado project or running the metering check scripts.
+SourceData/HLS_DesignFile/ip_repo/
+# Legacy direct-RTL snapshots (pre IP-catalog flow).
+**/exported_ip/
+
+# Managed IP customizations: track only the .xci design intent; every
+# generated output product beside it is regenerable.
+SourceData/IP/**
+!SourceData/IP/**/
+!SourceData/IP/**/*.xci
+
+# Vitis HLS component work-directory products and IDE report-viewer state.
+# Component work_dir is "build" (already ignored above); these patterns also
+# cover output a stale IDE session writes into a differently named work dir,
+# and the analyzer session the GUI drops at the workspace root.
+*.hlscompile_summary
+*.hlsrun_*_summary
+SourceData/HLS_DesignFile/**/hls/
+SourceData/HLS_DesignFile/**/logs/
+SourceData/HLS_DesignFile/**/reports/
+SourceData/HLS_DesignFile/.analyzer_session.json
+
+# Generated C/C++ language-server database (machine-specific paths).
+**/compile_commands.json
+
+# Copy from vitis
+# Ignore build output directory
+/build
+/export
+
+# Ignore object files and dependent files
+.o
+.d
+
+#Ignore logs folder and log files
+/logs
+.log
+
+#Ignore lock files
+.lock
+
+.bin
+.pdi
+.vitisWorkspace.json
+
+_ide/logs
+_ide/.wsdata
+
+# Customized ignore
+.vscode/
+_ide/
+.rigel_lopper/
+.cache/
+platform/
+
+# Python bytecode caches (scripts/)
+__pycache__/

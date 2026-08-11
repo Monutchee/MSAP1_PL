@@ -18,6 +18,14 @@ set script_dir [file dirname [file normalize [info script]]]
 set project_root [file normalize [file join $script_dir ../../..]]
 set design_root [file join $project_root SourceData DesignFile]
 
+# Packaged HLS RTL (IP repository entry); refreshed by make_HLS.sh or
+# SourceData/HLS_DesignFile/run_hls.sh <component>.
+set hls_aggregator_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo CycleAggregator hdl verilog]
+if {![file isdirectory $hls_aggregator_hdl]} {
+  error "missing $hls_aggregator_hdl -- run make_HLS.sh or HLS_DesignFile/run_hls.sh first"
+}
+
 # Keep focused checks predictable on developer workstations where the GUI or
 # other Vivado jobs may already be consuming memory.
 set_param general.maxThreads 2
@@ -39,7 +47,11 @@ read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_frequency_esti
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_frequency.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_rms.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing grid_cycle_timing.vhd]
-read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_cycle_aggregator.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_cycle_aggregator_hls_shim.vhd]
+read_verilog [lsort [glob -directory $hls_aggregator_hdl *.v]]
+# Binds the IP-customization module name over the packaged RTL for this
+# non-project flow (the project gets the same module from the XCI).
+read_verilog [file join $design_root MeterProcessing tb hls_cycle_aggregator_ip.v]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing aggregate_record_producer.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing measurement_record_arbiter.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore adc_simulator_pkg.vhd]

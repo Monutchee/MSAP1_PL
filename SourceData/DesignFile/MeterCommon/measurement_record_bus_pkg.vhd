@@ -93,17 +93,21 @@ package measurement_record_bus_pkg is
   constant MTR2_SHAPE_NOMINAL_LSB : natural := 8;
   constant MTR2_SHAPE_CYCLES_LSB  : natural := 16;
 
-  -- Aggregation arithmetic geometry (see meter_cycle_aggregator):
+  -- Aggregation arithmetic geometry. The engine is Vitis HLS
+  -- (SourceData/HLS_DesignFile/MeterProcessing/CycleAggregator;
+  -- cycle_aggregator.hpp and .cpp are the normative sources):
   --   input:        |RMS| as signed 64-bit Q16 (magnitude < 2^63)
   --   square:       unsigned 126 bits
   --   accumulator:  unsigned 132 bits (15 x 2^126 < 2^130, 2 bits margin)
-  --   mean:         floor(acc / 15), bit-serial division
-  --   aggregate:    floor(sqrt(mean)), 64-bit binary-search root
+  --   mean:         floor(acc / 15), serial restoring division
+  --   aggregate:    floor(sqrt(mean)), 64-bit restoring root
   -- All rounding is floor; no stage can overflow by construction, so no
   -- implicit truncation or saturation participates in the result.
   constant AGGREGATE_ACCUMULATOR_BITS : positive := 132;
 
   -- Processing AXI-Lite offsets for aggregate health (base 0xB0050000).
+  -- The engine's counters travel inside its aggregate beat, so these
+  -- registers are "as of the last emitted aggregate", not live.
   constant AGG_REG_STATUS            : natural := 16#78#;
   constant AGG_REG_RECORD_COUNT      : natural := 16#7C#;
   constant AGG_REG_RESET_COUNT       : natural := 16#80#;
@@ -112,7 +116,26 @@ package measurement_record_bus_pkg is
   constant AGG_REG_DROP_COUNT        : natural := 16#8C#;
 
   -- AGG_STATUS layout: [4:0] basic blocks accumulated in the open
-  -- aggregate, [8] an aggregate is in progress.
+  -- aggregate, [8] an aggregate is in progress. The HLS engine exposes no
+  -- live view, so the register reads zero since the RTL engine's
+  -- retirement; liveness shows through AGG_RECORD_COUNT advancing.
   constant AGG_STATUS_BLOCKS_LSB   : natural := 0;
   constant AGG_STATUS_ACTIVE_BIT   : natural := 8;
+
+  -- The engine's AXI4-Stream beat geometry lives in cycle_aggregator.hpp
+  -- (normative) mirrored by meter_cycle_aggregator_hls_shim.vhd.
+  constant HLS_AGG_BASIC_BEAT_BITS     : positive := 808;
+  constant HLS_AGG_AGGREGATE_BEAT_BITS : positive := 968;
+
+  -- Processing AXI-Lite offsets retained from the compared-pair trial
+  -- (read-only).
+  --   RECORD_COUNT:   mirrors AGG_REG_RECORD_COUNT.
+  --   MISMATCH_COUNT: reserved, reads zero (the RTL reference engine and
+  --                   its compare block retired after the trial).
+  --   DROP_COUNT:     Basic result events the shim had to discard because
+  --                   the HLS core was still busy (impossible at real
+  --                   block rates; any nonzero value is a fault).
+  constant HLS_AGG_REG_RECORD_COUNT   : natural := 16#90#;
+  constant HLS_AGG_REG_MISMATCH_COUNT : natural := 16#94#;
+  constant HLS_AGG_REG_DROP_COUNT     : natural := 16#98#;
 end package;

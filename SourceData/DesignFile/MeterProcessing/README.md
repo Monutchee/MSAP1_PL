@@ -130,12 +130,15 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
 | `0x6c` | `GRID_SHADOW_CONFIG` | [7:0] cycles/block, [15:8] nominal Hz, [16] enable |
 | `0x70` | `GRID_ACTIVE_CONFIG` | committed grid-timing readback |
 | `0x74` | `GRID_STATUS` | [0] locked, [1] reference usable, [2] enabled, [15:8] cycles in open block |
-| `0x78` | `AGG_STATUS` | [4:0] basic blocks in the open aggregate, [8] aggregate in progress |
-| `0x7c` | `AGG_RECORD_COUNT` | completed 150/180-cycle aggregates |
-| `0x80` | `AGG_RESET_COUNT` | partial aggregates discarded (any cause) |
-| `0x84` | `AGG_INELIGIBLE_COUNT` | Basic inputs rejected by the eligibility rule |
-| `0x88` | `AGG_CONTINUITY_COUNT` | sequence or sample-range discontinuities between Basic inputs |
+| `0x78` | `AGG_STATUS` | reads 0 — no live view since the RTL engine's retirement; liveness shows as `0x7c` advancing |
+| `0x7c` | `AGG_RECORD_COUNT` | completed 150/180-cycle aggregates, as of the last emitted aggregate |
+| `0x80` | `AGG_RESET_COUNT` | partial aggregates discarded (any cause), as of the last emit |
+| `0x84` | `AGG_INELIGIBLE_COUNT` | Basic inputs rejected by the eligibility rule, as of the last emit |
+| `0x88` | `AGG_CONTINUITY_COUNT` | sequence or sample-range discontinuities, as of the last emit |
 | `0x8c` | `AGG_DROP_COUNT` | aggregate records replaced before transport |
+| `0x90` | `HLS_AGG_RECORD_COUNT` | mirrors `AGG_RECORD_COUNT` |
+| `0x94` | `HLS_AGG_MISMATCH_COUNT` | reserved, reads 0 (the compared-pair trial ended) |
+| `0x98` | `HLS_AGG_DROP_COUNT` | Basic events the HLS shim discarded while busy (any nonzero value is a fault) |
 
 Frequency and grid shadow fields commit on the existing processing `APPLY`
 toggle at the same frame boundary as RMS. Applying a new configuration clears
@@ -146,8 +149,9 @@ the PL does not validate the pairing.
 
 ## 150/180-cycle aggregation and the measurement record bus
 
-`meter_cycle_aggregator` consumes the internal Basic measurement result
-event -- the same event the Basic record producer consumes -- and aggregates
+The aggregation engine (Vitis HLS, integrated through
+`meter_cycle_aggregator_hls_shim`) consumes the internal Basic measurement
+result event -- the same event the Basic record producer consumes -- and aggregates
 exactly 15 consecutive eligible Basic blocks into one 150-cycle (50 Hz) or
 180-cycle (60 Hz) fundamental aggregate. It is an aggregator of
 standardized Basic results, not a second RMS engine over raw samples, and
@@ -184,6 +188,23 @@ its newest pending record with a drop counter, so a stalled DMA can never
 backpressure measurement. Future producers (harmonics, PQ events) add an
 arbiter port, not a new DMA path. RPMsg remains control-plane only;
 measurement records stay on DMA.
+
+### The HLS aggregation engine
+
+The aggregator is a Vitis HLS engine
+(`SourceData/HLS_DesignFile/MeterProcessing/CycleAggregator`; the C++
+sources are normative). `meter_cycle_aggregator_hls_shim` feeds it the
+internal Basic result event over an AXI4-Stream beat and republishes its
+aggregate beat as the event the MTR2 producer consumes. It replaced the
+hand-written RTL engine after a compared hardware deployment showed
+bit-exact agreement (the RTL engine, its compare block, and the
+equivalence bench live in git history). The engine's counters ride in
+its aggregate beat, so the `AGG_*` registers are "as of the last emitted
+aggregate"; `AGG_STATUS` and `HLS_AGG_MISMATCH_COUNT` read zero. Like
+every metrology block, the engine cannot backpressure measurement. The
+twelve-scenario golden bench runs as C simulation and C/RTL
+co-simulation on every HLS build; the component README documents the
+build flow and the two accepted APPLY-race behaviours.
 
 ## 256-byte MTR2 aggregate record
 

@@ -886,7 +886,18 @@ module meter_core_tb;
     capture_read(8'h10, read_value);
     assert (read_value == 1322)
       else $fatal(1, "aggregate scenario frame count: %0d", read_value);
-    processing_read(8'h7c, read_value);
+    // AGG_RECORD_COUNT updates at the engine's emit and the MTR2 record
+    // follows through the producer/packetizer; poll rather than assume
+    // any ordering between record consumption and the register.
+    begin : wait_aggregate_record_count
+      int guard = 0;
+      processing_read(8'h7c, read_value);
+      while (read_value != 1 && guard < 50) begin
+        repeat (100) @(posedge clock);
+        processing_read(8'h7c, read_value);
+        guard += 1;
+      end
+    end
     assert (read_value == 1) else $fatal(1, "aggregate record count");
     processing_read(8'h84, read_value);
     assert (read_value == 7)

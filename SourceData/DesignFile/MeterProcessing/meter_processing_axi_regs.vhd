@@ -69,6 +69,12 @@ entity meter_processing_axi_regs is
     agg_continuity_count_i             : in  word32_t;
     agg_drop_count_i                   : in  word32_t;
 
+    -- HLS cycle-aggregator trial health (read-only; see
+    -- measurement_record_bus_pkg for the register semantics).
+    hls_agg_record_count_i             : in  word32_t;
+    hls_agg_mismatch_count_i           : in  word32_t;
+    hls_agg_drop_count_i               : in  word32_t;
+
     active_generation_i     : in  word32_t;
     result_sequence_i       : in  word32_t;
     result_drop_count_i     : in  word32_t;
@@ -273,6 +279,12 @@ begin
             when AGG_REG_INELIGIBLE_COUNT / 4 => rdata <= agg_ineligible_count_i;
             when AGG_REG_CONTINUITY_COUNT / 4 => rdata <= agg_continuity_count_i;
             when AGG_REG_DROP_COUNT / 4 => rdata <= agg_drop_count_i;
+            when HLS_AGG_REG_RECORD_COUNT / 4 =>
+              rdata <= hls_agg_record_count_i;
+            when HLS_AGG_REG_MISMATCH_COUNT / 4 =>
+              rdata <= hls_agg_mismatch_count_i;
+            when HLS_AGG_REG_DROP_COUNT / 4 =>
+              rdata <= hls_agg_drop_count_i;
             when others => rdata <= (others => '0');
           end case;
           rvalid <= '1';
