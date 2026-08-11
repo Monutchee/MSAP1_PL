@@ -9,7 +9,7 @@
 # build output. Adding a new HLS component needs no new script.
 #
 # This is the quick iteration tool; it drives the raw HLS CLI, so it works
-# even while a Vitis GUI holds the workspace lock. make_HLS.sh is the
+# even while a Vitis GUI holds the workspace lock. 'mnc HLS build' is the
 # system flow: all components through the Vitis workspace API plus the
 # Vivado IP-catalog refresh. After this script, let Vivado pick up the new
 # revision with Script/refresh_hls_ip.tcl (sourced in the GUI's Tcl
@@ -106,4 +106,4 @@ mv -- "${REPO_ENTRY}.tmp" "${REPO_ENTRY}"
 
 echo "${NAME} HLS flow PASS; IP repository entry refreshed:"
 echo "  ${REPO_ENTRY}"
-echo "Pick it up in Vivado with Script/refresh_hls_ip.tcl (or make_HLS.sh)."
+echo "Pick it up in Vivado with Script/refresh_hls_ip.tcl (or 'mnc HLS build')."

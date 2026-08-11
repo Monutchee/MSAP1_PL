@@ -1,6 +1,6 @@
 # Make the product project consume the newest packaged HLS output.
 #
-# The HLS build flows (HLS_DesignFile/run_hls.sh, workspace make_HLS.sh)
+# The HLS build flows (HLS_DesignFile/run_hls.sh, workspace 'mnc HLS build')
 # unpack each component's packaged IP into SourceData/HLS_DesignFile/ip_repo.
 # This script points the project at that repository (once), rebuilds the IP
 # catalog, and upgrades any project IP customization whose packaged
@@ -20,7 +20,7 @@ set project_file [file join $repo_dir vivado_gen MSAP1_PL.xpr]
 set hls_ip_repo [file join $repo_dir SourceData HLS_DesignFile ip_repo]
 
 if {![file isdirectory $hls_ip_repo]} {
-    error "missing $hls_ip_repo -- run make_HLS.sh (or a component run_hls.sh) first"
+    error "missing $hls_ip_repo -- run 'mnc HLS build' (or a component run_hls.sh) first"
 }
 
 set close_project_when_done false

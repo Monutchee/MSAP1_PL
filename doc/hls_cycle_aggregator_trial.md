@@ -111,7 +111,7 @@ the shadow has accumulated real hardware hours with
 
 ```sh
 # From the workspace root: rebuild + verify + refresh the Vivado IP catalog.
-./make_HLS.sh
+<workspace>/mnc HLS build
 # Or component-local, then refresh Vivado separately:
 SourceData/HLS_DesignFile/run_hls.sh MeterProcessing/CycleAggregator
 vivado -mode batch -source SourceData/Script/refresh_hls_ip.tcl
