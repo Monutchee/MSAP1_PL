@@ -45,8 +45,11 @@ its header comment and by `MeterCommon/measurement_record_bus_pkg.vhd`.
   then let Vivado pick up the new revision with
   `Script/AI_gen/refresh_hls_ip.tcl` (catalog rebuild + IP upgrade);
   `./make_HLS.sh` chains both automatically.
-  `Script/AI_gen/integrate_hls_cycle_aggregator.tcl` is the one-time (and
-  idempotent) project registration. Vivado does not lock projects and a
+  `Script/AI_gen/register_hls_components.tcl` is the one-time (and
+  idempotent) project registration, generic over every packaged
+  component in `ip_repo` — it creates missing `SourceData/IP/<name>_ip`
+  customizations from each package's own VLNV; only a new component's
+  shim VHDL is added by hand. Vivado does not lock projects and a
   live GUI session saves its own state over batch edits, so when the
   project is open in a GUI, `source` these scripts in that session's Tcl
   console instead of batch mode.
@@ -111,6 +114,8 @@ template — component folder under `HLS_DesignFile/<area>/<Name>` with
 `vitis-comp.json` (work_dir `build`), `hls_config.cfg` setting `syn.top`
 and `package.ip.*`, beat layout in one header mirrored by one VHDL shim,
 and an equivalence bench against a golden or RTL reference. No new build
-scripts: the shared `run_hls.sh` and `make_HLS.sh` discover and build any
-component, and only a per-component `integrate_*.tcl` registers its XCI
-with the project.
+or registration scripts: the shared `run_hls.sh` and `make_HLS.sh`
+discover and build any component, and `register_hls_components.tcl`
+creates its XCI from the package's own VLNV. The only per-component
+integration work is the maintained shim VHDL (and, for a shadow
+deployment, its compare wiring).

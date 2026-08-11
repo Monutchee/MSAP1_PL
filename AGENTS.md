@@ -55,8 +55,10 @@
   absent. After any HLS source change: `run_hls.sh`, then
   `Script/AI_gen/refresh_hls_ip.tcl` (catalog rebuild + upgrade of stale
   HLS IP customizations) -- `make_HLS.sh` chains both.
-  `Script/AI_gen/integrate_hls_cycle_aggregator.tcl` is the idempotent
-  project registration. Vivado does not lock projects and a live GUI
+  `Script/AI_gen/register_hls_components.tcl` is the idempotent, generic
+  registration for every packaged component (XCIs are created as
+  `SourceData/IP/<name>_ip` from each package's own VLNV; only a new
+  component's shim VHDL is added by hand). Vivado does not lock projects and a live GUI
   session saves its own state over batch edits: when the project is open in
   a GUI, source these scripts in that session's Tcl console, never batch. The trial
   engine runs in `meter_core` as a compared shadow of the RTL aggregator
