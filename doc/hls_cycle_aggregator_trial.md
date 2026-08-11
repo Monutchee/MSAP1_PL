@@ -114,7 +114,7 @@ the shadow has accumulated real hardware hours with
 ./make_HLS.sh
 # Or component-local, then refresh Vivado separately:
 SourceData/HLS_DesignFile/run_hls.sh MeterProcessing/CycleAggregator
-vivado -mode batch -source SourceData/Script/AI_gen/refresh_hls_ip.tcl
+vivado -mode batch -source SourceData/Script/refresh_hls_ip.tcl
 # Checks:
 vivado -mode batch -source SourceData/Script/AI_gen/check_metering_pipeline.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_meter_core.tcl

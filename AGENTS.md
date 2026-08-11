@@ -53,9 +53,9 @@
   checkout must run `make_HLS.sh` (or `HLS_DesignFile/run_hls.sh`) first;
   the check scripts fail with that instruction when the repository is
   absent. After any HLS source change: `run_hls.sh`, then
-  `Script/AI_gen/refresh_hls_ip.tcl` (catalog rebuild + upgrade of stale
+  `Script/refresh_hls_ip.tcl` (catalog rebuild + upgrade of stale
   HLS IP customizations) -- `make_HLS.sh` chains both.
-  `Script/AI_gen/register_hls_components.tcl` is the idempotent, generic
+  `Script/register_hls_components.tcl` is the idempotent, generic
   registration for every packaged component (XCIs are created as
   `SourceData/IP/<name>_ip` from each package's own VLNV; only a new
   component's shim VHDL is added by hand). Vivado does not lock projects and a live GUI

@@ -12,7 +12,7 @@
 # even while a Vitis GUI holds the workspace lock. make_HLS.sh is the
 # system flow: all components through the Vitis workspace API plus the
 # Vivado IP-catalog refresh. After this script, let Vivado pick up the new
-# revision with Script/AI_gen/refresh_hls_ip.tcl (sourced in the GUI's Tcl
+# revision with Script/refresh_hls_ip.tcl (sourced in the GUI's Tcl
 # console when the project is open there).
 #
 # Usage: run_hls.sh [component-dir]
@@ -103,4 +103,4 @@ mv -- "${REPO_ENTRY}.tmp" "${REPO_ENTRY}"
 
 echo "${NAME} HLS flow PASS; IP repository entry refreshed:"
 echo "  ${REPO_ENTRY}"
-echo "Pick it up in Vivado with Script/AI_gen/refresh_hls_ip.tcl (or make_HLS.sh)."
+echo "Pick it up in Vivado with Script/refresh_hls_ip.tcl (or make_HLS.sh)."

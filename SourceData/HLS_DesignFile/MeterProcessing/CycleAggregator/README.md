@@ -43,9 +43,9 @@ its header comment and by `MeterCommon/measurement_record_bus_pkg.vhd`.
 
   After ANY change to `src/` or `hls_config.cfg`: rerun `run_hls.sh`,
   then let Vivado pick up the new revision with
-  `Script/AI_gen/refresh_hls_ip.tcl` (catalog rebuild + IP upgrade);
+  `Script/refresh_hls_ip.tcl` (catalog rebuild + IP upgrade);
   `./make_HLS.sh` chains both automatically.
-  `Script/AI_gen/register_hls_components.tcl` is the one-time (and
+  `Script/register_hls_components.tcl` is the one-time (and
   idempotent) project registration, generic over every packaged
   component in `ip_repo` — it creates missing `SourceData/IP/<name>_ip`
   customizations from each package's own VLNV; only a new component's

@@ -27,7 +27,7 @@
 # GUI open this script must run inside it.
 
 set script_dir [file dirname [file normalize [info script]]]
-set repo_dir [file normalize [file join $script_dir ../../..]]
+set repo_dir [file normalize [file join $script_dir ../..]]
 set project_file [file join $repo_dir vivado_gen MSAP1_PL.xpr]
 set hls_ip_repo [file join $repo_dir SourceData HLS_DesignFile ip_repo]
 set xci_parent [file join $repo_dir SourceData IP]
