@@ -135,6 +135,25 @@ vivado -mode batch -source SourceData/Script/AI_gen/implement_ad7771_design.tcl
 - Run the focused capture check for RTL changes and BD verification for any
   integration change. Run synthesis for interface, clock, reset, or constraint
   changes. Run implementation before handing a new XSA to RPU/Yocto.
+- The full build is staged, one Tcl script per stage under
+  `SourceData/Script/` (`build_bd.tcl`, `build_synth.tcl`, `build_impl.tcl`,
+  `build_bitstream.tcl`, `export_xsa.tcl`), driven by the workspace
+  `make_PL.sh` (`--build-bd`, `--compile-synth`, `--compile-impl`,
+  `--compile-bit`, `--gen-xsa`, `--sdtgen`; no option runs all of them in
+  that order). Add a new build stage as its own script with the shared
+  `build_common.tcl` preamble and a `make_PL.sh` option, not as a step folded
+  into an existing stage: each stage must stay separately rerunnable.
+  `build_bd.tcl` exists because the block design's output products are
+  untracked, so a fresh checkout has no synthesizable block-design sources.
+  `build_impl.tcl` stops at `route_design` and `build_bitstream.tcl` resumes
+  `impl_1` without resetting it, so a bitstream rerun never discards routing.
+  The scripts above under `AI_gen/` remain the focused, non-project checks.
+- `report_status.tcl` and `report_summary.tcl` (`make_PL.sh --status`,
+  `--summary`) are read-only views: they use `open_project -read_only` and so
+  are the only project-wide scripts that may run while a Vivado GUI holds the
+  project. Keep them read-only, and keep them free of any query that a
+  read-only open falsifies -- `IS_LOCKED` is the known one, because a
+  read-only project reports every IP as locked.
 - For cycle-aggregator changes, `HLS_DesignFile/run_hls.sh` (or
   `make_HLS.sh`) runs the twelve-scenario golden bench as C simulation and
   C/RTL co-simulation on the generated core, and `check_meter_core.tcl`

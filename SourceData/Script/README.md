@@ -4,6 +4,9 @@ User-facing Tcl for the product project lives in this directory;
 `AI_gen/` below it holds the maintained verification and comparison
 scripts (see `AGENTS.md` for when each check runs).
 
+The `build_*.tcl` scripts are the staged build the workspace `make_PL.sh`
+drives, one script per stage so any stage can be rerun by hand.
+
 **Vivado GUI rule for every project-mutating script here:** Vivado does
 not lock projects, and a live GUI session saves its own in-memory state
 over any batch edit. When the product project is open in a GUI, `source`
@@ -12,20 +15,127 @@ the script in that session's Tcl console; use `vivado -mode batch
 
 | Name                        | Usage                                                       | Remarks                                                                                                                      |
 |-----------------------------|-------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------|
-| export_xsa.tcl              | `source SourceData/Script/export_xsa.tcl` (project open)    | Generate the bitstream-inclusive XSA to `runtime-generated/bin_file/`                                                          |
+| build_common.tcl            | sourced by the build stages; never run directly             | Shared project location, open/close policy, `-jobs` resolution, run-status checking, and report directory                       |
+| build_bd.tcl                | `make_PL.sh --build-bd`                                     | Validates `TopDesign.bd` and generates its output products, none of which are tracked; required on a fresh checkout              |
+| build_synth.tcl             | `make_PL.sh --compile-synth`                                | Resets and relaunches `synth_1`; reports to `vivado_gen/reports/`                                                              |
+| build_impl.tcl              | `make_PL.sh --compile-impl`                                 | Resets `impl_1` and runs it to `route_design` only, so the routed design can be reviewed before it is programmed                |
+| build_bitstream.tcl         | `make_PL.sh --compile-bit`                                  | Resumes `impl_1` at `write_bitstream`, never resetting the routing                                                             |
+| export_xsa.tcl              | `make_PL.sh --gen-xsa`, or `source` it with the project open | Generate the bitstream-inclusive XSA to `runtime-generated/bin_file/`                                                          |
+| report_status.tcl           | `make_PL.sh --status`                                       | Read-only: per-run status, progress, and out-of-date flags, plus a single verdict naming what to rerun                           |
+| report_summary.tcl          | `make_PL.sh --summary`                                      | Read-only: Vivado's own run statistics (WNS/TNS/WHS/THS, failed nets, power, elapsed) -- the GUI's Design Runs columns           |
 | refresh_hls_ip.tcl          | run after every HLS rebuild (make_HLS.sh does it for you)   | Rebuild the IP catalog against `HLS_DesignFile/ip_repo` and upgrade stale HLS IP customizations so synthesis uses the newest output |
 | register_hls_components.tcl | run once after creating a NEW HLS component                 | Generic: discovers every `ip_repo` package by its own VLNV, creates missing `SourceData/IP/<name>_ip` customizations; idempotent |
 
+## Staged build: build_bd.tcl, build_synth.tcl, build_impl.tcl, build_bitstream.tcl
+
+The build stages the workspace `make_PL.sh` drives. One script per stage on
+purpose: a failing stage is rerun and debugged on its own instead of
+repeating the whole flow.
+
+```sh
+./make_PL.sh --compile-synth                  # from the workspace root
+./make_PL.sh --compile-impl --compile-bit
+./make_PL.sh                                  # all stages, then XSA + SDTGen
+```
+
+Each also runs standalone, taking the `launch_runs -jobs` value as its only
+argument (otherwise `VIVADO_JOBS`, otherwise 8):
+
+```sh
+vivado -mode batch -source SourceData/Script/build_synth.tcl -tclargs 16
+```
+
+```tcl
+# Vivado GUI Tcl console (project open):
+source SourceData/Script/build_synth.tcl
+```
+
+Stage boundaries and what they guarantee:
+
+- `build_bd.tcl` validates the block design and generates its output
+  products. It exists because only `TopDesign.bd` and its managed top
+  wrapper are tracked: `ip/`, `ipshared/`, `synth/`, `sim/`, and
+  `hw_handoff/` are gitignored, so a fresh checkout has no synthesizable
+  block-design sources at all. Generation is incremental, so an up-to-date
+  design costs one validation pass. The tracked wrapper is never rewritten;
+  a wrapper older than the `.bd` is reported instead, because refreshing it
+  after a boundary change is a design decision that belongs in IP
+  Integrator.
+- `build_synth.tcl` resets `synth_1` so the stage always synthesizes the
+  current sources. Vivado launches the out-of-context block-design and IP
+  runs it depends on; pointing the project at a new packaged HLS revision
+  stays the job of `make_HLS.sh`/`refresh_hls_ip.tcl`.
+- `build_impl.tcl` resets `impl_1` and stops at `route_design`, so timing,
+  CDC, DRC, and I/O can be reviewed before a bitstream exists.
+- `build_bitstream.tcl` resumes `impl_1` instead of resetting it, so the
+  routing is programmed rather than recomputed. An existing bitstream is
+  reset one step only (`reset_run impl_1 -from_step write_bitstream`), which
+  is what keeps a rerun idempotent -- Vivado refuses to launch a run that is
+  already complete.
+
+Anything other than a completed run raises a Tcl error, so batch Vivado
+exits non-zero and `make_PL.sh` stops the chain. Reports land in
+`vivado_gen/reports/`, per-stage logs in `vivado_gen/logs/`; a report that
+cannot be produced warns instead of failing the stage.
+
+`build_common.tcl` holds the shared preamble (project location, open/close
+policy, `-jobs` resolution, run-status checking) and is sourced by the stage
+scripts, not run directly.
+
+## Queries: report_status.tcl, report_summary.tcl
+
+Read-only views of the project, driven by `make_PL.sh --status` and
+`--summary`. Both open the project with `open_project -read_only`, which
+cannot save over a live GUI session's in-memory state, so unlike the build
+stages they run while the project is open in a GUI.
+
+```sh
+./make_PL.sh --status     # what passed, what is out of date, what to rerun
+./make_PL.sh --summary    # WNS/TNS/WHS/THS, failed nets, power, elapsed
+./make_PL.sh --report     # index the stage reports and logs
+./make_PL.sh --report impl_timing_summary    # print one of them
+```
+
+`report_status.tcl` prints one row per run -- status, progress, and the
+out-of-date flag -- then a single `PL_STATUS_VERDICT` line naming what has to
+be rerun. Staleness shows up two ways in Vivado, the `NEEDS_REFRESH`
+property and an `Out-of-date` run status, and both count. Out-of-context runs
+that never started are counted rather than listed, so the two runs that
+matter stay visible.
+
+One thing it deliberately does not report in batch is which IP
+customizations are locked: a read-only open makes Vivado report *every* IP as
+locked, since none of them can be regenerated in that state. Sourced into a
+GUI session that holds the project open for writing, the same script reports
+the real count.
+
+`report_summary.tcl` reads the statistics Vivado stored on each run rather
+than regenerating a report, so it shows what the last completed run produced
+and costs nothing but project load. It prints whichever statistics the
+release records, so it does not need updating when that set changes.
+
+`make_PL.sh --report` needs no Vivado at all: the reports are files the
+compile stages already wrote to `vivado_gen/reports/`, alongside the
+per-stage logs in `vivado_gen/logs/`.
+
 ## export_xsa.tcl
 
-Exports the hardware platform (with bitstream) of the currently open
-project to `runtime-generated/bin_file/<project>.xsa`. Requires an open
-project, so run it from the GUI Tcl console or after `open_project` in
-batch:
+Exports the hardware platform (with bitstream) to
+`runtime-generated/bin_file/<project>.xsa`, or to the path given as its only
+argument -- which is how `make_PL.sh --gen-xsa` guarantees the export target
+and the SDTGen input are the same file. It opens the product project when no
+project is open, so it works from the GUI Tcl console and in batch:
 
 ```tcl
 source SourceData/Script/export_xsa.tcl
 ```
+
+```sh
+vivado -mode batch -source SourceData/Script/export_xsa.tcl
+```
+
+Requires a bitstream, so run `build_bitstream.tcl` (or `make_PL.sh
+--compile-bit`) first.
 
 ## refresh_hls_ip.tcl
 
