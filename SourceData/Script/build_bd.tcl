@@ -5,7 +5,7 @@
 # regenerable and gitignored, so a fresh checkout has none. This stage
 # generates them explicitly rather than leaving synthesis to do it as a side
 # effect, which is what lets a clean clone reach a bitstream through
-# make_PL.sh alone. Rerun it after a block-design edit, and after an IP
+# 'mnc PL build' alone. Rerun it after a block-design edit, and after an IP
 # upgrade reset a block-design output product.
 #
 # Generation is incremental: an up-to-date block design costs one validation
@@ -32,7 +32,7 @@ set locked [pl_build_locked_ips]
 if {[llength $locked] > 0} {
     puts "WARNING: [llength $locked] IP customization(s) trail their definition\
  and would synthesize stale logic: $locked"
-    puts "WARNING: run make_HLS.sh, or source refresh_hls_ip.tcl, before synthesis"
+    puts "WARNING: run 'mnc HLS build', or source refresh_hls_ip.tcl, before synthesis"
 }
 
 # Validate before generating: an interface, clock, or reset error found here

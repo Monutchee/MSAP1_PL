@@ -1,11 +1,11 @@
 # PL build stage 4: export the bitstream-inclusive hardware platform (XSA).
 #
 # Default output is ../runtime-generated/bin_file/<project>.xsa, the path the
-# workspace build chain (make_PL.sh, make_RPU.sh) consumes. An optional
-# -tclargs <output-file> overrides it; make_PL.sh --gen-xsa passes the exact
+# workspace build chain (mnc PL build, mnc RPU build) consumes. An optional
+# -tclargs <output-file> overrides it; mnc PL build --gen-xsa passes the exact
 # path it will then hand to sdtgen.
 #
-# Requires a bitstream, so run build_bitstream.tcl (or make_PL.sh
+# Requires a bitstream, so run build_bitstream.tcl (or mnc PL build
 # --compile-bit) first.
 #
 # Debug/standalone use (see build_common.tcl for the GUI rule):

@@ -40,13 +40,13 @@ handling — are pinned by `src/cycle_aggregator.hpp` (normative) and
   the same packaged RTL directly from `ip_repo/CycleAggregator/hdl/
   verilog`, bound to the customization's module name by
   `DesignFile/MeterProcessing/tb/hls_cycle_aggregator_ip.v`.
-  On a fresh checkout run `run_hls.sh` (or `make_HLS.sh`) before opening
+  On a fresh checkout run `run_hls.sh` (or `mnc HLS build`) before opening
   the Vivado project or running the metering check scripts.
 
   After ANY change to `src/` or `hls_config.cfg`: rerun `run_hls.sh`,
   then let Vivado pick up the new revision with
   `Script/refresh_hls_ip.tcl` (catalog rebuild + IP upgrade);
-  `./make_HLS.sh` chains both automatically.
+  `mnc HLS build` chains both automatically.
   `Script/register_hls_components.tcl` is the one-time (and
   idempotent) project registration, generic over every packaged
   component in `ip_repo` — it creates missing `SourceData/IP/<name>_ip`
@@ -83,7 +83,7 @@ mismatch count `0x94`, shim drop count `0x98` (see
 
 ## Verification
 
-- `../../run_hls.sh` (and `make_HLS.sh`): the twelve-scenario golden
+- `../../run_hls.sh` (and `mnc HLS build`): the twelve-scenario golden
   bench (`test/cycle_aggregator_tb.cpp`) runs as C simulation and as
   C/RTL co-simulation of the generated core on every build.
 - `check_meter_core.tcl`: validates a complete MTR2 record word-by-word
@@ -120,7 +120,7 @@ template — component folder under `HLS_DesignFile/<area>/<Name>` with
 `vitis-comp.json` (work_dir `build`), `hls_config.cfg` setting `syn.top`
 and `package.ip.*`, beat layout in one header mirrored by one VHDL shim,
 and an equivalence bench against a golden or RTL reference. No new build
-or registration scripts: the shared `run_hls.sh` and `make_HLS.sh`
+or registration scripts: the shared `run_hls.sh` and `mnc HLS build`
 discover and build any component, and `register_hls_components.tcl`
 creates its XCI from the package's own VLNV. The only per-component
 integration work is the maintained shim VHDL (and, for a shadow

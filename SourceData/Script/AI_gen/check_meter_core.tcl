@@ -5,12 +5,12 @@ set project_root [file normalize [file join $script_dir ../../..]]
 set design_root [file join $project_root SourceData DesignFile]
 set work_root [file join /tmp msap1_meter_core_sim]
 
-# Packaged HLS RTL (IP repository entry); refreshed by make_HLS.sh or
+# Packaged HLS RTL (IP repository entry); refreshed by 'mnc HLS build' or
 # SourceData/HLS_DesignFile/run_hls.sh <component>.
 set hls_aggregator_hdl [file join $project_root SourceData HLS_DesignFile \
   ip_repo CycleAggregator hdl verilog]
 if {![file isdirectory $hls_aggregator_hdl]} {
-  error "missing $hls_aggregator_hdl -- run make_HLS.sh or HLS_DesignFile/run_hls.sh first"
+  error "missing $hls_aggregator_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
 }
 set hls_aggregator_verilog [concat \
   [lsort [glob -directory $hls_aggregator_hdl *.v]] \

@@ -22,7 +22,7 @@ set routed [file join $run_dir "${top}_routed.dcp"]
 set bitstream [file join $run_dir "${top}.bit"]
 
 if {![file exists $routed]} {
-    error "no routed checkpoint at $routed -- run make_PL.sh --compile-impl first"
+    error "no routed checkpoint at $routed -- run 'mnc PL build --compile-impl' first"
 }
 
 set jobs [pl_build_jobs]

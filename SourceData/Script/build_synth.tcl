@@ -2,7 +2,7 @@
 #
 # Resets synth_1 so the stage always synthesizes the current sources, then
 # launches it. Vivado launches the out-of-context block-design and IP runs
-# synth_1 depends on, so no separate stage is needed for them; make_HLS.sh
+# synth_1 depends on, so no separate stage is needed for them; 'mnc HLS build'
 # and refresh_hls_ip.tcl remain responsible for pointing the project at the
 # newest packaged HLS revision beforehand.
 #

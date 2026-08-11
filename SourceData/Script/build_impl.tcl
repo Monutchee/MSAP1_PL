@@ -14,7 +14,7 @@
 source [file join [file dirname [file normalize [info script]]] build_common.tcl]
 
 pl_build_open_project
-pl_build_require_run_complete synth_1 "make_PL.sh --compile-synth"
+pl_build_require_run_complete synth_1 "mnc PL build --compile-synth"
 
 set jobs [pl_build_jobs]
 puts "PL_BUILD_STAGE=impl"

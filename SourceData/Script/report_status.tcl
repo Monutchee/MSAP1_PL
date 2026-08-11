@@ -25,7 +25,7 @@ puts "PL_STATUS_TOP=$top"
 set bd [pl_build_block_design]
 set products [pl_build_block_design_products $bd]
 if {$products eq ""} {
-    puts "PL_STATUS_BD=not generated ([file tail $bd]) -- run make_PL.sh --build-bd"
+    puts "PL_STATUS_BD=not generated ([file tail $bd]) -- run mnc PL build --build-bd"
 } else {
     puts "PL_STATUS_BD=generated ([file tail $bd])"
 }
@@ -112,13 +112,13 @@ puts "PL_STATUS_BITSTREAM=[expr {[file exists $bitstream] ? $bitstream : "missin
 if {[llength $errored] > 0} {
     puts "PL_STATUS_VERDICT=error ($errored)"
 } elseif {[llength $stale] > 0} {
-    puts "PL_STATUS_VERDICT=out of date ($stale) -- rerun from make_PL.sh --compile-synth"
+    puts "PL_STATUS_VERDICT=out of date ($stale) -- rerun from mnc PL build --compile-synth"
 } elseif {![string match "*Complete*" $synth_status]} {
-    puts "PL_STATUS_VERDICT=synthesis incomplete -- run make_PL.sh --compile-synth"
+    puts "PL_STATUS_VERDICT=synthesis incomplete -- run mnc PL build --compile-synth"
 } elseif {![file exists $routed]} {
-    puts "PL_STATUS_VERDICT=not implemented -- run make_PL.sh --compile-impl"
+    puts "PL_STATUS_VERDICT=not implemented -- run mnc PL build --compile-impl"
 } elseif {![file exists $bitstream]} {
-    puts "PL_STATUS_VERDICT=routed, no bitstream -- run make_PL.sh --compile-bit"
+    puts "PL_STATUS_VERDICT=routed, no bitstream -- run mnc PL build --compile-bit"
 } else {
     puts "PL_STATUS_VERDICT=ok"
 }

@@ -11,10 +11,10 @@
 # Legacy direct file references under HLS_DesignFile (the pre-IP-catalog
 # integration) are dropped.
 #
-# Run this once after creating a NEW HLS component (after make_HLS.sh or
+# Run this once after creating a NEW HLS component (after 'mnc HLS build' or
 # HLS_DesignFile/run_hls.sh has produced its package). For rebuilds of
 # already-registered components, refresh_hls_ip.tcl is sufficient -- and
-# make_HLS.sh runs that automatically. What this script cannot do is add
+# 'mnc HLS build' runs that automatically. What this script cannot do is add
 # a new component's maintained VHDL boundary sources (its shim, like
 # meter_cycle_aggregator_hls_shim.vhd): add those to sources_1 yourself.
 #
@@ -33,7 +33,7 @@ set hls_ip_repo [file join $repo_dir SourceData HLS_DesignFile ip_repo]
 set xci_parent [file join $repo_dir SourceData IP]
 
 if {![file isdirectory $hls_ip_repo]} {
-    error "missing $hls_ip_repo -- run make_HLS.sh (or HLS_DesignFile/run_hls.sh) first"
+    error "missing $hls_ip_repo -- run 'mnc HLS build' (or HLS_DesignFile/run_hls.sh) first"
 }
 
 # Discover the packaged components from disk: every ip_repo entry with a
@@ -58,7 +58,7 @@ foreach package_xml [lsort [glob -nocomplain \
     lappend packages [read_package_vlnv $package_xml]
 }
 if {[llength $packages] == 0} {
-    error "no packaged components below $hls_ip_repo -- run make_HLS.sh first"
+    error "no packaged components below $hls_ip_repo -- run 'mnc HLS build' first"
 }
 
 set close_project_when_done false

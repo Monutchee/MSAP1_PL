@@ -16,7 +16,7 @@
 # Stage scripts that launch a run take the -jobs value as their first
 # -tclargs value (see pl_build_jobs); export_xsa.tcl takes an output path
 # instead. Failures raise a Tcl error so batch Vivado exits non-zero and
-# make_PL.sh can chain stages.
+# mnc PL build can chain stages.
 
 set pl_build_script_dir [file dirname [file normalize [info script]]]
 set pl_build_repo_dir [file normalize [file join $pl_build_script_dir ../..]]
@@ -182,7 +182,7 @@ proc pl_build_block_design_products {bd} {
 
 # Batch Vivado prints its board-file and IP-repository scan before a sourced
 # script produces a line, which buries a short report. Bracket the report so
-# make_PL.sh can print only the report and leave the scan in the stage log.
+# mnc PL report can print only the report and leave the scan in the stage log.
 proc pl_build_report_begin {} {
     puts "PL_REPORT_BEGIN"
 }
