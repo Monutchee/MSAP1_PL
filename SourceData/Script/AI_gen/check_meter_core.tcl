@@ -5,6 +5,17 @@ set project_root [file normalize [file join $script_dir ../../..]]
 set design_root [file join $project_root SourceData DesignFile]
 set work_root [file join /tmp msap1_meter_core_sim]
 
+# Packaged HLS RTL (IP repository entry); refreshed by make_HLS.sh or
+# SourceData/HLS_DesignFile/run_hls.sh <component>.
+set hls_aggregator_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo CycleAggregator hdl verilog]
+if {![file isdirectory $hls_aggregator_hdl]} {
+  error "missing $hls_aggregator_hdl -- run make_HLS.sh or HLS_DesignFile/run_hls.sh first"
+}
+set hls_aggregator_verilog [concat \
+  [lsort [glob -directory $hls_aggregator_hdl *.v]] \
+  [list [file join $design_root MeterProcessing tb hls_cycle_aggregator_ip.v]]]
+
 set xvlog [lindex [auto_execok xvlog] 0]
 set xvhdl [lindex [auto_execok xvhdl] 0]
 set xelab [lindex [auto_execok xelab] 0]
@@ -37,6 +48,8 @@ set vhdl2008_sources [list \
   [file join $design_root MeterProcessing meter_rms.vhd] \
   [file join $design_root MeterProcessing grid_cycle_timing.vhd] \
   [file join $design_root MeterProcessing meter_cycle_aggregator.vhd] \
+  [file join $design_root MeterProcessing meter_cycle_aggregator_hls_shim.vhd] \
+  [file join $design_root MeterProcessing meter_aggregator_compare.vhd] \
   [file join $design_root MeterProcessing aggregate_record_producer.vhd] \
   [file join $design_root MeterProcessing measurement_record_arbiter.vhd] \
   [file join $design_root MeterCore adc_simulator_pkg.vhd] \
@@ -60,6 +73,7 @@ cd $work_root
 
 puts [exec $xvhdl --2008 {*}$vhdl2008_sources 2>@1]
 puts [exec $xvhdl {*}$dependency_wrappers 2>@1]
+puts [exec $xvlog -i $hls_aggregator_hdl {*}$hls_aggregator_verilog 2>@1]
 puts [exec $xvhdl --2008 {*}$core_vhdl2008_sources 2>@1]
 puts [exec $xvhdl $boundary_wrapper 2>@1]
 puts [exec $xvlog --sv $testbench 2>@1]

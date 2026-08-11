@@ -247,6 +247,32 @@ architecture structural of meter_core is
   signal bus_record_valid       : std_logic;
   signal bus_record_ready       : std_logic;
 
+  -- HLS cycle-aggregator trial: shadow engine outputs and the pairwise
+  -- comparison state. The shadow consumes the same Basic result event as
+  -- the RTL engine and publishes no records; agreement is scored into
+  -- hls_agg_mismatch_count (see measurement_record_bus_pkg).
+  signal hls_aggregate_valid        : std_logic;
+  signal hls_aggregate_sequence     : std_logic_vector(31 downto 0);
+  signal hls_aggregate_generation   : std_logic_vector(31 downto 0);
+  signal hls_aggregate_sample_rate  : std_logic_vector(31 downto 0);
+  signal hls_aggregate_samples      : std_logic_vector(31 downto 0);
+  signal hls_aggregate_valid_mask   : std_logic_vector(7 downto 0);
+  signal hls_aggregate_arithmetic   : std_logic;
+  signal hls_aggregate_freq_valid   : std_logic;
+  signal hls_aggregate_first_seq    : std_logic_vector(31 downto 0);
+  signal hls_aggregate_last_seq     : std_logic_vector(31 downto 0);
+  signal hls_aggregate_nominal      : std_logic_vector(7 downto 0);
+  signal hls_aggregate_cycles       : std_logic_vector(15 downto 0);
+  signal hls_aggregate_first_sample : std_logic_vector(63 downto 0);
+  signal hls_aggregate_rms_q16      : std_logic_vector(511 downto 0);
+  signal hls_aggregate_freq_millihz : std_logic_vector(31 downto 0);
+  signal hls_agg_record_count       : std_logic_vector(31 downto 0);
+  signal hls_agg_reset_count        : std_logic_vector(31 downto 0);
+  signal hls_agg_ineligible_count   : std_logic_vector(31 downto 0);
+  signal hls_agg_continuity_count   : std_logic_vector(31 downto 0);
+  signal hls_agg_drop_count         : std_logic_vector(31 downto 0);
+  signal hls_agg_mismatch_count     : std_logic_vector(31 downto 0);
+
   signal waveform_enable      : std_logic;
   signal waveform_clear_stats : std_logic;
   signal waveform_tick        : std_logic_vector(63 downto 0);
@@ -598,6 +624,9 @@ begin
       agg_ineligible_count_i => agg_ineligible_count,
       agg_continuity_count_i => agg_continuity_count,
       agg_drop_count_i => agg_drop_count,
+      hls_agg_record_count_i => hls_agg_record_count,
+      hls_agg_mismatch_count_i => hls_agg_mismatch_count,
+      hls_agg_drop_count_i => hls_agg_drop_count,
       active_generation_i => active_generation,
       result_sequence_i => result_sequence,
       result_drop_count_i => result_drop_count,
@@ -791,6 +820,82 @@ begin
       reset_count_o => agg_reset_count,
       ineligible_count_o => agg_ineligible_count,
       continuity_count_o => agg_continuity_count
+    );
+
+  -- HLS trial shadow of the RTL aggregator: same input event, no record
+  -- production. The RTL engine above remains the only MTR2 producer.
+  hls_cycle_aggregator_shadow : entity work.meter_cycle_aggregator_hls_shim
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      basic_i => basic_result,
+      config_apply_toggle_i => apply_toggle,
+      aggregate_valid_o => hls_aggregate_valid,
+      aggregate_sequence_o => hls_aggregate_sequence,
+      aggregate_generation_o => hls_aggregate_generation,
+      aggregate_sample_rate_o => hls_aggregate_sample_rate,
+      aggregate_samples_o => hls_aggregate_samples,
+      aggregate_valid_mask_o => hls_aggregate_valid_mask,
+      aggregate_arithmetic_o => hls_aggregate_arithmetic,
+      aggregate_freq_valid_o => hls_aggregate_freq_valid,
+      aggregate_first_seq_o => hls_aggregate_first_seq,
+      aggregate_last_seq_o => hls_aggregate_last_seq,
+      aggregate_nominal_o => hls_aggregate_nominal,
+      aggregate_cycles_o => hls_aggregate_cycles,
+      aggregate_first_sample_o => hls_aggregate_first_sample,
+      aggregate_rms_q16_o => hls_aggregate_rms_q16,
+      aggregate_freq_millihz_o => hls_aggregate_freq_millihz,
+      record_count_o => hls_agg_record_count,
+      reset_count_o => hls_agg_reset_count,
+      ineligible_count_o => hls_agg_ineligible_count,
+      continuity_count_o => hls_agg_continuity_count,
+      drop_count_o => hls_agg_drop_count
+    );
+
+  -- Scores RTL/HLS agreement one aggregate pair at a time; see
+  -- meter_aggregator_compare for the pairing rules and why reset_count is
+  -- excluded from the comparison.
+  hls_aggregate_compare : entity work.meter_aggregator_compare
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      rtl_valid_i => aggregate_valid,
+      rtl_sequence_i => aggregate_sequence,
+      rtl_generation_i => aggregate_generation,
+      rtl_sample_rate_i => aggregate_sample_rate,
+      rtl_samples_i => aggregate_samples,
+      rtl_valid_mask_i => aggregate_valid_mask,
+      rtl_arithmetic_i => aggregate_arithmetic,
+      rtl_freq_valid_i => aggregate_freq_valid,
+      rtl_first_seq_i => aggregate_first_seq,
+      rtl_last_seq_i => aggregate_last_seq,
+      rtl_nominal_i => aggregate_nominal,
+      rtl_cycles_i => aggregate_cycles,
+      rtl_first_sample_i => aggregate_first_sample,
+      rtl_rms_q16_i => aggregate_rms_q16,
+      rtl_freq_millihz_i => aggregate_freq_millihz,
+      rtl_record_count_i => agg_record_count,
+      rtl_ineligible_count_i => agg_ineligible_count,
+      rtl_continuity_count_i => agg_continuity_count,
+      hls_valid_i => hls_aggregate_valid,
+      hls_sequence_i => hls_aggregate_sequence,
+      hls_generation_i => hls_aggregate_generation,
+      hls_sample_rate_i => hls_aggregate_sample_rate,
+      hls_samples_i => hls_aggregate_samples,
+      hls_valid_mask_i => hls_aggregate_valid_mask,
+      hls_arithmetic_i => hls_aggregate_arithmetic,
+      hls_freq_valid_i => hls_aggregate_freq_valid,
+      hls_first_seq_i => hls_aggregate_first_seq,
+      hls_last_seq_i => hls_aggregate_last_seq,
+      hls_nominal_i => hls_aggregate_nominal,
+      hls_cycles_i => hls_aggregate_cycles,
+      hls_first_sample_i => hls_aggregate_first_sample,
+      hls_rms_q16_i => hls_aggregate_rms_q16,
+      hls_freq_millihz_i => hls_aggregate_freq_millihz,
+      hls_record_count_i => hls_agg_record_count,
+      hls_ineligible_count_i => hls_agg_ineligible_count,
+      hls_continuity_count_i => hls_agg_continuity_count,
+      mismatch_count_o => hls_agg_mismatch_count
     );
 
   aggregate_producer : entity work.aggregate_record_producer

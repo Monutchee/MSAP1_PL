@@ -136,6 +136,9 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
 | `0x84` | `AGG_INELIGIBLE_COUNT` | Basic inputs rejected by the eligibility rule |
 | `0x88` | `AGG_CONTINUITY_COUNT` | sequence or sample-range discontinuities between Basic inputs |
 | `0x8c` | `AGG_DROP_COUNT` | aggregate records replaced before transport |
+| `0x90` | `HLS_AGG_RECORD_COUNT` | aggregates completed by the HLS trial engine (as of its last emit) |
+| `0x94` | `HLS_AGG_MISMATCH_COUNT` | RTL/HLS aggregate comparisons that differed (0 = engines agree) |
+| `0x98` | `HLS_AGG_DROP_COUNT` | Basic events the HLS shim discarded while busy (any nonzero value is a fault) |
 
 Frequency and grid shadow fields commit on the existing processing `APPLY`
 toggle at the same frame boundary as RMS. Applying a new configuration clears
@@ -184,6 +187,20 @@ its newest pending record with a drop counter, so a stalled DMA can never
 backpressure measurement. Future producers (harmonics, PQ events) add an
 arbiter port, not a new DMA path. RPMsg remains control-plane only;
 measurement records stay on DMA.
+
+### HLS trial shadow
+
+A Vitis HLS implementation of the same aggregation contract
+(`SourceData/HLS_DesignFile/MeterProcessing/CycleAggregator`) runs inside
+`meter_core` as a shadow of the RTL engine: `meter_cycle_aggregator_hls_shim`
+feeds it the identical Basic result event over an AXI4-Stream beat, and
+`meter_aggregator_compare` scores field-for-field agreement whenever both
+engines emit, into the `HLS_AGG_*` registers above. The shadow publishes no
+MTR2 records — the RTL engine remains the only aggregate producer — and,
+like every metrology observer, it can never backpressure measurement.
+`tb/meter_aggregator_equivalence_tb.sv` proves RTL/HLS equivalence over the
+full unit-test stimulus; the component README documents the build flow and
+the two accepted APPLY-race divergences.
 
 ## 256-byte MTR2 aggregate record
 

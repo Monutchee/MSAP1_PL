@@ -5,6 +5,17 @@ set project_root [file normalize [file join $script_dir ../../..]]
 set design_root [file join $project_root SourceData DesignFile]
 set work_root [file join /tmp msap1_metering_pipeline]
 
+# Packaged HLS RTL (IP repository entry); refreshed by make_HLS.sh or
+# SourceData/HLS_DesignFile/run_hls.sh <component>.
+set hls_aggregator_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo CycleAggregator hdl verilog]
+if {![file isdirectory $hls_aggregator_hdl]} {
+  error "missing $hls_aggregator_hdl -- run make_HLS.sh or HLS_DesignFile/run_hls.sh first"
+}
+set hls_aggregator_verilog [concat \
+  [lsort [glob -directory $hls_aggregator_hdl *.v]] \
+  [list [file join $design_root MeterProcessing tb hls_cycle_aggregator_ip.v]]]
+
 set xvlog [lindex [auto_execok xvlog] 0]
 set xvhdl [lindex [auto_execok xvhdl] 0]
 set xelab [lindex [auto_execok xelab] 0]
@@ -36,10 +47,12 @@ set common_vhdl [list \
   [file join $design_root MeterProcessing meter_rms.vhd] \
   [file join $design_root MeterProcessing grid_cycle_timing.vhd] \
   [file join $design_root MeterProcessing meter_cycle_aggregator.vhd] \
+  [file join $design_root MeterProcessing meter_cycle_aggregator_hls_shim.vhd] \
   [file join $design_root MeterProcessing aggregate_record_producer.vhd] \
   [file join $design_root MeterProcessing measurement_record_arbiter.vhd] \
   [file join $design_root MeterProcessing MeterResultHub_Wrapper.vhd] \
   [file join $design_root MeterProcessing tb meter_cycle_aggregator_tbshim.vhd] \
+  [file join $design_root MeterProcessing tb meter_cycle_aggregator_hls_tbshim.vhd] \
   [file join $design_root MeterProcessing MeterPacketizer_Wrapper.vhd]]
 
 set wrapper_vhdl [list \
@@ -47,12 +60,14 @@ set wrapper_vhdl [list \
   [file join $design_root MeterProcessing VoltageRms_Wrapper.vhd]]
 
 proc run_test {work_root test_name common_vhdl wrapper_vhdl testbench xvhdl xvlog xelab simulator_libraries} {
+  global hls_aggregator_hdl hls_aggregator_verilog
   set test_dir [file join $work_root $test_name]
   file mkdir $test_dir
   set original_dir [pwd]
   cd $test_dir
   puts [exec $xvhdl --2008 {*}$common_vhdl 2>@1]
   puts [exec $xvhdl {*}$wrapper_vhdl 2>@1]
+  puts [exec $xvlog -i $hls_aggregator_hdl {*}$hls_aggregator_verilog 2>@1]
   puts [exec $xvlog --sv $testbench 2>@1]
   puts [exec $xelab -a --mt off $test_name -s ${test_name}_sim 2>@1]
   set axsim [file join $test_dir xsim.dir ${test_name}_sim axsim]
@@ -79,6 +94,9 @@ run_test $work_root grid_cycle_timing_tb $common_vhdl $wrapper_vhdl \
   $xvhdl $xvlog $xelab $simulator_libraries
 run_test $work_root meter_cycle_aggregator_tb $common_vhdl $wrapper_vhdl \
   [file join $design_root MeterProcessing tb meter_cycle_aggregator_tb.sv] \
+  $xvhdl $xvlog $xelab $simulator_libraries
+run_test $work_root meter_aggregator_equivalence_tb $common_vhdl $wrapper_vhdl \
+  [file join $design_root MeterProcessing tb meter_aggregator_equivalence_tb.sv] \
   $xvhdl $xvlog $xelab $simulator_libraries
 
 puts "All metering pipeline simulations PASS"

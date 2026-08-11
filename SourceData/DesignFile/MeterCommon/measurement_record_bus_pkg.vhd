@@ -115,4 +115,26 @@ package measurement_record_bus_pkg is
   -- aggregate, [8] an aggregate is in progress.
   constant AGG_STATUS_BLOCKS_LSB   : natural := 0;
   constant AGG_STATUS_ACTIVE_BIT   : natural := 8;
+
+  -- HLS 150/180-cycle aggregator trial. A Vitis HLS implementation of the
+  -- aggregation contract (SourceData/HLS_DesignFile/MeterProcessing/
+  -- CycleAggregator) runs in meter_core as a shadow of the RTL engine:
+  -- same Basic result event in, compared field-for-field whenever both
+  -- engines emit. It publishes no MTR2 records; the RTL engine remains
+  -- the production producer. The AXI4-Stream beat geometry lives in
+  -- cycle_aggregator.hpp and meter_cycle_aggregator_hls_shim.vhd.
+  constant HLS_AGG_BASIC_BEAT_BITS     : positive := 808;
+  constant HLS_AGG_AGGREGATE_BEAT_BITS : positive := 968;
+
+  -- Processing AXI-Lite offsets for the HLS trial (read-only).
+  --   RECORD_COUNT:   aggregates completed by the HLS engine, sampled at
+  --                   its last emitted aggregate.
+  --   MISMATCH_COUNT: aggregate pairs (or unpaired emits) whose compared
+  --                   fields differed; 0 means the engines agree.
+  --   DROP_COUNT:     Basic result events the shim had to discard because
+  --                   the HLS core was still busy (impossible at real
+  --                   block rates; any nonzero value is a fault).
+  constant HLS_AGG_REG_RECORD_COUNT   : natural := 16#90#;
+  constant HLS_AGG_REG_MISMATCH_COUNT : natural := 16#94#;
+  constant HLS_AGG_REG_DROP_COUNT     : natural := 16#98#;
 end package;
