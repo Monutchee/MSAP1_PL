@@ -57,10 +57,29 @@ Stage boundaries and what they guarantee:
   wrapper are tracked: `ip/`, `ipshared/`, `synth/`, `sim/`, and
   `hw_handoff/` are gitignored, so a fresh checkout has no synthesizable
   block-design sources at all. Generation is incremental, so an up-to-date
-  design costs one validation pass. The tracked wrapper is never rewritten;
-  a wrapper older than the `.bd` is reported instead, because refreshing it
-  after a boundary change is a design decision that belongs in IP
-  Integrator.
+  design costs one validation pass. The stage never calls `make_wrapper`, so it
+  does not re-derive the wrapper from the block-design boundary -- that belongs
+  in IP Integrator -- and reports a wrapper older than the `.bd` instead.
+  `generate_target` does refresh what it owns, so on a checkout whose products
+  were never generated, two tracked files come back modified: the wrapper's
+  generated `--Date` header, and the `.bd`'s stored `xci_name`/`xci_path`
+  entries, which Vivado normalizes to the cell names. Neither is a design
+  change.
+- Both `build_bd.tcl` and `build_synth.tcl` first make the project consume the
+  newest packaged HLS output. Vitis HLS stamps a fresh `coreRevision` every
+  time it packages a component, so after any HLS rebuild the tracked `.xci`
+  trails its definition and Vivado locks it. A locked IP cannot be generated,
+  its out-of-context run refuses to launch, and synthesis then fails several
+  minutes later inside the module reference that instantiates it, with an error
+  naming neither HLS nor the revision. The stages therefore rebuild the catalog
+  and upgrade a locked `monutchee:*` customization themselves -- the same
+  repair `refresh_hls_ip.tcl` performs -- and `build_synth.tcl` refuses to
+  launch while any IP is still locked. This is what lets a fresh clone reach a
+  bitstream when `make_HLS.sh` skipped its own refresh, which it does whenever
+  any Vivado process is alive, including a GUI on an unrelated workspace.
+  Upgrading rewrites the `.xci`'s `ip_revision`, so an HLS rebuild always
+  leaves that tracked file modified; that is inherent to tracking a file the
+  packager re-stamps.
 - `build_synth.tcl` resets `synth_1` so the stage always synthesizes the
   current sources. Vivado launches the out-of-context block-design and IP
   runs it depends on; pointing the project at a new packaged HLS revision
