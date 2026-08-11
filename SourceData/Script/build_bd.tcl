@@ -9,9 +9,16 @@
 # upgrade reset a block-design output product.
 #
 # Generation is incremental: an up-to-date block design costs one validation
-# pass. The tracked top wrapper is never rewritten -- refreshing it after an
-# interface change is a design decision made in IP Integrator -- but a
-# wrapper older than the block design is reported.
+# pass. This stage never calls make_wrapper, so it does not re-derive the top
+# wrapper from the block-design boundary -- doing that after an interface
+# change is a design decision made in IP Integrator -- and a wrapper older
+# than the block design is reported instead.
+#
+# generate_target does still refresh what it owns, so on a checkout whose
+# products were never generated expect two tracked files to come back
+# modified: the wrapper's generated "--Date" header, and the block design's
+# stored xci_name/xci_path entries, which Vivado normalizes to the cell names.
+# Both are Vivado's own normalization, not design changes.
 #
 # Debug/standalone use (see build_common.tcl for the GUI rule):
 #   vivado -mode batch -source SourceData/Script/build_bd.tcl
@@ -25,14 +32,18 @@ set bd [pl_build_block_design]
 puts "PL_BUILD_STAGE=bd"
 puts "PL_BUILD_BD=$bd"
 
-# Reported, not fatal: refresh_hls_ip.tcl and register_hls_components.tcl own
-# the upgrade, and a locked IP elsewhere in the project must not block block
-# design generation. --status reports the same set.
+# Repair a packaged HLS IP that trails its definition rather than reporting it:
+# an HLS rebuild always leaves one behind, and a locked IP breaks synthesis
+# several minutes later with an error that names neither HLS nor the revision.
+pl_build_refresh_hls_ips
+
+# Anything still locked came from elsewhere in the catalog (a Xilinx IP needing
+# a tool-version upgrade, say), which is not this stage's business to fix.
 set locked [pl_build_locked_ips]
 if {[llength $locked] > 0} {
     puts "WARNING: [llength $locked] IP customization(s) trail their definition\
  and would synthesize stale logic: $locked"
-    puts "WARNING: run 'mnc HLS build', or source refresh_hls_ip.tcl, before synthesis"
+    puts "WARNING: upgrade them (report_ip_status) before synthesis"
 }
 
 # Validate before generating: an interface, clock, or reset error found here
