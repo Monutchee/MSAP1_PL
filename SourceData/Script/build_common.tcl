@@ -182,13 +182,61 @@ proc pl_build_block_design_products {bd} {
 
 # Batch Vivado prints its board-file and IP-repository scan before a sourced
 # script produces a line, which buries a short report. Bracket the report so
-# mnc PL report can print only the report and leave the scan in the stage log.
+# the query stages can print only the report and leave the scan in the stage log.
 proc pl_build_report_begin {} {
     puts "PL_REPORT_BEGIN"
 }
 
 proc pl_build_report_end {} {
     puts "PL_REPORT_END"
+}
+
+# Make the project consume the newest packaged HLS output, then regenerate.
+#
+# Vitis HLS stamps a fresh coreRevision every time it packages a component, so
+# after any HLS rebuild the tracked XCI trails its definition and Vivado locks
+# it -- "IP definition ... has a different revision in the IP Catalog". A
+# locked IP cannot be generated, its out-of-context run refuses to launch, and
+# synthesis then fails deep inside the module reference that instantiates it
+# with an error that names neither HLS nor the revision.
+#
+# This is the same repair refresh_hls_ip.tcl performs. The build stages run it
+# themselves so a fresh clone reaches a bitstream even when that script has not
+# been run -- make_HLS.sh skips it whenever any Vivado process is alive, which
+# includes a GUI on an unrelated workspace. Idempotent and cheap when nothing
+# is stale.
+#
+# Upgrading rewrites the tracked .xci's ip_revision, so an HLS rebuild always
+# leaves that file modified. That is inherent to tracking a file the packager
+# re-stamps; it is not a failure.
+proc pl_build_refresh_hls_ips {} {
+    update_ip_catalog -rebuild -quiet
+
+    set upgraded {}
+    foreach ip [get_ips -quiet] {
+        if {![string match "monutchee:*" [get_property IPDEF $ip]]} {
+            continue
+        }
+        if {![get_property IS_LOCKED $ip]} {
+            continue
+        }
+        upgrade_ip [get_ips $ip]
+        lappend upgraded "$ip"
+    }
+    if {[llength $upgraded] == 0} {
+        return {}
+    }
+
+    # Upgrading resets the output products, so generate them now rather than
+    # leaving synthesis to discover they are missing.
+    foreach ip $upgraded {
+        if {[catch {generate_target all [get_files -quiet \
+                [get_property IP_FILE [get_ips $ip]]]} message]} {
+            puts "WARNING: could not generate output products for $ip: $message"
+        }
+        puts "PL_BUILD_HLS_IP_UPGRADED=$ip"
+    }
+    return $upgraded
 }
 
 # Locked customizations are exactly the ones trailing their packaged or

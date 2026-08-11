@@ -145,9 +145,21 @@ vivado -mode batch -source SourceData/Script/AI_gen/implement_ad7771_design.tcl
   into an existing stage: each stage must stay separately rerunnable.
   `build_bd.tcl` exists because the block design's output products are
   untracked, so a fresh checkout has no synthesizable block-design sources.
+  Generating them normalizes two tracked files -- the top wrapper's generated
+  `--Date` header and the `.bd`'s stored `xci_name`/`xci_path` entries -- so
+  expect those diffs on a first build; neither is a design change, and the
+  stage never calls `make_wrapper`.
   `build_impl.tcl` stops at `route_design` and `build_bitstream.tcl` resumes
   `impl_1` without resetting it, so a bitstream rerun never discards routing.
   The scripts above under `AI_gen/` remain the focused, non-project checks.
+- Vitis HLS re-stamps a component's `coreRevision` on every packaging run, so
+  after any HLS rebuild the tracked `SourceData/IP/<name>_ip/*.xci` trails its
+  definition and Vivado locks it; a locked IP cannot be generated and fails
+  synthesis inside the module reference that instantiates it. `build_bd.tcl`
+  and `build_synth.tcl` rebuild the catalog and upgrade a locked `monutchee:*`
+  customization themselves, and `build_synth.tcl` refuses to launch while any
+  IP is still locked. Expect the `.xci` to show as modified after an HLS
+  rebuild: `upgrade_ip` rewrites its `ip_revision`, and the file is tracked.
 - `report_status.tcl` and `report_summary.tcl` (`mnc PL status`,
   `mnc PL summary`) are read-only views: they use `open_project -read_only` and so
   are the only project-wide scripts that may run while a Vivado GUI holds the

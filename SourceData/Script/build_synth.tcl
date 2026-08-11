@@ -20,6 +20,21 @@ set jobs [pl_build_jobs]
 puts "PL_BUILD_STAGE=synth"
 puts "PL_BUILD_JOBS=$jobs"
 
+# An HLS rebuild leaves the packaged IP's customization trailing its definition
+# and therefore locked. Repair it here too, so this stage is correct on its own
+# and not only after build_bd.tcl.
+pl_build_refresh_hls_ips
+
+# A locked IP cannot be generated and its out-of-context run will not launch,
+# so synthesis is certain to fail -- minutes later, deep in whatever module
+# reference instantiates it, naming neither the IP nor the revision. Refuse now.
+set locked [pl_build_locked_ips]
+if {[llength $locked] > 0} {
+    error "locked IP customization(s) cannot be synthesized: $locked --\
+ upgrade them (report_ip_status), then rerun; a packaged HLS IP is repaired by\
+ 'mnc HLS build'"
+}
+
 reset_run synth_1
 launch_runs synth_1 -jobs $jobs
 pl_build_finish_run synth_1
