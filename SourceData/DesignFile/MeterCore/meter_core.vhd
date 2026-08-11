@@ -273,6 +273,29 @@ architecture structural of meter_core is
   signal hls_agg_drop_count         : std_logic_vector(31 downto 0);
   signal hls_agg_mismatch_count     : std_logic_vector(31 downto 0);
 
+  -- MTR2 producer source selection: true = the HLS engine produces the
+  -- records, false = the RTL engine. Both engines always run and
+  -- meter_aggregator_compare scores them against each other either way,
+  -- so flipping this constant is the entire promotion/revert step. The
+  -- AGG_* health registers (0x78-0x88) stay on the RTL engine, whose
+  -- live counters match the HLS engine's at every emit by construction.
+  constant HLS_AGGREGATE_PRODUCER : boolean := true;
+  signal producer_valid        : std_logic;
+  signal producer_sequence     : std_logic_vector(31 downto 0);
+  signal producer_generation   : std_logic_vector(31 downto 0);
+  signal producer_sample_rate  : std_logic_vector(31 downto 0);
+  signal producer_samples      : std_logic_vector(31 downto 0);
+  signal producer_valid_mask   : std_logic_vector(7 downto 0);
+  signal producer_arithmetic   : std_logic;
+  signal producer_freq_valid   : std_logic;
+  signal producer_first_seq    : std_logic_vector(31 downto 0);
+  signal producer_last_seq     : std_logic_vector(31 downto 0);
+  signal producer_nominal      : std_logic_vector(7 downto 0);
+  signal producer_cycles       : std_logic_vector(15 downto 0);
+  signal producer_first_sample : std_logic_vector(63 downto 0);
+  signal producer_rms_q16      : std_logic_vector(511 downto 0);
+  signal producer_freq_millihz : std_logic_vector(31 downto 0);
+
   signal waveform_enable      : std_logic;
   signal waveform_clear_stats : std_logic;
   signal waveform_tick        : std_logic_vector(63 downto 0);
@@ -898,25 +921,58 @@ begin
       mismatch_count_o => hls_agg_mismatch_count
     );
 
+  -- The selected engine's aggregate event becomes the MTR2 record; the
+  -- conditions are constants, so synthesis reduces these to wires.
+  producer_valid <= hls_aggregate_valid
+                    when HLS_AGGREGATE_PRODUCER else aggregate_valid;
+  producer_sequence <= hls_aggregate_sequence
+                       when HLS_AGGREGATE_PRODUCER else aggregate_sequence;
+  producer_generation <= hls_aggregate_generation
+                         when HLS_AGGREGATE_PRODUCER else aggregate_generation;
+  producer_sample_rate <= hls_aggregate_sample_rate
+                          when HLS_AGGREGATE_PRODUCER else aggregate_sample_rate;
+  producer_samples <= hls_aggregate_samples
+                      when HLS_AGGREGATE_PRODUCER else aggregate_samples;
+  producer_valid_mask <= hls_aggregate_valid_mask
+                         when HLS_AGGREGATE_PRODUCER else aggregate_valid_mask;
+  producer_arithmetic <= hls_aggregate_arithmetic
+                         when HLS_AGGREGATE_PRODUCER else aggregate_arithmetic;
+  producer_freq_valid <= hls_aggregate_freq_valid
+                         when HLS_AGGREGATE_PRODUCER else aggregate_freq_valid;
+  producer_first_seq <= hls_aggregate_first_seq
+                        when HLS_AGGREGATE_PRODUCER else aggregate_first_seq;
+  producer_last_seq <= hls_aggregate_last_seq
+                       when HLS_AGGREGATE_PRODUCER else aggregate_last_seq;
+  producer_nominal <= hls_aggregate_nominal
+                      when HLS_AGGREGATE_PRODUCER else aggregate_nominal;
+  producer_cycles <= hls_aggregate_cycles
+                     when HLS_AGGREGATE_PRODUCER else aggregate_cycles;
+  producer_first_sample <= hls_aggregate_first_sample
+                           when HLS_AGGREGATE_PRODUCER else aggregate_first_sample;
+  producer_rms_q16 <= hls_aggregate_rms_q16
+                      when HLS_AGGREGATE_PRODUCER else aggregate_rms_q16;
+  producer_freq_millihz <= hls_aggregate_freq_millihz
+                           when HLS_AGGREGATE_PRODUCER else aggregate_freq_millihz;
+
   aggregate_producer : entity work.aggregate_record_producer
     port map (
       aclk => aclk,
       aresetn => aresetn,
-      aggregate_valid_i => aggregate_valid,
-      aggregate_sequence_i => aggregate_sequence,
-      aggregate_generation_i => aggregate_generation,
-      aggregate_sample_rate_i => aggregate_sample_rate,
-      aggregate_samples_i => aggregate_samples,
-      aggregate_valid_mask_i => aggregate_valid_mask,
-      aggregate_arithmetic_i => aggregate_arithmetic,
-      aggregate_freq_valid_i => aggregate_freq_valid,
-      aggregate_first_seq_i => aggregate_first_seq,
-      aggregate_last_seq_i => aggregate_last_seq,
-      aggregate_nominal_i => aggregate_nominal,
-      aggregate_cycles_i => aggregate_cycles,
-      aggregate_first_sample_i => aggregate_first_sample,
-      aggregate_rms_q16_i => aggregate_rms_q16,
-      aggregate_freq_millihz_i => aggregate_freq_millihz,
+      aggregate_valid_i => producer_valid,
+      aggregate_sequence_i => producer_sequence,
+      aggregate_generation_i => producer_generation,
+      aggregate_sample_rate_i => producer_sample_rate,
+      aggregate_samples_i => producer_samples,
+      aggregate_valid_mask_i => producer_valid_mask,
+      aggregate_arithmetic_i => producer_arithmetic,
+      aggregate_freq_valid_i => producer_freq_valid,
+      aggregate_first_seq_i => producer_first_seq,
+      aggregate_last_seq_i => producer_last_seq,
+      aggregate_nominal_i => producer_nominal,
+      aggregate_cycles_i => producer_cycles,
+      aggregate_first_sample_i => producer_first_sample,
+      aggregate_rms_q16_i => producer_rms_q16,
+      aggregate_freq_millihz_i => producer_freq_millihz,
       record_data_o => agg_record_data,
       record_valid_o => agg_record_valid,
       record_ready_i => agg_record_ready,

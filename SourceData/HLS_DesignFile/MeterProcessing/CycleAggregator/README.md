@@ -67,12 +67,17 @@ product never performs) are documented in `cycle_aggregator.hpp`.
 ## Integration
 
 `meter_core.vhd` instantiates the engine through
-`MeterProcessing/meter_cycle_aggregator_hls_shim.vhd` as a shadow of the
-RTL aggregator: same Basic result event in, no MTR2 record production.
+`MeterProcessing/meter_cycle_aggregator_hls_shim.vhd`, consuming the same
+Basic result event as the RTL aggregator.
 `MeterProcessing/meter_aggregator_compare.vhd` scores agreement whenever
-both engines emit. Read-only trial registers in the processing block
-(base `0xB0050000`): HLS record count `0x90`, mismatch count `0x94`,
-shim drop count `0x98` (see `measurement_record_bus_pkg.vhd`).
+both engines emit. The `HLS_AGGREGATE_PRODUCER` constant in
+`meter_core.vhd` selects which engine's aggregates become MTR2 records —
+currently this engine produces them, with the RTL engine running as the
+compared reference (flip the constant to revert). Read-only registers in
+the processing block (base `0xB0050000`): HLS record count `0x90`,
+mismatch count `0x94`, shim drop count `0x98` (see
+`measurement_record_bus_pkg.vhd`); the `AGG_*` health registers
+`0x78`-`0x88` stay on the RTL engine.
 
 ## Verification
 

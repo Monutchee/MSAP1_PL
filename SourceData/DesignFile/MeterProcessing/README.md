@@ -188,16 +188,20 @@ backpressure measurement. Future producers (harmonics, PQ events) add an
 arbiter port, not a new DMA path. RPMsg remains control-plane only;
 measurement records stay on DMA.
 
-### HLS trial shadow
+### HLS engine and the compared pair
 
 A Vitis HLS implementation of the same aggregation contract
 (`SourceData/HLS_DesignFile/MeterProcessing/CycleAggregator`) runs inside
-`meter_core` as a shadow of the RTL engine: `meter_cycle_aggregator_hls_shim`
+`meter_core` alongside the RTL engine: `meter_cycle_aggregator_hls_shim`
 feeds it the identical Basic result event over an AXI4-Stream beat, and
 `meter_aggregator_compare` scores field-for-field agreement whenever both
-engines emit, into the `HLS_AGG_*` registers above. The shadow publishes no
-MTR2 records — the RTL engine remains the only aggregate producer — and,
-like every metrology observer, it can never backpressure measurement.
+engines emit, into the `HLS_AGG_*` registers above. The
+`HLS_AGGREGATE_PRODUCER` constant in `meter_core.vhd` selects which
+engine's aggregates become MTR2 records (currently the HLS engine; the
+RTL engine keeps running as the compared reference, and the `AGG_*`
+health registers stay on it). Flipping that constant is the entire
+promotion/revert step. Like every metrology block, neither engine can
+backpressure measurement.
 `tb/meter_aggregator_equivalence_tb.sv` proves RTL/HLS equivalence over the
 full unit-test stimulus; the component README documents the build flow and
 the two accepted APPLY-race divergences.

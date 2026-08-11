@@ -60,12 +60,17 @@
   `SourceData/IP/<name>_ip` from each package's own VLNV; only a new
   component's shim VHDL is added by hand). Vivado does not lock projects and a live GUI
   session saves its own state over batch edits: when the project is open in
-  a GUI, source these scripts in that session's Tcl console, never batch. The trial
-  engine runs in `meter_core` as a compared shadow of the RTL aggregator
-  (`meter_cycle_aggregator_hls_shim` + `meter_aggregator_compare`), publishes
-  no records, must never backpressure measurement, and reports through
-  read-only registers `0x90`-`0x98` in the processing block. The AXI4-Stream
-  beat layouts in `cycle_aggregator.hpp` and the shim must stay in lock step.
+  a GUI, source these scripts in that session's Tcl console, never batch. Both
+  aggregator engines run in `meter_core` and `meter_aggregator_compare`
+  scores them against each other continuously (mismatch/record/drop
+  registers `0x90`-`0x98`); the `HLS_AGGREGATE_PRODUCER` constant in
+  `meter_core.vhd` selects which engine feeds the MTR2 record producer
+  (currently the HLS engine, via `meter_cycle_aggregator_hls_shim`), and
+  flipping it is the entire promotion/revert step. The `AGG_*` health
+  registers `0x78`-`0x88` stay on the RTL engine, whose counters match the
+  HLS engine's at every emit. Neither engine may ever backpressure
+  measurement. The AXI4-Stream beat layouts in `cycle_aggregator.hpp` and
+  the shim must stay in lock step.
 - Treat `SourceData` HDL, constraints, block designs, and maintained Tcl as
   design inputs. Treat `vivado_gen` runtime products and block-design generated
   HDL/IP products as regenerable unless explicitly tracked by the repository.
