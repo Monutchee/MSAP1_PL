@@ -182,7 +182,7 @@ proc pl_build_block_design_products {bd} {
 
 # Batch Vivado prints its board-file and IP-repository scan before a sourced
 # script produces a line, which buries a short report. Bracket the report so
-# mnc PL report can print only the report and leave the scan in the stage log.
+# the query stages can print only the report and leave the scan in the stage log.
 proc pl_build_report_begin {} {
     puts "PL_REPORT_BEGIN"
 }
