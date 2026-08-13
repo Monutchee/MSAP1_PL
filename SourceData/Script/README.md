@@ -133,6 +133,13 @@ reused.
 The stage writes the property on every build, including the default one, so an
 opt-in run never leaves the tracked project file claiming incremental is on.
 
+Incremental implementation is a runtime optimisation, so the stage never fails
+over it. On a Vivado release that renames the property, drops it, or refuses the
+write, `build_impl.tcl` runs a full implementation instead; only an explicit
+`PL_INCREMENTAL=1` that could not be honoured prints a warning, so a default
+build on such a release behaves exactly as it does today. The reuse is the only
+thing at risk, never the bitstream.
+
 ## Queries: report_status.tcl, report_summary.tcl
 
 Read-only views of the project, driven by `mnc PL status` and

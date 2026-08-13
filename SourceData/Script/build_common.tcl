@@ -130,18 +130,29 @@ proc pl_build_apply_incremental {run} {
         }
     }
 
-    # Named differently in older releases; report the request instead of
-    # failing the stage over a speed option.
+    # Incremental implementation is a runtime optimisation, not part of the
+    # stage's deliverable, so a release that spells it differently, has dropped
+    # it, or refuses the value must cost the speedup and nothing else. Both the
+    # absence of the property and a rejected write degrade to a full run; only
+    # an explicit PL_INCREMENTAL=1 that could not be honoured says anything, so
+    # a default build stays silent on a release that no longer offers it.
     if {[lsearch -exact [list_property [get_runs $run]] \
             AUTO_INCREMENTAL_CHECKPOINT] < 0} {
         if {$enabled} {
             puts "WARNING: $run has no AUTO_INCREMENTAL_CHECKPOINT property in\
- this Vivado release -- PL_INCREMENTAL ignored"
+ this Vivado release -- PL_INCREMENTAL ignored, running full implementation"
+        }
+        return 0
+    }
+    if {[catch {set_property AUTO_INCREMENTAL_CHECKPOINT $enabled \
+            [get_runs $run]} message]} {
+        if {$enabled} {
+            puts "WARNING: $run rejected AUTO_INCREMENTAL_CHECKPOINT\
+ ($message) -- PL_INCREMENTAL ignored, running full implementation"
         }
         return 0
     }
 
-    set_property AUTO_INCREMENTAL_CHECKPOINT $enabled [get_runs $run]
     puts "PL_BUILD_INCREMENTAL=$enabled"
     if {$enabled} {
         puts "PL_BUILD_INCREMENTAL_DIR=[pl_build_property [get_runs $run] \
