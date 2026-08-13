@@ -2,8 +2,9 @@
 #
 # Sourced by build_synth.tcl, build_impl.tcl, build_bitstream.tcl, and
 # export_xsa.tcl. It owns the project location, the open/close policy, the
-# -jobs count, run-status checking, and the report directory, so each stage
-# script stays short enough to read and debug on its own.
+# -jobs count, the incremental-implementation opt-in, run-status checking, and
+# the report directory, so each stage script stays short enough to read and
+# debug on its own.
 #
 # Every stage script runs either standalone
 # (vivado -mode batch -source SourceData/Script/build_<stage>.tcl) or sourced
@@ -91,6 +92,73 @@ proc pl_build_jobs {} {
         error "invalid Vivado job count: $jobs"
     }
     return $jobs
+}
+
+# Incremental implementation, opt in with PL_INCREMENTAL=1.
+#
+# Place and route reuse an earlier routed checkpoint, which cuts impl runtime
+# substantially once the design is mostly unchanged. The cost is that the result
+# then depends on build history: two clones of the same commit can route
+# differently, and reuse can hold a placement that no longer suits the changed
+# logic, so timing has to be re-read rather than assumed. It stays off by
+# default and a release bitstream is always a full run.
+#
+# Automatic mode is the only form safe to use here. An explicit
+# INCREMENTAL_CHECKPOINT is a path, it is saved into the tracked
+# vivado_gen/MSAP1_PL.xpr, and Vivado treats a named checkpoint it cannot read
+# as an error rather than as a reason to run normally -- so committing one fails
+# every fresh clone, where no .runs tree exists yet. In automatic mode Vivado
+# owns the reference itself under AUTO_INCREMENTAL_CHECKPOINT.DIRECTORY
+# (vivado_gen/MSAP1_PL.srcs/..., untracked), runs a full pass whenever it is
+# absent, and writes it afterwards. That directory is outside the run
+# directory, so it survives the reset_run each impl stage performs, and Vivado
+# abandons incremental mode on its own when too little of the design is
+# reusable.
+#
+# The property is written on every build, not only when enabling, so an opt-in
+# run cannot leave a stray true behind in the tracked project file: the next
+# default build sets it back to the committed value.
+proc pl_build_apply_incremental {run} {
+    set enabled 0
+    if {[info exists ::env(PL_INCREMENTAL)]} {
+        set value [string tolower [string trim $::env(PL_INCREMENTAL)]]
+        if {[lsearch -exact [list 1 true yes on] $value] >= 0} {
+            set enabled 1
+        } elseif {[lsearch -exact [list 0 false no off {}] $value] < 0} {
+            error "invalid PL_INCREMENTAL value: '$::env(PL_INCREMENTAL)'\
+ (expected 1 or 0)"
+        }
+    }
+
+    # Incremental implementation is a runtime optimisation, not part of the
+    # stage's deliverable, so a release that spells it differently, has dropped
+    # it, or refuses the value must cost the speedup and nothing else. Both the
+    # absence of the property and a rejected write degrade to a full run; only
+    # an explicit PL_INCREMENTAL=1 that could not be honoured says anything, so
+    # a default build stays silent on a release that no longer offers it.
+    if {[lsearch -exact [list_property [get_runs $run]] \
+            AUTO_INCREMENTAL_CHECKPOINT] < 0} {
+        if {$enabled} {
+            puts "WARNING: $run has no AUTO_INCREMENTAL_CHECKPOINT property in\
+ this Vivado release -- PL_INCREMENTAL ignored, running full implementation"
+        }
+        return 0
+    }
+    if {[catch {set_property AUTO_INCREMENTAL_CHECKPOINT $enabled \
+            [get_runs $run]} message]} {
+        if {$enabled} {
+            puts "WARNING: $run rejected AUTO_INCREMENTAL_CHECKPOINT\
+ ($message) -- PL_INCREMENTAL ignored, running full implementation"
+        }
+        return 0
+    }
+
+    puts "PL_BUILD_INCREMENTAL=$enabled"
+    if {$enabled} {
+        puts "PL_BUILD_INCREMENTAL_DIR=[pl_build_property [get_runs $run] \
+            AUTO_INCREMENTAL_CHECKPOINT.DIRECTORY]"
+    }
+    return $enabled
 }
 
 proc pl_build_top {} {

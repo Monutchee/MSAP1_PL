@@ -1955,8 +1955,8 @@
               "Meter_data_DMA": {
                 "vlnv": "xilinx.com:ip:axi_dma:7.1",
                 "ip_revision": "37",
-                "xci_name": "TopDesign_axi_dma_0_0",
-                "xci_path": "ip/TopDesign_axi_dma_0_0/TopDesign_axi_dma_0_0.xci",
+                "xci_name": "TopDesign_Meter_data_DMA_1",
+                "xci_path": "ip/TopDesign_Meter_data_DMA_1/TopDesign_Meter_data_DMA_1.xci",
                 "inst_hier_path": "MeterLogic/Meter_DMA/Meter_data_DMA",
                 "has_run_ip_tcl": "true",
                 "parameters": {
@@ -2185,8 +2185,8 @@
               "Waveform_DMA": {
                 "vlnv": "xilinx.com:ip:axi_dma:7.1",
                 "ip_revision": "37",
-                "xci_name": "TopDesign_axi_dma_0_1",
-                "xci_path": "ip/TopDesign_axi_dma_0_1/TopDesign_axi_dma_0_1.xci",
+                "xci_name": "TopDesign_Waveform_DMA_1",
+                "xci_path": "ip/TopDesign_Waveform_DMA_1/TopDesign_Waveform_DMA_1.xci",
                 "inst_hier_path": "MeterLogic/Meter_DMA/Waveform_DMA",
                 "has_run_ip_tcl": "true",
                 "parameters": {
