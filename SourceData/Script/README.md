@@ -15,10 +15,10 @@ the script in that session's Tcl console; use `vivado -mode batch
 
 | Name                        | Usage                                                          | Remarks                                                                                                                             |
 |-----------------------------|----------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
-| build_common.tcl            | sourced by the build stages; never run directly                | Shared project location, open/close policy, `-jobs` resolution, run-status checking, and report directory                           |
+| build_common.tcl            | sourced by the build stages; never run directly                | Shared project location, open/close policy, `-jobs` resolution, `PL_INCREMENTAL` opt-in, run-status checking, and report directory  |
 | build_bd.tcl                | `mnc PL build --build-bd`                                      | Validates `TopDesign.bd` and generates its output products, none of which are tracked; required on a fresh checkout                 |
 | build_synth.tcl             | `mnc PL build --compile-synth`                                 | Resets and relaunches `synth_1`; reports to `vivado_gen/reports/`                                                                   |
-| build_impl.tcl              | `mnc PL build --compile-impl`                                  | Resets `impl_1` and runs it to `route_design` only, so the routed design can be reviewed before it is programmed                    |
+| build_impl.tcl              | `mnc PL build --compile-impl`                                  | Resets `impl_1` and runs it to `route_design` only, so the routed design can be reviewed before it is programmed; `PL_INCREMENTAL=1` reuses the previous routing |
 | build_bitstream.tcl         | `mnc PL build --compile-bit`                                   | Resumes `impl_1` at `write_bitstream`, never resetting the routing                                                                  |
 | export_xsa.tcl              | `mnc PL build --gen-xsa`, or `source` it with the project open | Generate the bitstream-inclusive XSA to `runtime-generated/bin_file/`                                                               |
 | report_status.tcl           | `mnc PL status`                                                | Read-only: per-run status, progress, and out-of-date flags, plus a single verdict naming what to rerun                              |
@@ -100,6 +100,38 @@ cannot be produced warns instead of failing the stage.
 `build_common.tcl` holds the shared preamble (project location, open/close
 policy, `-jobs` resolution, run-status checking) and is sourced by the stage
 scripts, not run directly.
+
+### Incremental implementation: PL_INCREMENTAL
+
+`PL_INCREMENTAL=1` lets place and route reuse the previous routed checkpoint,
+which is the one setting that meaningfully shortens an impl rerun after a small
+RTL change:
+
+```sh
+PL_INCREMENTAL=1 ./mnc PL build --compile-impl --compile-bit
+```
+
+It is off by default and deliberately so. An incremental result depends on build
+history, so two clones of the same commit can route differently, and reuse can
+keep a placement that no longer suits the changed logic -- read the timing
+reports rather than assuming them. Rerun without the variable before trusting a
+number, and build a release bitstream without it.
+
+`build_impl.tcl` sets Vivado's *automatic* incremental mode
+(`AUTO_INCREMENTAL_CHECKPOINT`), never an explicit `INCREMENTAL_CHECKPOINT`
+path. The distinction is what keeps a fresh clone working: an explicit path is
+saved into the tracked `vivado_gen/MSAP1_PL.xpr`, and Vivado errors out on a
+named checkpoint it cannot read instead of falling back to a full run, so a
+committed path fails on every clone that has no `.runs` tree yet. In automatic
+mode Vivado keeps the reference under `MSAP1_PL.srcs/utils_1/imports/impl_1/`,
+which is gitignored and therefore local to each checkout; a missing reference is
+simply a normal full run that writes one for next time. The directory sits
+outside the run directory, so the stage's `reset_run` does not discard it, and
+Vivado drops incremental mode by itself when too little of the design can be
+reused.
+
+The stage writes the property on every build, including the default one, so an
+opt-in run never leaves the tracked project file claiming incremental is on.
 
 ## Queries: report_status.tcl, report_summary.tcl
 

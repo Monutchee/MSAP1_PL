@@ -10,6 +10,10 @@
 #   source SourceData/Script/build_impl.tcl   ;# Vivado Tcl console
 #
 # Optional -tclargs <jobs>; otherwise VIVADO_JOBS, otherwise 8.
+#
+# PL_INCREMENTAL=1 reuses the previous routed checkpoint for place and route
+# (see pl_build_apply_incremental). Off by default: the result then depends on
+# build history, so it is an iteration aid, not how a release is built.
 
 source [file join [file dirname [file normalize [info script]]] build_common.tcl]
 
@@ -19,6 +23,8 @@ pl_build_require_run_complete synth_1 "mnc PL build --compile-synth"
 set jobs [pl_build_jobs]
 puts "PL_BUILD_STAGE=impl"
 puts "PL_BUILD_JOBS=$jobs"
+
+pl_build_apply_incremental impl_1
 
 reset_run impl_1
 launch_runs impl_1 -to_step route_design -jobs $jobs
