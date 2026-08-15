@@ -86,6 +86,14 @@ run_test $work_root voltage_rms_tb $common_vhdl $wrapper_vhdl \
 run_test $work_root meter_packet_tb $common_vhdl $wrapper_vhdl \
   [file join $design_root MeterProcessing tb meter_packet_tb.sv] \
   $xvhdl $xvlog $xelab $simulator_libraries
+# Phase-sweep exhaustion of the two-producer record transport (hub +
+# aggregate producer -> arbiter -> packetizer): every basic/aggregate
+# emission alignment under three AXIS backpressure regimes, every record
+# delivered exactly once. Guards the transport against functional
+# duplicate/loss regressions (2026-08-15 field incident).
+run_test $work_root record_transport_phase_tb $common_vhdl $wrapper_vhdl \
+  [file join $design_root MeterProcessing tb record_transport_phase_tb.sv] \
+  $xvhdl $xvlog $xelab $simulator_libraries
 run_test $work_root grid_cycle_timing_tb $common_vhdl $wrapper_vhdl \
   [file join $design_root MeterProcessing tb grid_cycle_timing_tb.sv] \
   $xvhdl $xvlog $xelab $simulator_libraries
