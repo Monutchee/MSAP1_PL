@@ -836,6 +836,8 @@ begin
 
   record_arbiter : entity work.measurement_record_arbiter
     port map (
+      aclk => aclk,
+      aresetn => aresetn,
       basic_record_i => record_data,
       basic_valid_i => record_valid,
       basic_ready_o => record_ready,

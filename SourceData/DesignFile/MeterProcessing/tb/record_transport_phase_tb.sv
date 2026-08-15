@@ -103,6 +103,7 @@ module record_transport_phase_tb;
   );
 
   measurement_record_arbiter arbiter (
+    .aclk(clock), .aresetn(resetn),
     .basic_record_i(basic_record),
     .basic_valid_i(basic_valid),
     .basic_ready_o(basic_ready),
