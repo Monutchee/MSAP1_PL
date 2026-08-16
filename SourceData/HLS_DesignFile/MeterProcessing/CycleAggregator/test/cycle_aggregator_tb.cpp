@@ -9,13 +9,19 @@
 // originate from the retired RTL engine's unit test (git history:
 // tb/meter_cycle_aggregator_tb.sv); the golden arithmetic is an
 // independent binary-search floor square root, deliberately a different
-// algorithm than the engine's restoring root. Because results
-// are only observable as output beats, expectations are checked in stream
-// order after the full stimulus has been driven; "no aggregate may appear
-// here" assertions from the RTL bench become exact-count plus
+// algorithm than the engine's restoring root. Because results are only
+// observable as emitted MTR2-v2 records, expectations are checked in
+// stream order after the full stimulus has been driven; "no aggregate may
+// appear here" assertions from the RTL bench become exact-count plus
 // first-sequence checks. The one intentional difference: the CH7 input
-// lane carries junk to prove the engine ignores it (the RTL bench drives
-// zeros there; both engines must emit a zero CH7 lane).
+// lane carries junk to prove the engine ignores it (the RTL bench drove
+// zeros there; the record's CH7 lane must be zero).
+//
+// Since the record-output revision every emitted aggregate is framing-
+// checked (exactly MREC_WORDS beats, TLAST on the last, full TKEEP/TSTRB)
+// and compared word-for-word: envelope, shape, folded sequence range,
+// micro-unit RMS lanes (Q16 >> 16), frequency mean, and the diagnostic
+// counters in words 33..35.
 //
 // The same source runs in C simulation and in C/RTL co-simulation, so a
 // cosim pass certifies the generated RTL against exactly this contract.
@@ -37,8 +43,7 @@ struct expected_aggregate_t {
   ap_uint<32> last_seq;
   ap_uint<32> freq_millihz;
   ap_uint<64> first_sample;
-  ap_uint<64> rms[8];
-  ap_uint<32> record_count;
+  ap_uint<64> rms[8];  // Q16 domain; the record carries rms >> 16
   ap_uint<32> reset_count;
   ap_uint<32> ineligible_count;
   ap_uint<32> continuity_count;
@@ -51,40 +56,36 @@ ap_uint<32> b_rate = 128000;
 ap_uint<1> apply_level = 0;
 int beats_sent = 0;
 
-hls::stream<basic_beat_t> s_basic("s_basic");
-hls::stream<aggregate_beat_t> m_aggregate("m_aggregate");
+hls::stream<basic_result_beat_t> s_basic("s_basic");
+hls::stream<record_axis_t> m_axis("m_axis");
 
 // One Basic result event; rms_ch applies to CH0..CH6, CH7 carries junk.
-void send_basic(const ap_uint<64> rms_ch[CAGG_CHANNELS],
+void send_basic(const ap_uint<64> rms_ch[MTR_ACTIVE_CHANNELS],
                 ap_uint<32> generation, int nominal, ap_uint<32> sample_count,
                 ap_uint<3> flags, ap_uint<32> freq_millihz, bool freq_valid,
                 bool chain_first = true) {
-  basic_beat_t beat = 0;
-  beat.range(CAGG_IN_SEQUENCE_LSB + 31, CAGG_IN_SEQUENCE_LSB) = next_seq;
-  beat.range(CAGG_IN_GENERATION_LSB + 31, CAGG_IN_GENERATION_LSB) = generation;
-  beat.range(CAGG_IN_SAMPLE_RATE_LSB + 31, CAGG_IN_SAMPLE_RATE_LSB) = b_rate;
-  beat.range(CAGG_IN_SAMPLE_COUNT_LSB + 31, CAGG_IN_SAMPLE_COUNT_LSB) =
-      sample_count;
-  beat.range(CAGG_IN_VALID_MASK_LSB + 7, CAGG_IN_VALID_MASK_LSB) = 0x7f;
-  beat.range(CAGG_IN_FLAGS_LSB + 2, CAGG_IN_FLAGS_LSB) = flags;
-  beat.range(CAGG_IN_CYCLE_COUNT_LSB + 7, CAGG_IN_CYCLE_COUNT_LSB) =
-      (nominal == 50) ? CAGG_CYCLES_50HZ : CAGG_CYCLES_60HZ;
-  beat.range(CAGG_IN_NOMINAL_HZ_LSB + 7, CAGG_IN_NOMINAL_HZ_LSB) = nominal;
-  beat.range(CAGG_IN_STATUS_LSB + 31, CAGG_IN_STATUS_LSB) = 0;
-  beat.range(CAGG_IN_FREQ_LSB + 31, CAGG_IN_FREQ_LSB) = freq_millihz;
-  beat.bit(CAGG_IN_FREQ_VALID_BIT) = freq_valid ? 1 : 0;
-  beat.bit(CAGG_IN_APPLY_TOGGLE_BIT) = apply_level;
-  beat.range(CAGG_IN_FIRST_SAMPLE_LSB + 63, CAGG_IN_FIRST_SAMPLE_LSB) =
-      next_first;
-  for (int channel = 0; channel < CAGG_CHANNELS; ++channel) {
-    beat.range(CAGG_IN_RMS_LSB + channel * 64 + 63,
-               CAGG_IN_RMS_LSB + channel * 64) = rms_ch[channel];
+  basic_result_t r;
+  r.sequence = next_seq;
+  r.generation = generation;
+  r.sample_rate_hz = b_rate;
+  r.sample_count = sample_count;
+  r.valid_mask = 0x7f;
+  r.flags = flags;
+  r.cycle_count = (nominal == 50) ? ap_uint<8>(MTR_GRID_CYCLES_50HZ)
+                                  : ap_uint<8>(MTR_GRID_CYCLES_60HZ);
+  r.nominal_hz = nominal;
+  r.status = 0;
+  r.frequency_millihz = freq_millihz;
+  r.frequency_valid = freq_valid ? 1 : 0;
+  r.apply_toggle = apply_level;
+  r.first_sample = next_first;
+  for (int channel = 0; channel < MTR_ACTIVE_CHANNELS; ++channel) {
+    r.rms_q16[channel] = ap_int<64>(rms_ch[channel]);
   }
-  // Junk in the unused CH7 lane: both engines must ignore it.
-  beat.range(CAGG_IN_RMS_LSB + 7 * 64 + 63, CAGG_IN_RMS_LSB + 7 * 64) =
-      ap_uint<64>(0xDEADBEEFCAFEF00DULL);
+  // Junk in the unused CH7 lane: the engine must ignore it.
+  r.rms_q16[7] = ap_int<64>(ap_uint<64>(0xDEADBEEFCAFEF00DULL));
 
-  s_basic.write(beat);
+  s_basic.write(pack_basic_result(r));
   beats_sent += 1;
   next_seq += 1;
   if (chain_first) {
@@ -94,12 +95,12 @@ void send_basic(const ap_uint<64> rms_ch[CAGG_CHANNELS],
 
 // Golden RMS aggregate: floor(sqrt(floor(sum(v_i^2)/15))) via the SV
 // bench's binary-search root -- independent of the DUT's digit recurrence.
-ap_uint<64> golden_rms(const ap_uint<64> values[CAGG_BASIC_BLOCKS]) {
+ap_uint<64> golden_rms(const ap_uint<64> values[MTR_BASIC_BLOCKS_PER_AGGREGATE]) {
   ap_uint<132> acc = 0;
-  for (int i = 0; i < CAGG_BASIC_BLOCKS; ++i) {
+  for (int i = 0; i < MTR_BASIC_BLOCKS_PER_AGGREGATE; ++i) {
     acc += ap_uint<132>(ap_uint<128>(values[i]) * values[i]);
   }
-  const ap_uint<132> mean = acc / CAGG_BASIC_BLOCKS;
+  const ap_uint<132> mean = acc / MTR_BASIC_BLOCKS_PER_AGGREGATE;
   const ap_uint<128> radicand = mean.range(127, 0);
   ap_uint<64> low = 0;
   ap_uint<64> high = ~ap_uint<64>(0);
@@ -116,88 +117,67 @@ ap_uint<64> golden_rms(const ap_uint<64> values[CAGG_BASIC_BLOCKS]) {
   return low;
 }
 
-int check_aggregate(const aggregate_beat_t &beat,
-                    const expected_aggregate_t &expected) {
+int check_record(const ap_uint<32> word[MREC_WORDS],
+                 const expected_aggregate_t &expected) {
   int errors = 0;
-// Every compared field fits in 64 bits (RMS lanes exactly, headers less).
-#define CHECK_FIELD(name, actual, want)                                       \
+#define CHECK_WORD(name, index, want)                                         \
   do {                                                                        \
-    const ap_uint<64> actual_value = (actual);                                \
-    const ap_uint<64> want_value = (want);                                    \
-    if (actual_value != want_value) {                                         \
-      std::printf("FAIL %s: %s = 0x%016llx, expected 0x%016llx\n",            \
-                  expected.label, name,                                       \
-                  (unsigned long long)actual_value.to_uint64(),               \
-                  (unsigned long long)want_value.to_uint64());                \
+    const ap_uint<32> want_value = (want);                                    \
+    if (word[(index)] != want_value) {                                        \
+      std::printf("FAIL %s: %s (word %d) = 0x%08lx, expected 0x%08lx\n",      \
+                  expected.label, name, (int)(index),                         \
+                  (unsigned long)word[(index)].to_uint(),                     \
+                  (unsigned long)want_value.to_uint());                       \
       errors += 1;                                                            \
     }                                                                         \
   } while (0)
 
-  CHECK_FIELD("sequence",
-              beat.range(CAGG_OUT_SEQUENCE_LSB + 31, CAGG_OUT_SEQUENCE_LSB),
-              ap_uint<32>(expected.sequence));
-  CHECK_FIELD(
-      "generation",
-      beat.range(CAGG_OUT_GENERATION_LSB + 31, CAGG_OUT_GENERATION_LSB),
-      ap_uint<32>(expected.generation));
-  CHECK_FIELD(
-      "sample_rate",
-      beat.range(CAGG_OUT_SAMPLE_RATE_LSB + 31, CAGG_OUT_SAMPLE_RATE_LSB),
-      ap_uint<32>(expected.sample_rate));
-  CHECK_FIELD("samples",
-              beat.range(CAGG_OUT_SAMPLES_LSB + 31, CAGG_OUT_SAMPLES_LSB),
-              ap_uint<32>(expected.samples));
-  CHECK_FIELD("valid_mask",
-              beat.range(CAGG_OUT_VALID_MASK_LSB + 7, CAGG_OUT_VALID_MASK_LSB),
-              ap_uint<8>(expected.valid_mask));
-  CHECK_FIELD("nominal",
-              beat.range(CAGG_OUT_NOMINAL_HZ_LSB + 7, CAGG_OUT_NOMINAL_HZ_LSB),
-              ap_uint<8>(expected.nominal));
-  CHECK_FIELD("cycles",
-              beat.range(CAGG_OUT_CYCLES_LSB + 15, CAGG_OUT_CYCLES_LSB),
-              ap_uint<16>(expected.cycles));
-  CHECK_FIELD("arithmetic",
-              ap_uint<1>(beat.bit(CAGG_OUT_ARITHMETIC_BIT)),
-              ap_uint<1>(expected.arithmetic));
-  CHECK_FIELD("freq_valid",
-              ap_uint<1>(beat.bit(CAGG_OUT_FREQ_VALID_BIT)),
-              ap_uint<1>(expected.freq_valid));
-  CHECK_FIELD("first_seq",
-              beat.range(CAGG_OUT_FIRST_SEQ_LSB + 31, CAGG_OUT_FIRST_SEQ_LSB),
-              ap_uint<32>(expected.first_seq));
-  CHECK_FIELD("last_seq",
-              beat.range(CAGG_OUT_LAST_SEQ_LSB + 31, CAGG_OUT_LAST_SEQ_LSB),
-              ap_uint<32>(expected.last_seq));
-  CHECK_FIELD("freq_millihz",
-              beat.range(CAGG_OUT_FREQ_LSB + 31, CAGG_OUT_FREQ_LSB),
-              ap_uint<32>(expected.freq_millihz));
-  CHECK_FIELD(
-      "first_sample",
-      beat.range(CAGG_OUT_FIRST_SAMPLE_LSB + 63, CAGG_OUT_FIRST_SAMPLE_LSB),
-      ap_uint<64>(expected.first_sample));
-  for (int channel = 0; channel < 8; ++channel) {
-    char lane_name[16];
-    std::snprintf(lane_name, sizeof lane_name, "rms[%d]", channel);
-    CHECK_FIELD(lane_name,
-                beat.range(CAGG_OUT_RMS_LSB + channel * 64 + 63,
-                           CAGG_OUT_RMS_LSB + channel * 64),
-                ap_uint<64>(expected.rms[channel]));
+  CHECK_WORD("magic", MREC_MAGIC_WORD, ap_uint<32>(MREC_MAGIC));
+  CHECK_WORD("format", MREC_FORMAT_WORD, ap_uint<32>(MREC_FORMAT_MTR2_V2));
+  CHECK_WORD("size", MREC_SIZE_WORD, ap_uint<32>(MREC_BYTES));
+  CHECK_WORD("sequence", MREC_SEQUENCE_WORD, expected.sequence);
+  CHECK_WORD("generation", MREC_GENERATION_WORD, expected.generation);
+  CHECK_WORD("sample_rate", MREC_SAMPLE_RATE_WORD, expected.sample_rate);
+  CHECK_WORD("samples", MREC_SAMPLE_COUNT_WORD, expected.samples);
+  CHECK_WORD("valid_mask", MREC_VALID_MASK_WORD,
+             ap_uint<32>(expected.valid_mask));
+  CHECK_WORD("status", MREC_STATUS_WORD,
+             (ap_uint<32>(expected.arithmetic) << MREC_STATUS_ARITHMETIC_BIT) |
+                 (ap_uint<32>(1) << MTR2_STATUS_COMPLETE_BIT) |
+                 (ap_uint<32>(expected.freq_valid) << MTR2_STATUS_FREQUENCY_BIT));
+  CHECK_WORD("first_sample_low", MREC_FIRST_SAMPLE_LOW_WORD,
+             ap_uint<32>(expected.first_sample.range(31, 0)));
+  CHECK_WORD("first_sample_high", MREC_FIRST_SAMPLE_HIGH_WORD,
+             ap_uint<32>(expected.first_sample.range(63, 32)));
+  CHECK_WORD("emit_drops", MREC_EMIT_DROPS_WORD, ap_uint<32>(0));
+  CHECK_WORD("result_drops", MREC_RESULT_DROPS_WORD, ap_uint<32>(0));
+  CHECK_WORD("shape", MTR2_SHAPE_WORD,
+             (ap_uint<32>(MTR_BASIC_BLOCKS_PER_AGGREGATE)
+              << MTR2_SHAPE_BLOCKS_LSB) |
+                 (ap_uint<32>(expected.nominal) << MTR2_SHAPE_NOMINAL_LSB) |
+                 (ap_uint<32>(expected.cycles) << MTR2_SHAPE_CYCLES_LSB));
+  CHECK_WORD("first_seq", MTR2_FIRST_BASIC_SEQ_WORD, expected.first_seq);
+  CHECK_WORD("last_seq", MTR2_LAST_BASIC_SEQ_WORD, expected.last_seq);
+  for (int channel = 0; channel < MTR_CHANNEL_LANES; ++channel) {
+    char lane_name[24];
+    const ap_uint<64> units = expected.rms[channel] >> 16;
+    const int base = MTR2_CH_BASE_WORD + channel * MTR2_CH_STRIDE_WORDS;
+    std::snprintf(lane_name, sizeof lane_name, "rms[%d].low", channel);
+    CHECK_WORD(lane_name, base + 0, ap_uint<32>(units.range(31, 0)));
+    std::snprintf(lane_name, sizeof lane_name, "rms[%d].high", channel);
+    CHECK_WORD(lane_name, base + 1, ap_uint<32>(units.range(63, 32)));
   }
-  CHECK_FIELD(
-      "record_count",
-      beat.range(CAGG_OUT_RECORD_CNT_LSB + 31, CAGG_OUT_RECORD_CNT_LSB),
-      ap_uint<32>(expected.record_count));
-  CHECK_FIELD("reset_count",
-              beat.range(CAGG_OUT_RESET_CNT_LSB + 31, CAGG_OUT_RESET_CNT_LSB),
-              ap_uint<32>(expected.reset_count));
-  CHECK_FIELD(
-      "ineligible_count",
-      beat.range(CAGG_OUT_INELIG_CNT_LSB + 31, CAGG_OUT_INELIG_CNT_LSB),
-      ap_uint<32>(expected.ineligible_count));
-  CHECK_FIELD("continuity_count",
-              beat.range(CAGG_OUT_CONT_CNT_LSB + 31, CAGG_OUT_CONT_CNT_LSB),
-              ap_uint<32>(expected.continuity_count));
-#undef CHECK_FIELD
+  CHECK_WORD("freq_millihz", MTR2_FREQUENCY_WORD, expected.freq_millihz);
+  CHECK_WORD("reset_count", MTR2_RESET_COUNT_WORD, expected.reset_count);
+  CHECK_WORD("ineligible_count", MTR2_INELIGIBLE_COUNT_WORD,
+             expected.ineligible_count);
+  CHECK_WORD("continuity_count", MTR2_CONTINUITY_COUNT_WORD,
+             expected.continuity_count);
+  for (int reserved = MTR2_CONTINUITY_COUNT_WORD + 1; reserved < MREC_WORDS;
+       ++reserved) {
+    CHECK_WORD("reserved", reserved, ap_uint<32>(0));
+  }
+#undef CHECK_WORD
   return errors;
 }
 
@@ -208,8 +188,8 @@ const ap_uint<3> FLAGS_FALLBACK = 0x2;  // free-run fallback: ineligible
 
 int main() {
   std::vector<expected_aggregate_t> expected;
-  ap_uint<64> rms_in[CAGG_CHANNELS];
-  ap_uint<64> series[CAGG_BASIC_BLOCKS];
+  ap_uint<64> rms_in[MTR_ACTIVE_CHANNELS];
+  ap_uint<64> series[MTR_BASIC_BLOCKS_PER_AGGREGATE];
 
   // Fills every non-counter expectation with this scenario's constants;
   // per-test code overrides the fields under test afterwards.
@@ -230,11 +210,10 @@ int main() {
     e.last_seq = next_seq + 14;
     e.freq_millihz = freq_millihz;
     e.first_sample = next_first;
-    for (int channel = 0; channel < CAGG_CHANNELS; ++channel) {
+    for (int channel = 0; channel < MTR_ACTIVE_CHANNELS; ++channel) {
       e.rms[channel] = rms_in[channel];
     }
     e.rms[7] = 0;
-    e.record_count = ap_uint<32>(expected.size() + 1);
     e.reset_count = expected.empty() ? ap_uint<32>(0)
                                      : expected.back().reset_count;
     e.ineligible_count = expected.empty() ? ap_uint<32>(0)
@@ -245,7 +224,7 @@ int main() {
   };
 
   // ---- T1: constant 60 Hz inputs -> aggregate equals the input ----------
-  for (int c = 0; c < CAGG_CHANNELS; ++c) {
+  for (int c = 0; c < MTR_ACTIVE_CHANNELS; ++c) {
     rms_in[c] = ap_uint<64>((c + 1) * 1000) << 16;
   }
   expected.push_back(base_expectation("T1", 7, 60, 60000));
@@ -268,13 +247,13 @@ int main() {
       series[b] = ap_uint<64>((b + 1) * 1000) << 16;
     }
     e.rms[0] = golden_rms(series);
-    for (int c = 1; c < CAGG_CHANNELS; ++c) {
+    for (int c = 1; c < MTR_ACTIVE_CHANNELS; ++c) {
       e.rms[c] = ap_uint<64>(5000) << 16;
     }
     expected.push_back(e);
   }
   for (int b = 0; b < 15; ++b) {
-    for (int c = 0; c < CAGG_CHANNELS; ++c) {
+    for (int c = 0; c < MTR_ACTIVE_CHANNELS; ++c) {
       rms_in[c] = ap_uint<64>(5000) << 16;
     }
     rms_in[0] = ap_uint<64>((b + 1) * 1000) << 16;
@@ -282,7 +261,7 @@ int main() {
   }
 
   // ---- T3: fallback input invalidates the running set -------------------
-  for (int c = 0; c < CAGG_CHANNELS; ++c) {
+  for (int c = 0; c < MTR_ACTIVE_CHANNELS; ++c) {
     rms_in[c] = ap_uint<64>(2000) << 16;
   }
   for (int b = 0; b < 7; ++b) {
@@ -356,7 +335,7 @@ int main() {
   }
 
   // ---- T8: maximum-magnitude inputs cannot overflow -----------------------
-  for (int c = 0; c < CAGG_CHANNELS; ++c) {
+  for (int c = 0; c < MTR_ACTIVE_CHANNELS; ++c) {
     rms_in[c] = ap_uint<64>(0x7fffffffffffffffULL);
   }
   expected.push_back(base_expectation("T8", 15, 60, 60000));
@@ -365,7 +344,7 @@ int main() {
   }
 
   // ---- T9: one invalid frequency input invalidates the mean --------------
-  for (int c = 0; c < CAGG_CHANNELS; ++c) {
+  for (int c = 0; c < MTR_ACTIVE_CHANNELS; ++c) {
     rms_in[c] = ap_uint<64>(3000) << 16;
   }
   {
@@ -378,7 +357,7 @@ int main() {
   }
 
   // ---- T10: Basic sequence gap resets, gapped block reseeds --------------
-  for (int c = 0; c < CAGG_CHANNELS; ++c) {
+  for (int c = 0; c < MTR_ACTIVE_CHANNELS; ++c) {
     rms_in[c] = ap_uint<64>(4000) << 16;
   }
   for (int b = 0; b < 8; ++b) {
@@ -420,23 +399,49 @@ int main() {
 
   // ---- Run the engine over the whole stimulus ----------------------------
   for (int call = 0; call < beats_sent; ++call) {
-    hls_cycle_aggregator(s_basic, m_aggregate);
+    hls_cycle_aggregator(s_basic, m_axis);
   }
 
-  // ---- Check every aggregate in stream order -----------------------------
+  // ---- Collect and check every record in stream order --------------------
   int errors = 0;
-  for (std::size_t i = 0; i < expected.size(); ++i) {
-    if (m_aggregate.empty()) {
-      std::printf("FAIL %s: aggregate never emitted\n", expected[i].label);
+  std::size_t matched = 0;
+  ap_uint<32> word[MREC_WORDS];
+  int beat_index = 0;
+  while (!m_axis.empty()) {
+    const record_axis_t beat = m_axis.read();
+    if (beat.keep != MREC_KEEP_ALL || beat.strb != MREC_KEEP_ALL) {
+      std::printf("FAIL: beat %d keep/strb not full\n", beat_index);
+      errors += 1;
+    }
+    if (beat_index < MREC_WORDS) {
+      word[beat_index] = beat.data;
+    }
+    const bool expect_last = (beat_index == MREC_WORDS - 1);
+    if ((beat.last == 1) != expect_last) {
+      std::printf("FAIL: TLAST at beat %d\n", beat_index);
       errors += 1;
       break;
     }
-    const aggregate_beat_t beat = m_aggregate.read();
-    errors += check_aggregate(beat, expected[i]);
+    if (expect_last) {
+      if (matched < expected.size()) {
+        errors += check_record(word, expected[matched]);
+      } else {
+        std::printf("FAIL: unexpected extra record emitted\n");
+        errors += 1;
+      }
+      matched += 1;
+      beat_index = 0;
+    } else {
+      beat_index += 1;
+    }
   }
-  while (!m_aggregate.empty()) {
-    m_aggregate.read();
-    std::printf("FAIL: unexpected extra aggregate emitted\n");
+  if (beat_index != 0) {
+    std::printf("FAIL: trailing partial record (%d beats)\n", beat_index);
+    errors += 1;
+  }
+  if (matched < expected.size()) {
+    std::printf("FAIL: %s: record never emitted\n",
+                expected[matched].label);
     errors += 1;
   }
   if (!s_basic.empty()) {
@@ -448,6 +453,6 @@ int main() {
     std::printf("FAIL: cycle_aggregator_tb, %d error(s)\n", errors);
     return 1;
   }
-  std::printf("PASS: cycle_aggregator_tb\n");
+  std::printf("PASS: cycle_aggregator_tb (%zu records)\n", matched);
   return 0;
 }

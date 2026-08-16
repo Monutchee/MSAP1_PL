@@ -195,10 +195,14 @@ only transport IP.
 
 ### 5.1 Record envelope + shared C++ serializer
 
-New normative header
-`SourceData/HLS_DesignFile/MeterProcessing/common/measurement_record.hpp`
-(one header, included by every engine; `measurement_record_bus_pkg.vhd`
-keeps a mirrored comment block until the last VHDL consumer retires):
+**Created 2026-08-16:** `SourceData/HLS_DesignFile/common/` — the
+single-definition home for everything the engines share, so no value is
+declared twice across HLS modules (`metering_types.hpp` geometry/types,
+`basic_result_beat.hpp` the §5.4 beat, `measurement_record.hpp` the
+envelope + word maps + `serialize_record<Format>`; rules and migration
+map in its README; g++ unit test `common/test/run_test.sh` pins layouts
+and framing). `measurement_record_bus_pkg.vhd` keeps a mirrored comment
+block until the last VHDL consumer retires. Contents:
 
 - Envelope: word 0 magic `0x3152544D`; word 1 format
   (`0x00010003` MTR1-v3, `0x00020002` MTR2-v2 — new words, since interiors
@@ -298,6 +302,18 @@ deployment; (c) xsim integration bench through the real shim.
   shim's result-beat adaptation retire.
 - The twelve-scenario golden bench extends with record-image checks; the
   two documented APPLY-race divergences remain documented behavior.
+- Migrates its local `CAGG_IN_*` beat constants to the common
+  `basic_result_beat.hpp` (byte-identical; pinned by static_asserts in
+  `common/test/`), and its `CAGG_OUT_*` beat retires with the shim's
+  result half.
+- Optional rename lands here if desired, since this step already rebuilds
+  the packaged IP, XCI, shim, and bench bindings: prefer `Mtr2Engine`
+  (named by the record it emits, matching `Mtr1Engine`; stays correct if
+  the algorithm evolves, and future tiers get their own engine names) or
+  `Cycles150_180Aggregator` (matches the APU `MeasurementPeriod` enum).
+  Do not rename outside this step — the name is woven into the IP VLNV,
+  `ip_repo/`, the tracked XCI, and the bench module binding, and churning
+  that surface mid-incident costs comparability for zero function.
 
 ## 8. MeterCore boundary + block-design work (handoff checklist)
 
@@ -351,9 +367,37 @@ its own DMA channel (different burstiness/latency/retention — §13 Q2)?
 
 ## 10. Implementation order (commit-sized)
 
-1. **[now]** §5 contracts: `common/measurement_record.hpp` (envelope,
-   formats, `serialize_record`, beat layouts) + reservation table agreed
-   with the APU side.
+**Status 2026-08-16 (implementation session):** steps 1–6 are code-complete
+on `feat/hls_mtr1`: both engines pass csim + C/RTL cosim and are packaged
+(`Mtr1Engine` 10.0k LUT / 9.7k FF / 82 DSP; extended `CycleAggregator`
+4.7k LUT / 4.4k FF / 16 DSP); the retired VHDL (meter_rms, hub,
+arbiter, packetizer, aggregate producer, old shim, VoltageRms wrapper and
+their benches) is deleted; meter_core/MeterCore_Wrapper rewired
+(`M_AXIS_MTR1`/`M_AXIS_MTR2` exported); `record_word_tap` +
+`meter_mtr1_hls_shim` added; check scripts and `meter_core_tb` retargeted;
+a new whole-chain `meter_record_stream_tb` (TB-1/INV-1/INV-2/ADV-2)
+guards the exported streams. It has already earned its keep: it caught a
+real valid/ready deadly embrace between the two engines'
+`register_mode=off` ports (raw HLS axis master gates TVALID on TREADY —
+exactly the interface-class bug family of episode E) that C/RTL cosim
+cannot see; fixed by restoring the m_result master's boundary register.
+The full headless check matrix is green: both xsim suites
+(`check_metering_pipeline`, `check_meter_core`), BD interface inference
+(`M_AXIS_MTR1`/`M_AXIS_MTR2` inferred with correct clock associations),
+and `check_metering_synthesis MeterCore_Wrapper` — **WNS +1.859 ns at
+100 MHz, zero failing endpoints, zero critical warnings** (the retired
+record path lived at ~0.5 ns), 15.8k LUT / 24.0k FF / 15.5 BRAM /
+112 DSP for the whole MeterCore. IMP-1 holds: no record-path endpoint
+near the worst slack. Remaining before step 8:
+`register_hls_components.tcl` in the project session (new
+`hls_mtr1_engine_ip` XCI + aggregator XCI upgrade — run it in the GUI's
+Tcl console if the project is open there, per the repo rule), then the
+§8 block-design wiring.
+
+1. **[now]** §5 contracts: **headers created and unit-tested**
+   (`SourceData/HLS_DesignFile/common/`, 2026-08-16); remaining: the
+   MTR1-v3/MTR2-v2 maps and format-word reservation table reviewed and
+   agreed with the APU side (§13 Q4) — a review gate, not code.
 2. **[now]** Mtr1Engine C model + golden bench, csim green; capture ADC
    vectors from the bench target and run the offline record comparison
    (§6 b) against the current bitstream's records.

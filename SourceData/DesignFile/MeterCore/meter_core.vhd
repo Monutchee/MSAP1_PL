@@ -4,11 +4,10 @@ use ieee.std_logic_1164.all;
 library xpm;
 use xpm.vcomponents.all;
 
-library work;
-use work.measurement_record_bus_pkg.all;
-
 -- Structural integration for the complete ADC-to-meter-record datapath.
 -- Vendor/platform integration remains outside this entity in TopDesign.bd.
+-- Record formats and engine contracts are normative in C++
+-- (SourceData/HLS_DesignFile/common/include and each engine's header).
 entity meter_core is
   port (
     aclk    : in std_logic;
@@ -104,11 +103,20 @@ entity meter_core is
     s_axi_simulator_rvalid  : out std_logic;
     s_axi_simulator_rready  : in  std_logic;
 
-    m_axis_meter_tdata  : out std_logic_vector(31 downto 0);
-    m_axis_meter_tkeep  : out std_logic_vector(3 downto 0);
-    m_axis_meter_tvalid : out std_logic;
-    m_axis_meter_tready : in  std_logic;
-    m_axis_meter_tlast  : out std_logic;
+    -- One AXIS master per record producer (32-bit, 64-beat packets). The
+    -- block design gives each a packet-mode axis_data_fifo and one
+    -- axis_switch slave port; the switch output feeds the meter DMA.
+    m_axis_mtr1_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_mtr1_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_mtr1_tvalid : out std_logic;
+    m_axis_mtr1_tready : in  std_logic;
+    m_axis_mtr1_tlast  : out std_logic;
+
+    m_axis_mtr2_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_mtr2_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_mtr2_tvalid : out std_logic;
+    m_axis_mtr2_tready : in  std_logic;
+    m_axis_mtr2_tlast  : out std_logic;
 
     m_axis_waveform_tdata  : out std_logic_vector(31 downto 0);
     m_axis_waveform_tkeep  : out std_logic_vector(3 downto 0);
@@ -126,6 +134,25 @@ entity meter_core is
 end entity;
 
 architecture structural of meter_core is
+  -- Packaged-IP customization of the 150/180-cycle aggregator
+  -- (SourceData/IP/hls_cycle_aggregator_ip); the non-project check flows
+  -- bind the same name through tb/hls_cycle_aggregator_ip.v.
+  component hls_cycle_aggregator_ip is
+    port (
+      ap_clk        : in  std_logic;
+      ap_rst_n      : in  std_logic;
+      s_basic_TDATA : in  std_logic_vector(807 downto 0);
+      s_basic_TVALID: in  std_logic;
+      s_basic_TREADY: out std_logic;
+      m_axis_TDATA  : out std_logic_vector(31 downto 0);
+      m_axis_TVALID : out std_logic;
+      m_axis_TREADY : in  std_logic;
+      m_axis_TKEEP  : out std_logic_vector(3 downto 0);
+      m_axis_TSTRB  : out std_logic_vector(3 downto 0);
+      m_axis_TLAST  : out std_logic_vector(0 downto 0)
+    );
+  end component;
+
   type axis32_stream_t is record
     data  : std_logic_vector(31 downto 0);
     keep  : std_logic_vector(3 downto 0);
@@ -141,13 +168,6 @@ architecture structural of meter_core is
     valid : std_logic;
     ready : std_logic;
     last  : std_logic;
-  end record;
-
-  type result_bundle_t is record
-    valid_mask : std_logic_vector(7 downto 0);
-    mean_q16   : std_logic_vector(511 downto 0);
-    rms_q16    : std_logic_vector(511 downto 0);
-    rms_count  : std_logic_vector(255 downto 0);
   end record;
 
   signal physical_raw_stream : axis32_stream_t;
@@ -200,60 +220,43 @@ architecture structural of meter_core is
   signal frequency_rejected               : std_logic_vector(31 downto 0);
 
   signal active_generation : std_logic_vector(31 downto 0);
+  signal active_enable     : std_logic;
+  signal apply_seen        : std_logic;
   signal processing_status : std_logic_vector(31 downto 0);
-  signal result_valid      : std_logic;
-  signal result_sequence   : std_logic_vector(31 downto 0);
-  signal result_generation : std_logic_vector(31 downto 0);
-  signal result_sample_rate: std_logic_vector(31 downto 0);
-  signal result_window     : std_logic_vector(31 downto 0);
-  signal result_status     : std_logic_vector(31 downto 0);
-  signal meter_result      : result_bundle_t;
-  signal result_drop_count : std_logic_vector(31 downto 0);
 
-  signal record_data          : std_logic_vector(2047 downto 0);
-  signal record_valid         : std_logic;
-  signal record_ready         : std_logic;
-  signal hub_drop_count       : std_logic_vector(31 downto 0);
-  signal packetizer_drop_count: std_logic_vector(31 downto 0);
+  -- Both record producers are Vitis HLS engines that build and serialize
+  -- their own 256-byte records (normative contracts:
+  -- HLS_DesignFile/common/include/measurement_record.hpp plus each
+  -- engine's header). meter_mtr1_hls_shim packs one sample beat per
+  -- accepted frame for the MTR1 engine; the engine's basic-result stream
+  -- feeds the 150/180-cycle aggregator directly (HLS-to-HLS AXIS, no
+  -- event conversion anywhere). Engine health counters ride inside the
+  -- records; record_word_tap republishes them to the register file, "as
+  -- of the last emitted record".
+  signal mtr1_shim_drop_count : std_logic_vector(31 downto 0);
+  signal mtr1_result_tdata    : std_logic_vector(807 downto 0);
+  signal mtr1_result_tvalid   : std_logic;
+  signal mtr1_result_tready   : std_logic;
 
-  -- Measurement record bus: Basic (hub) and aggregate producers meet at
-  -- the arbiter, which feeds the single existing packetizer/DMA path.
-  signal basic_result           : basic_measurement_result_t;
-  signal agg_record_data        : measurement_record_t;
-  signal agg_record_valid       : std_logic;
-  signal agg_record_ready       : std_logic;
-  signal agg_drop_count         : std_logic_vector(31 downto 0);
-  signal bus_record_data        : measurement_record_t;
-  signal bus_record_valid       : std_logic;
-  signal bus_record_ready       : std_logic;
+  signal mtr1_axis_tdata  : std_logic_vector(31 downto 0);
+  signal mtr1_axis_tkeep  : std_logic_vector(3 downto 0);
+  signal mtr1_axis_tvalid : std_logic;
+  signal mtr1_axis_tlast  : std_logic;
+  signal mtr2_axis_tdata  : std_logic_vector(31 downto 0);
+  signal mtr2_axis_tkeep  : std_logic_vector(3 downto 0);
+  signal mtr2_axis_tstrb  : std_logic_vector(3 downto 0);
+  signal mtr2_axis_tvalid : std_logic;
+  signal mtr2_axis_tlast  : std_logic_vector(0 downto 0);
 
-  -- 150/180-cycle aggregation engine (Vitis HLS; sources and normative
-  -- beat contract in SourceData/HLS_DesignFile/MeterProcessing/
-  -- CycleAggregator). It consumes the internal Basic result event through
-  -- meter_cycle_aggregator_hls_shim and is the sole MTR2 producer. Its
-  -- counters ride in the aggregate beat, so the AGG_* health registers
-  -- are "as of the last emitted aggregate"; AGG_STATUS (0x78) has no live
-  -- equivalent and reads zero.
-  signal hls_aggregate_valid        : std_logic;
-  signal hls_aggregate_sequence     : std_logic_vector(31 downto 0);
-  signal hls_aggregate_generation   : std_logic_vector(31 downto 0);
-  signal hls_aggregate_sample_rate  : std_logic_vector(31 downto 0);
-  signal hls_aggregate_samples      : std_logic_vector(31 downto 0);
-  signal hls_aggregate_valid_mask   : std_logic_vector(7 downto 0);
-  signal hls_aggregate_arithmetic   : std_logic;
-  signal hls_aggregate_freq_valid   : std_logic;
-  signal hls_aggregate_first_seq    : std_logic_vector(31 downto 0);
-  signal hls_aggregate_last_seq     : std_logic_vector(31 downto 0);
-  signal hls_aggregate_nominal      : std_logic_vector(7 downto 0);
-  signal hls_aggregate_cycles       : std_logic_vector(15 downto 0);
-  signal hls_aggregate_first_sample : std_logic_vector(63 downto 0);
-  signal hls_aggregate_rms_q16      : std_logic_vector(511 downto 0);
-  signal hls_aggregate_freq_millihz : std_logic_vector(31 downto 0);
-  signal hls_agg_record_count       : std_logic_vector(31 downto 0);
-  signal hls_agg_reset_count        : std_logic_vector(31 downto 0);
-  signal hls_agg_ineligible_count   : std_logic_vector(31 downto 0);
-  signal hls_agg_continuity_count   : std_logic_vector(31 downto 0);
-  signal hls_agg_drop_count         : std_logic_vector(31 downto 0);
+  signal mtr1_tap_sequence     : std_logic_vector(31 downto 0);
+  signal mtr1_tap_status       : std_logic_vector(31 downto 0);
+  signal mtr1_tap_emit_drops   : std_logic_vector(31 downto 0);
+  signal mtr1_tap_result_drops : std_logic_vector(31 downto 0);
+  signal mtr2_tap_sequence     : std_logic_vector(31 downto 0);
+  signal mtr2_tap_emit_drops   : std_logic_vector(31 downto 0);
+  signal mtr2_tap_reset        : std_logic_vector(31 downto 0);
+  signal mtr2_tap_ineligible   : std_logic_vector(31 downto 0);
+  signal mtr2_tap_continuity   : std_logic_vector(31 downto 0);
 
   signal waveform_enable      : std_logic;
   signal waveform_clear_stats : std_logic;
@@ -549,8 +552,10 @@ begin
       dbiterr_axis => open
     );
 
-  -- The unified engine calculates all configured current and voltage
-  -- channels from one coherent window.
+  -- The metering branches never backpressure conversion: every frame is
+  -- accepted the cycle it appears; the MTR1 shim's beat FIFO absorbs the
+  -- HLS engine's finalize latency and counts (never hides) any overflow.
+  engine_ready <= '1';
   converted_fifo.ready <= engine_ready;
   engine_valid <= converted_fifo.valid and converted_fifo.ready;
 
@@ -600,24 +605,26 @@ begin
       grid_shadow_config_o => grid_shadow_config,
       grid_active_config_i => grid_active_config,
       grid_status_i => grid_status,
-      -- Aggregation health from the HLS engine's beat-carried counters
-      -- ("as of the last emitted aggregate"). AGG_STATUS has no live
-      -- equivalent since the RTL engine's retirement and reads zero;
-      -- HLS_AGG_MISMATCH_COUNT is reserved (the compared-pair trial
-      -- ended) and HLS_AGG_RECORD_COUNT mirrors AGG_RECORD_COUNT.
+      -- Aggregation health from the MTR2 record tap ("as of the last
+      -- emitted aggregate"; the counters ride in record words 33..35 and
+      -- the record count is the record's own sequence word). AGG_STATUS
+      -- has no live equivalent since the RTL engine's retirement and
+      -- reads zero; HLS_AGG_MISMATCH_COUNT is reserved (the
+      -- compared-pair trial ended); HLS_AGG_DROP_COUNT now carries the
+      -- MTR1 sample-beat FIFO drop counter (any nonzero is a fault).
       agg_status_i => (others => '0'),
-      agg_record_count_i => hls_agg_record_count,
-      agg_reset_count_i => hls_agg_reset_count,
-      agg_ineligible_count_i => hls_agg_ineligible_count,
-      agg_continuity_count_i => hls_agg_continuity_count,
-      agg_drop_count_i => agg_drop_count,
-      hls_agg_record_count_i => hls_agg_record_count,
+      agg_record_count_i => mtr2_tap_sequence,
+      agg_reset_count_i => mtr2_tap_reset,
+      agg_ineligible_count_i => mtr2_tap_ineligible,
+      agg_continuity_count_i => mtr2_tap_continuity,
+      agg_drop_count_i => mtr2_tap_emit_drops,
+      hls_agg_record_count_i => mtr2_tap_sequence,
       hls_agg_mismatch_count_i => (others => '0'),
-      hls_agg_drop_count_i => hls_agg_drop_count,
+      hls_agg_drop_count_i => mtr1_shim_drop_count,
       active_generation_i => active_generation,
-      result_sequence_i => result_sequence,
-      result_drop_count_i => result_drop_count,
-      packet_drop_count_i => packetizer_drop_count,
+      result_sequence_i => mtr1_tap_sequence,
+      result_drop_count_i => mtr1_tap_result_drops,
+      packet_drop_count_i => mtr1_tap_emit_drops,
       status_i => processing_status
     );
 
@@ -685,182 +692,123 @@ begin
       block_flags_o => block_flags
     );
 
-  rms_engine : entity work.meter_rms
-    generic map (
-      G_FIRST_CHANNEL => 0,
-      G_CHANNEL_COUNT => 7,
-      G_RESULT_MASK => x"7F"
-    )
+  -- MTR1 producer: sample-beat shim + HLS engine (accumulation, block
+  -- finalization, MTR1-v3 record construction and serialization in one
+  -- IP). The engine's basic-result stream feeds the aggregator directly.
+  mtr1_producer : entity work.meter_mtr1_hls_shim
     port map (
       aclk => aclk,
       aresetn => aresetn,
-      s_axis_tdata => converted_fifo.data,
-      s_axis_tkeep => converted_fifo.keep,
-      s_axis_tuser => converted_fifo.user,
-      s_axis_tvalid => engine_valid,
-      s_axis_tready => engine_ready,
-      s_axis_tlast => converted_fifo.last,
-      config_generation_i => shadow_generation,
-      config_sample_rate_i => shadow_sample_rate,
-      config_window_samples_i => shadow_window_samples,
-      config_valid_mask_i => shadow_valid_mask,
-      config_enable_i => shadow_enable,
-      config_dc_remove_i => shadow_dc_remove,
-      config_apply_toggle_i => apply_toggle,
-      cycle_mode_i => grid_cycle_mode,
+      frame_accept_i => engine_valid,
+      frame_data_i => converted_fifo.data,
+      frame_keep_i => converted_fifo.keep,
+      frame_user_i => converted_fifo.user,
       frame_closes_block_i => grid_frame_closes_block,
-      active_generation_o => active_generation,
-      status_o => processing_status,
-      result_valid_o => result_valid,
-      result_sequence_o => result_sequence,
-      result_generation_o => result_generation,
-      result_sample_rate_o => result_sample_rate,
-      result_window_samples_o => result_window,
-      result_valid_mask_o => meter_result.valid_mask,
-      result_status_o => result_status,
-      result_mean_q16_o => meter_result.mean_q16,
-      result_rms_q16_o => meter_result.rms_q16,
-      result_rms_count_o => meter_result.rms_count,
-      result_drop_count_o => result_drop_count
-    );
-
-  result_hub : entity work.MeterResultHub_Wrapper
-    port map (
-      aclk => aclk,
-      aresetn => aresetn,
-      voltage_result_valid_i => result_valid,
-      result_sequence_i => result_sequence,
-      config_generation_i => result_generation,
-      sample_rate_i => result_sample_rate,
-      window_samples_i => result_window,
-      voltage_valid_mask_i => meter_result.valid_mask and x"F0",
-      result_status_i => result_status,
-      voltage_mean_q16_i => meter_result.mean_q16,
-      voltage_rms_q16_i => meter_result.rms_q16,
-      voltage_rms_count_i => meter_result.rms_count,
-      current_valid_mask_i => meter_result.valid_mask and x"0F",
-      current_mean_q16_i => meter_result.mean_q16,
-      current_rms_q16_i => meter_result.rms_q16,
-      current_rms_count_i => meter_result.rms_count,
+      cycle_mode_i => grid_cycle_mode,
+      block_first_sample_i => block_first_sample,
+      block_cycle_count_i => block_cycle_count,
+      block_nominal_hz_i => block_nominal_hz,
+      block_flags_i => block_flags,
+      shadow_generation_i => shadow_generation,
+      shadow_sample_rate_i => shadow_sample_rate,
+      shadow_window_samples_i => shadow_window_samples,
+      shadow_valid_mask_i => shadow_valid_mask,
+      shadow_enable_i => shadow_enable,
+      shadow_dc_remove_i => shadow_dc_remove,
+      config_apply_toggle_i => apply_toggle,
       frequency_millihz_i => frequency_millihz,
       frequency_status_i => frequency_status,
-      frequency_period_q16_i => frequency_period_q16,
+      frequency_period_i => frequency_period_q16,
       frequency_sequence_i => frequency_sequence,
       capture_frame_count_i => capture_frame_count,
       capture_header_errors_i => capture_headers,
       capture_overflows_i => capture_overflows,
       capture_alerts_i => capture_alerts,
-      packetizer_drop_count_i => packetizer_drop_count,
-      block_first_sample_i => block_first_sample,
-      block_cycle_count_i => block_cycle_count,
-      block_nominal_hz_i => block_nominal_hz,
-      block_flags_i => block_flags,
-      record_data_o => record_data,
-      record_valid_o => record_valid,
-      record_ready_i => record_ready,
-      hub_drop_count_o => hub_drop_count
+      m_axis_mtr1_tdata => mtr1_axis_tdata,
+      m_axis_mtr1_tkeep => mtr1_axis_tkeep,
+      m_axis_mtr1_tvalid => mtr1_axis_tvalid,
+      m_axis_mtr1_tready => m_axis_mtr1_tready,
+      m_axis_mtr1_tlast => mtr1_axis_tlast,
+      m_result_tdata => mtr1_result_tdata,
+      m_result_tvalid => mtr1_result_tvalid,
+      m_result_tready => mtr1_result_tready,
+      active_generation_o => active_generation,
+      active_enable_o => active_enable,
+      apply_seen_o => apply_seen,
+      drop_count_o => mtr1_shim_drop_count
     );
 
-  -- The internal Basic measurement result event: one bundle consumed by
-  -- both the Basic record producer (the hub above) and the cycle
-  -- aggregator, so the aggregator operates on standardized Basic results,
-  -- never on decoded MTR1 packets or raw samples.
-  basic_result.valid <= result_valid;
-  basic_result.result_sequence <= result_sequence;
-  basic_result.generation <= result_generation;
-  basic_result.sample_rate_hz <= result_sample_rate;
-  basic_result.sample_count <= result_window;
-  basic_result.valid_mask <= meter_result.valid_mask;
-  basic_result.status <= result_status;
-  basic_result.rms_q16 <= meter_result.rms_q16;
-  basic_result.first_sample <= block_first_sample;
-  basic_result.cycle_count <= block_cycle_count;
-  basic_result.nominal_hz <= block_nominal_hz;
-  basic_result.flags <= block_flags;
-  basic_result.frequency_millihz <= frequency_millihz;
-  -- FREQUENCY_STATUS_VALID (meter_frequency_pkg bit 1).
-  basic_result.frequency_valid <= frequency_status(1);
+  m_axis_mtr1_tdata <= mtr1_axis_tdata;
+  m_axis_mtr1_tkeep <= mtr1_axis_tkeep;
+  m_axis_mtr1_tvalid <= mtr1_axis_tvalid;
+  m_axis_mtr1_tlast <= mtr1_axis_tlast;
 
-  cycle_aggregator : entity work.meter_cycle_aggregator_hls_shim
+  -- STATUS (0x0C): enabled, apply pending, calculation busy, overflow.
+  -- The HLS engine exposes no live busy view (the AGG_STATUS precedent);
+  -- overflow is the sticky arithmetic bit of the last emitted record.
+  processing_status <= (31 downto 4 => '0') & mtr1_tap_status(0) & '0' &
+                       (apply_toggle xor apply_seen) & active_enable;
+
+  -- MTR2 producer: the 150/180-cycle aggregator consumes the MTR1
+  -- engine's basic-result beats and emits complete MTR2-v2 records
+  -- (packaged IP; SourceData/IP/hls_cycle_aggregator_ip).
+  mtr2_producer : hls_cycle_aggregator_ip
+    port map (
+      ap_clk => aclk,
+      ap_rst_n => aresetn,
+      s_basic_TDATA => mtr1_result_tdata,
+      s_basic_TVALID => mtr1_result_tvalid,
+      s_basic_TREADY => mtr1_result_tready,
+      m_axis_TDATA => mtr2_axis_tdata,
+      m_axis_TVALID => mtr2_axis_tvalid,
+      m_axis_TREADY => m_axis_mtr2_tready,
+      m_axis_TKEEP => mtr2_axis_tkeep,
+      m_axis_TSTRB => mtr2_axis_tstrb,
+      m_axis_TLAST => mtr2_axis_tlast
+    );
+
+  m_axis_mtr2_tdata <= mtr2_axis_tdata;
+  m_axis_mtr2_tkeep <= mtr2_axis_tkeep;
+  m_axis_mtr2_tvalid <= mtr2_axis_tvalid;
+  m_axis_mtr2_tlast <= mtr2_axis_tlast(0);
+
+  -- Register-file taps on both record streams ("as of the last emitted
+  -- record"); strictly observational.
+  mtr1_tap : entity work.record_word_tap
     port map (
       aclk => aclk,
       aresetn => aresetn,
-      basic_i => basic_result,
-      config_apply_toggle_i => apply_toggle,
-      aggregate_valid_o => hls_aggregate_valid,
-      aggregate_sequence_o => hls_aggregate_sequence,
-      aggregate_generation_o => hls_aggregate_generation,
-      aggregate_sample_rate_o => hls_aggregate_sample_rate,
-      aggregate_samples_o => hls_aggregate_samples,
-      aggregate_valid_mask_o => hls_aggregate_valid_mask,
-      aggregate_arithmetic_o => hls_aggregate_arithmetic,
-      aggregate_freq_valid_o => hls_aggregate_freq_valid,
-      aggregate_first_seq_o => hls_aggregate_first_seq,
-      aggregate_last_seq_o => hls_aggregate_last_seq,
-      aggregate_nominal_o => hls_aggregate_nominal,
-      aggregate_cycles_o => hls_aggregate_cycles,
-      aggregate_first_sample_o => hls_aggregate_first_sample,
-      aggregate_rms_q16_o => hls_aggregate_rms_q16,
-      aggregate_freq_millihz_o => hls_aggregate_freq_millihz,
-      record_count_o => hls_agg_record_count,
-      reset_count_o => hls_agg_reset_count,
-      ineligible_count_o => hls_agg_ineligible_count,
-      continuity_count_o => hls_agg_continuity_count,
-      drop_count_o => hls_agg_drop_count
+      tdata_i => mtr1_axis_tdata,
+      tvalid_i => mtr1_axis_tvalid,
+      tready_i => m_axis_mtr1_tready,
+      tlast_i => mtr1_axis_tlast,
+      sequence_o => mtr1_tap_sequence,
+      status_o => mtr1_tap_status,
+      emit_drops_o => mtr1_tap_emit_drops,
+      result_drops_o => mtr1_tap_result_drops,
+      reset_count_o => open,
+      ineligible_count_o => open,
+      continuity_count_o => open,
+      framing_error_o => open,
+      framing_error_count_o => open
     );
 
-  aggregate_producer : entity work.aggregate_record_producer
+  mtr2_tap : entity work.record_word_tap
     port map (
       aclk => aclk,
       aresetn => aresetn,
-      aggregate_valid_i => hls_aggregate_valid,
-      aggregate_sequence_i => hls_aggregate_sequence,
-      aggregate_generation_i => hls_aggregate_generation,
-      aggregate_sample_rate_i => hls_aggregate_sample_rate,
-      aggregate_samples_i => hls_aggregate_samples,
-      aggregate_valid_mask_i => hls_aggregate_valid_mask,
-      aggregate_arithmetic_i => hls_aggregate_arithmetic,
-      aggregate_freq_valid_i => hls_aggregate_freq_valid,
-      aggregate_first_seq_i => hls_aggregate_first_seq,
-      aggregate_last_seq_i => hls_aggregate_last_seq,
-      aggregate_nominal_i => hls_aggregate_nominal,
-      aggregate_cycles_i => hls_aggregate_cycles,
-      aggregate_first_sample_i => hls_aggregate_first_sample,
-      aggregate_rms_q16_i => hls_aggregate_rms_q16,
-      aggregate_freq_millihz_i => hls_aggregate_freq_millihz,
-      record_data_o => agg_record_data,
-      record_valid_o => agg_record_valid,
-      record_ready_i => agg_record_ready,
-      drop_count_o => agg_drop_count
-    );
-
-  record_arbiter : entity work.measurement_record_arbiter
-    port map (
-      aclk => aclk,
-      aresetn => aresetn,
-      basic_record_i => record_data,
-      basic_valid_i => record_valid,
-      basic_ready_o => record_ready,
-      aggregate_record_i => agg_record_data,
-      aggregate_valid_i => agg_record_valid,
-      aggregate_ready_o => agg_record_ready,
-      m_record_o => bus_record_data,
-      m_valid_o => bus_record_valid,
-      m_ready_i => bus_record_ready
-    );
-
-  packetizer : entity work.MeterPacketizer_Wrapper
-    port map (
-      aclk => aclk,
-      aresetn => aresetn,
-      record_data_i => bus_record_data,
-      record_valid_i => bus_record_valid,
-      record_ready_o => bus_record_ready,
-      m_axis_meter_tdata => m_axis_meter_tdata,
-      m_axis_meter_tkeep => m_axis_meter_tkeep,
-      m_axis_meter_tvalid => m_axis_meter_tvalid,
-      m_axis_meter_tready => m_axis_meter_tready,
-      m_axis_meter_tlast => m_axis_meter_tlast,
-      drop_count_o => packetizer_drop_count
+      tdata_i => mtr2_axis_tdata,
+      tvalid_i => mtr2_axis_tvalid,
+      tready_i => m_axis_mtr2_tready,
+      tlast_i => mtr2_axis_tlast(0),
+      sequence_o => mtr2_tap_sequence,
+      status_o => open,
+      emit_drops_o => mtr2_tap_emit_drops,
+      result_drops_o => open,
+      reset_count_o => mtr2_tap_reset,
+      ineligible_count_o => mtr2_tap_ineligible,
+      continuity_count_o => mtr2_tap_continuity,
+      framing_error_o => open,
+      framing_error_count_o => open
     );
 end architecture;

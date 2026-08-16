@@ -112,6 +112,9 @@ SourceData/HLS_DesignFile/**/logs/
 SourceData/HLS_DesignFile/**/reports/
 SourceData/HLS_DesignFile/.analyzer_session.json
 
+# Compiled common-header unit test (common/test/run_test.sh output).
+SourceData/HLS_DesignFile/common/test/common_headers_test
+
 # Generated C/C++ language-server database (machine-specific paths).
 **/compile_commands.json
 

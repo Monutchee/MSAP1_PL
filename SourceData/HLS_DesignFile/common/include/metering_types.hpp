@@ -1,0 +1,88 @@
+#ifndef MSAP1_METERING_TYPES_HPP
+#define MSAP1_METERING_TYPES_HPP
+
+// The MTR1 sample-event beat is 1264 bits, past ap_int's 1024-bit default
+// ceiling. This must precede the first ap_int.h inclusion in every
+// translation unit; the component cflags also pass -DAP_INT_MAX_W=2048 so
+// an unlucky include order cannot regress it.
+#ifndef AP_INT_MAX_W
+#define AP_INT_MAX_W 2048
+#endif
+
+#include <ap_int.h>
+
+// Shared metering geometry and scalar types for every MSAP1 HLS engine.
+//
+// This header is the single C++ definition of quantities that used to be
+// declared per language and per module (metering_pkg.vhd,
+// measurement_record_bus_pkg.vhd, cycle_aggregator.hpp). An HLS component
+// must include this header instead of restating any value below; the VHDL
+// packages keep mirrored constants only while VHDL consumers still exist,
+// and the mirror is documented at each VHDL site.
+//
+// Everything here is a contract, not an implementation detail: the values
+// bind the record wire format, the APU decoder (MSAP1_APU
+// common/msap1/meter/meter_record.hpp) and the IEC 61000-4-30 measurement
+// definitions. Change nothing here without updating the APU side in the
+// same release.
+
+// ---------------------------------------------------------------------------
+// Channel geometry.
+//
+// Every record and result beat carries eight RMS lanes. Lanes 0..3 are
+// current channels, lanes 4..6 voltage channels, lane 7 is reserved and
+// reads zero/invalid in the default configuration (CH7 exists in capture
+// but is not a metering channel today).
+// ---------------------------------------------------------------------------
+static const int MTR_CHANNEL_LANES   = 8;
+static const int MTR_ACTIVE_CHANNELS = 7;   // CH0..CH6
+
+// ---------------------------------------------------------------------------
+// IEC 61000-4-30 block geometry.
+//
+// A basic measurement block is 10 complete grid cycles at a declared 50 Hz
+// nominal, 12 at 60 Hz (~200 ms, tracking the actual grid frequency;
+// grid_cycle_timing.vhd owns the boundary decision). A 150/180-cycle
+// aggregate is formed from exactly 15 consecutive eligible basic results —
+// never a wall-clock timer, never a second RMS pass over raw samples.
+// ---------------------------------------------------------------------------
+static const int MTR_GRID_CYCLES_50HZ           = 10;
+static const int MTR_GRID_CYCLES_60HZ           = 12;
+static const int MTR_BASIC_BLOCKS_PER_AGGREGATE = 15;
+
+// Block provenance flags (grid_timing_pkg.vhd bit positions, carried in
+// basic result beats and in the MTR1 timing word).
+static const int MTR_FLAG_LOCKED      = 0;  // block closed on a counted crossing
+static const int MTR_FLAG_FALLBACK    = 1;  // block closed on the fallback window
+static const int MTR_FLAG_FIRST_BLOCK = 2;  // first block after APPLY
+static const int MTR_FLAG_BITS        = 3;
+
+// ---------------------------------------------------------------------------
+// Scalar types.
+// ---------------------------------------------------------------------------
+
+// One converted sample: 24-bit ADC value sign-extended into 32 bits by the
+// conversion stage.
+typedef ap_int<32> mtr_sample_t;
+
+// One RMS lane in the internal Q16 domain: signed 64-bit, magnitude < 2^63.
+// The aggregation arithmetic contract (squares, 132-bit accumulators,
+// floor mean, floor root) is stated where it is implemented; the lane type
+// is fixed here.
+typedef ap_int<64> mtr_q16_t;
+static const int MTR_RMS_LANE_BITS  = 64;
+static const int MTR_RMS_LANES_BITS = MTR_CHANNEL_LANES * MTR_RMS_LANE_BITS;  // 512
+
+// Signed micro-unit quantities as published in records (mean, RMS).
+typedef ap_int<64> mtr_micro_units_t;
+
+// The 64-bit free-running conversion sample index. It is the measurement
+// timebase: never reset on configuration apply, never stepped for time
+// synchronization (AGENTS.md). Records reference it as the first-sample
+// timestamp; the APU maps it to UTC via the waveform correlation block.
+typedef ap_uint<64> mtr_sample_index_t;
+
+// Plain 32-bit register/word quantity (word32_t in metering_pkg.vhd).
+typedef ap_uint<32> mtr_word32_t;
+
+#endif  // MSAP1_METERING_TYPES_HPP

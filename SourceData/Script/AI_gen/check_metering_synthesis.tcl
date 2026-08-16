@@ -6,9 +6,6 @@ if {$argc != 1} {
 set top_name [lindex $argv 0]
 set allowed_tops [list \
   AdcConversion_Wrapper \
-  VoltageRms_Wrapper \
-  MeterResultHub_Wrapper \
-  MeterPacketizer_Wrapper \
   MeterCore_Wrapper]
 if {[lsearch -exact $allowed_tops $top_name] < 0} {
   error "unsupported metering synthesis top: $top_name"
@@ -24,6 +21,11 @@ set hls_aggregator_hdl [file join $project_root SourceData HLS_DesignFile \
   ip_repo CycleAggregator hdl verilog]
 if {![file isdirectory $hls_aggregator_hdl]} {
   error "missing $hls_aggregator_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+}
+set hls_mtr1_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo Mtr1Engine hdl verilog]
+if {![file isdirectory $hls_mtr1_hdl]} {
+  error "missing $hls_mtr1_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
 }
 
 # Keep focused checks predictable on developer workstations where the GUI or
@@ -45,24 +47,21 @@ read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_unsigned_divid
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_zero_crossing.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_frequency_estimator.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_frequency.vhd]
-read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_rms.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing grid_cycle_timing.vhd]
-read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_cycle_aggregator_hls_shim.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing record_word_tap.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_mtr1_hls_shim.vhd]
 read_verilog [lsort [glob -directory $hls_aggregator_hdl *.v]]
-# Binds the IP-customization module name over the packaged RTL for this
-# non-project flow (the project gets the same module from the XCI).
+read_verilog [lsort [glob -directory $hls_mtr1_hdl *.v]]
+# Bind the IP-customization module names over the packaged RTL for this
+# non-project flow (the project gets the same modules from the XCIs).
 read_verilog [file join $design_root MeterProcessing tb hls_cycle_aggregator_ip.v]
-read_vhdl -vhdl2008 [file join $design_root MeterProcessing aggregate_record_producer.vhd]
-read_vhdl -vhdl2008 [file join $design_root MeterProcessing measurement_record_arbiter.vhd]
+read_verilog [file join $design_root MeterProcessing tb hls_mtr1_engine_ip.v]
 read_vhdl -vhdl2008 [file join $design_root MeterCore adc_simulator_pkg.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore adc_simulator.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore adc_source_mux.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore meter_waveform_axi_regs.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore meter_waveform.vhd]
-read_vhdl -vhdl2008 [file join $design_root MeterProcessing MeterResultHub_Wrapper.vhd]
-read_vhdl -vhdl2008 [file join $design_root MeterProcessing MeterPacketizer_Wrapper.vhd]
 read_vhdl [file join $design_root AdcConversion AdcConversion_Wrapper.vhd]
-read_vhdl [file join $design_root MeterProcessing VoltageRms_Wrapper.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore meter_core.vhd]
 read_vhdl [file join $design_root MeterCore MeterCore_Wrapper.vhd]
 
