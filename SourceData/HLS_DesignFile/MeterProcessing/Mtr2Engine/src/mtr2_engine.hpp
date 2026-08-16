@@ -1,5 +1,5 @@
-#ifndef CYCLE_AGGREGATOR_HPP
-#define CYCLE_AGGREGATOR_HPP
+#ifndef MTR2_ENGINE_HPP
+#define MTR2_ENGINE_HPP
 
 #include <hls_stream.h>
 
@@ -60,9 +60,9 @@
 //   aggregate:    floor(sqrt(mean)), restoring root
 // All rounding is floor; no stage can overflow by construction, so no
 // implicit truncation or saturation participates in the result.
-static const int CAGG_ACC_BITS = 132;
+static const int MTR2_ACC_BITS = 132;
 
-void hls_cycle_aggregator(hls::stream<basic_result_beat_t> &s_basic,
+void hls_mtr2_engine(hls::stream<basic_result_beat_t> &s_basic,
                           hls::stream<record_axis_t> &m_axis);
 
-#endif  // CYCLE_AGGREGATOR_HPP
+#endif  // MTR2_ENGINE_HPP

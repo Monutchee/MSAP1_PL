@@ -38,7 +38,7 @@
   their own records: the MTR1 basic engine
   (`SourceData/HLS_DesignFile/MeterProcessing/Mtr1Engine`,
   `mtr1_engine.hpp`/`.cpp` normative) and the 150/180-cycle aggregation
-  engine (`.../CycleAggregator`, `cycle_aggregator.hpp`/`.cpp` normative;
+  engine (`.../Mtr2Engine`, `mtr2_engine.hpp`/`.cpp` normative;
   the hand-written RTL engines they replaced live in git history). Shared
   contracts -- the 256-byte record envelope with the MTR1-v3 (`0x00010003`)
   and MTR2-v2 (`0x00020002`) maps, the basic-result beat, and the serial
@@ -69,7 +69,8 @@
   reference (`SUPPORTS_MODREF=1`); only the `.xci` is tracked, its output
   products are not. The non-project check scripts compile the packaged RTL
   directly from `ip_repo/<Name>/hdl/verilog` with the module-name binding
-  in `DesignFile/MeterProcessing/tb/hls_cycle_aggregator_ip.v`. A fresh
+  in `DesignFile/MeterProcessing/tb/hls_mtr1_engine_ip.v` and
+  `hls_mtr2_engine_ip.v`. A fresh
   checkout must run `mnc HLS build` (or `HLS_DesignFile/run_hls.sh`) first;
   the check scripts fail with that instruction when the repository is
   absent. After any HLS source change: `run_hls.sh`, then

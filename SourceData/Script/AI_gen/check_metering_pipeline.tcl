@@ -7,14 +7,14 @@ set work_root [file join /tmp msap1_metering_pipeline]
 
 # Packaged HLS RTL (IP repository entry); refreshed by 'mnc HLS build' or
 # SourceData/HLS_DesignFile/run_hls.sh <component>.
-set hls_aggregator_hdl [file join $project_root SourceData HLS_DesignFile \
-  ip_repo CycleAggregator hdl verilog]
-if {![file isdirectory $hls_aggregator_hdl]} {
-  error "missing $hls_aggregator_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+set hls_mtr2_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo Mtr2Engine hdl verilog]
+if {![file isdirectory $hls_mtr2_hdl]} {
+  error "missing $hls_mtr2_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
 }
-set hls_aggregator_verilog [concat \
-  [lsort [glob -directory $hls_aggregator_hdl *.v]] \
-  [list [file join $design_root MeterProcessing tb hls_cycle_aggregator_ip.v]]]
+set hls_mtr2_verilog [concat \
+  [lsort [glob -directory $hls_mtr2_hdl *.v]] \
+  [list [file join $design_root MeterProcessing tb hls_mtr2_engine_ip.v]]]
 set hls_mtr1_hdl [file join $project_root SourceData HLS_DesignFile \
   ip_repo Mtr1Engine hdl verilog]
 if {![file isdirectory $hls_mtr1_hdl]} {
@@ -54,20 +54,21 @@ set common_vhdl [list \
   [file join $design_root MeterProcessing meter_frequency.vhd] \
   [file join $design_root MeterProcessing grid_cycle_timing.vhd] \
   [file join $design_root MeterProcessing record_word_tap.vhd] \
-  [file join $design_root MeterProcessing meter_mtr1_hls_shim.vhd]]
+  [file join $design_root MeterProcessing meter_mtr1_hls_shim.vhd] \
+  [file join $design_root MeterProcessing meter_mtr2_hls_shim.vhd]]
 
 set wrapper_vhdl [list \
   [file join $design_root AdcConversion AdcConversion_Wrapper.vhd]]
 
 proc run_test {work_root test_name common_vhdl wrapper_vhdl testbench xvhdl xvlog xelab simulator_libraries} {
-  global hls_aggregator_hdl hls_aggregator_verilog hls_mtr1_hdl hls_mtr1_verilog
+  global hls_mtr2_hdl hls_mtr2_verilog hls_mtr1_hdl hls_mtr1_verilog
   set test_dir [file join $work_root $test_name]
   file mkdir $test_dir
   set original_dir [pwd]
   cd $test_dir
   puts [exec $xvhdl --2008 {*}$common_vhdl 2>@1]
   puts [exec $xvhdl {*}$wrapper_vhdl 2>@1]
-  puts [exec $xvlog -i $hls_aggregator_hdl {*}$hls_aggregator_verilog 2>@1]
+  puts [exec $xvlog -i $hls_mtr2_hdl {*}$hls_mtr2_verilog 2>@1]
   puts [exec $xvlog -i $hls_mtr1_hdl {*}$hls_mtr1_verilog 2>@1]
   puts [exec $xvlog --sv $testbench 2>@1]
   puts [exec $xelab -a --mt off $test_name -s ${test_name}_sim 2>@1]
@@ -97,7 +98,7 @@ run_test $work_root grid_cycle_timing_tb $common_vhdl $wrapper_vhdl \
   [file join $design_root MeterProcessing tb grid_cycle_timing_tb.sv] \
   $xvhdl $xvlog $xelab $simulator_libraries
 # The 150/180-cycle aggregation engine is HLS
-# (HLS_DesignFile/MeterProcessing/CycleAggregator): its twelve-scenario
+# (HLS_DesignFile/MeterProcessing/Mtr2Engine): its twelve-scenario
 # golden bench runs as C simulation and C/RTL co-simulation on every
 # 'mnc HLS build' / run_hls.sh build, and check_meter_core.tcl validates a
 # complete MTR2 record through the shim and engine in the real pipeline.

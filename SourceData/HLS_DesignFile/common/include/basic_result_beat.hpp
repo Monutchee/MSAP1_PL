@@ -10,13 +10,11 @@
 // block, produced once by the MTR1 engine and consumed by every
 // aggregation tier (today: the 150/180-cycle aggregator).
 //
-// This is the single normative definition of the beat. The bit layout is
-// carried over unchanged from cycle_aggregator.hpp (CAGG_IN_*), which
-// remains the aggregator's local copy until the plan's step-5 extension
-// migrates it to this header; the equivalence is pinned by static_asserts
-// in common/test/common_headers_test.cpp. The VHDL shim
-// (meter_cycle_aggregator_hls_shim.vhd) mirrors these offsets while it
-// exists; keep them in lock step.
+// This is the single normative definition of the beat (bit layout carried
+// over unchanged from the aggregation engine's original local definition;
+// the values are pinned by static_asserts in
+// common/test/common_headers_test.cpp). Producer: the MTR1 engine's
+// m_result stream. Consumer: the MTR2 aggregation engine's s_basic.
 //
 // Every field is byte aligned; [MSB:LSB] positions are normative. The
 // APPLY configuration toggle is not a separate port: the producer samples
@@ -44,7 +42,7 @@ typedef ap_uint<BASIC_BEAT_BITS> basic_result_beat_t;
 // ---------------------------------------------------------------------------
 // Unpacked view. Engines work on named fields; the beat exists only on the
 // wire. pack/unpack below are the explicit lane mapping (wired bit
-// selects, no barrel shifting — the CycleAggregator area lesson).
+// selects, no barrel shifting — the aggregation-trial area lesson).
 // ---------------------------------------------------------------------------
 struct basic_result_t {
   mtr_word32_t          sequence;          // basic-block result sequence

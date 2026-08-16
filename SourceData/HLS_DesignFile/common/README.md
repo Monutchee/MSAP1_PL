@@ -31,7 +31,7 @@ tb.cflags=-Isrc -I../../common/include
   in `test/common_headers_test.cpp` so they cannot drift silently.
 - **Shim lock-step.** Any VHDL shim that carries one of these beats
   mirrors the offsets here and says so at its declaration; the
-  integration/equivalence benches catch drift (the CycleAggregator rule,
+  integration/equivalence benches catch drift (the aggregation-engine rule,
   `AGENTS.md`).
 - **Software ships with hardware.** The record envelope and word maps
   bind the APU decoder (`MSAP1_APU common/msap1/meter/meter_record.hpp`).
@@ -45,7 +45,7 @@ tb.cflags=-Isrc -I../../common/include
 | Definition | Current normative source | Migrates |
 |---|---|---|
 | Record envelope + MTR1-v3/MTR2-v2 maps | **normative here** — both engines emit them; APU-side review/update (plan §13 Q4) ships in the same release | PL side done |
-| Basic result beat | **this header** (the CycleAggregator migrated at its record-output extension; the old `CAGG_IN_*` constants are gone) | done |
+| Basic result beat | **this header** (the MTR2 engine migrated at its record-output extension; the old `CAGG_IN_*` constants are gone) | done |
 | Aggregate output beat (`CAGG_OUT_*`) | retired — the extended aggregator emits records, not beats | done |
 | VHDL mirrors (`measurement_record_bus_pkg.vhd`, shim constants) | comment-linked mirrors | retire with their last VHDL consumer |
 

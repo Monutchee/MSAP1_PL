@@ -1,9 +1,9 @@
 #include <cstdio>
 #include <vector>
 
-#include "cycle_aggregator.hpp"
+#include "mtr2_engine.hpp"
 
-// C testbench for hls_cycle_aggregator -- the engine's primary bench.
+// C testbench for hls_mtr2_engine -- the engine's primary bench.
 //
 // The twelve scenarios T1..T12 and their expected header/counter values
 // originate from the retired RTL engine's unit test (git history:
@@ -399,7 +399,7 @@ int main() {
 
   // ---- Run the engine over the whole stimulus ----------------------------
   for (int call = 0; call < beats_sent; ++call) {
-    hls_cycle_aggregator(s_basic, m_axis);
+    hls_mtr2_engine(s_basic, m_axis);
   }
 
   // ---- Collect and check every record in stream order --------------------
@@ -450,9 +450,9 @@ int main() {
   }
 
   if (errors != 0) {
-    std::printf("FAIL: cycle_aggregator_tb, %d error(s)\n", errors);
+    std::printf("FAIL: mtr2_engine_tb, %d error(s)\n", errors);
     return 1;
   }
-  std::printf("PASS: cycle_aggregator_tb (%zu records)\n", matched);
+  std::printf("PASS: mtr2_engine_tb (%zu records)\n", matched);
   return 0;
 }

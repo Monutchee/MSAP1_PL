@@ -1,9 +1,9 @@
-#include "cycle_aggregator.hpp"
+#include "mtr2_engine.hpp"
 
 #include "mtr_math.hpp"
 
 // IEC 61000-4-30 150/180-cycle aggregator. Behavioural contract and
-// interface: see cycle_aggregator.hpp. The aggregation rules and
+// interface: see mtr2_engine.hpp. The aggregation rules and
 // arithmetic are unchanged from the compared-deployment engine; this
 // revision swapped the I/O boundary onto the shared contracts
 // (basic_result_beat.hpp in, serialize_record<MTR2_V2> out) so the
@@ -47,7 +47,7 @@ ap_uint<8> expected_cycles(ap_uint<8> nominal_hz) {
 
 }  // namespace
 
-void hls_cycle_aggregator(hls::stream<basic_result_beat_t> &s_basic,
+void hls_mtr2_engine(hls::stream<basic_result_beat_t> &s_basic,
                           hls::stream<record_axis_t> &m_axis) {
   // register_mode=off on the wide fabric-internal input (the producer
   // registers its side); the exported 32-bit record stream keeps the
@@ -79,7 +79,7 @@ void hls_cycle_aggregator(hls::stream<basic_result_beat_t> &s_basic,
   // Distributed RAM: seven-deep arrays otherwise cost whole RAMB36 blocks
   // for under two kilobits of state (the RTL engine kept these in
   // registers).
-  static ap_uint<CAGG_ACC_BITS> square_acc[MTR_ACTIVE_CHANNELS];
+  static ap_uint<MTR2_ACC_BITS> square_acc[MTR_ACTIVE_CHANNELS];
 #pragma HLS BIND_STORAGE variable=square_acc type=ram_s2p impl=lutram
   static ap_uint<32> out_sequence = 0;
 
@@ -178,7 +178,7 @@ square_lanes:
         (lane < 0) ? ap_uint<64>(-lane) : ap_uint<64>(lane);
     const ap_uint<128> square = ap_uint<128>(magnitude) * magnitude;
     square_acc[channel] =
-        (seed ? ap_uint<CAGG_ACC_BITS>(0) : square_acc[channel]) + square;
+        (seed ? ap_uint<MTR2_ACC_BITS>(0) : square_acc[channel]) + square;
   }
 
   if (blocks_accumulated != MTR_BASIC_BLOCKS_PER_AGGREGATE) {
@@ -194,8 +194,8 @@ finalize_lanes:
 #pragma HLS PIPELINE off
     // 15 squares of 63-bit magnitudes stay below 2**130; the mean stays
     // below 2**127, so the 128-bit radicand cannot truncate (RTL rule).
-    const ap_uint<CAGG_ACC_BITS> mean =
-        floor_div_15<CAGG_ACC_BITS>(square_acc[channel]);
+    const ap_uint<MTR2_ACC_BITS> mean =
+        floor_div_15<MTR2_ACC_BITS>(square_acc[channel]);
     rms_result[channel] = floor_sqrt_128(mean.range(127, 0));
   }
 

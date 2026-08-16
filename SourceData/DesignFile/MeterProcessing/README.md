@@ -175,7 +175,7 @@ MTR1-v3 and MTR2-v2 interior maps).
   `0x00010003` record per basic block on `M_AXIS_MTR1` and one
   basic-result beat (common `basic_result_beat.hpp`, 808 bits) to the
   aggregator.
-- The aggregation engine (`HLS_DesignFile/MeterProcessing/CycleAggregator`)
+- The aggregation engine (`HLS_DesignFile/MeterProcessing/Mtr2Engine`)
   consumes exactly 15 consecutive eligible basic results — never raw
   samples, never a wall-clock timer — and emits one `0x00020002` record
   per completed 150-cycle (50 Hz) / 180-cycle (60 Hz) aggregate on

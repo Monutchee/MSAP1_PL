@@ -43,8 +43,7 @@ div_bits:
 // the full 128-bit radicand range, no multiplier. meter_rms.vhd reaches
 // the same floor value through a 64-step binary search with a 64x64
 // multiply (CALC_SQRT_* states) and the result range never clips: any
-// 128-bit radicand has a floor root below 2**64. Identical to the
-// CycleAggregator's local copy until that component migrates here.
+// 128-bit radicand has a floor root below 2**64. Shared by both engines.
 inline ap_uint<64> floor_sqrt_128(ap_uint<128> radicand) {
   ap_uint<64> root = 0;
   ap_uint<66> remainder = 0;

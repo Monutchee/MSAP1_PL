@@ -166,7 +166,7 @@ Consequences for this plan:
 │   record → serialize                                              │
 │        │ m_result (basic-result beats)     │ M_AXIS_MTR1 (32b)    │
 │        ▼                                   │                      │
-│ CycleAggregator (HLS, extended): aggregate │                      │
+│ Mtr2Engine (HLS): aggregate 15 results     │                      │
 │   15 results → build MTR2 record → serialize                      │
 │                                            │ M_AXIS_MTR2 (32b)    │
 └────────────────────────────────────────────┼──────────────────────┘
@@ -247,7 +247,7 @@ diagnostic counters. The RTL owns all timing decisions
 IEC boundaries). Layout is normative in `mtr1_engine.hpp`; the shim
 mirrors it in lock step (the aggregator rule, `AGENTS.md`).
 
-### 5.4 Basic-result beat (Mtr1Engine → CycleAggregator)
+### 5.4 Basic-result beat (Mtr1Engine → Mtr2Engine)
 
 The existing `basic_measurement_result_t` content
 (`measurement_record_bus_pkg.vhd:41-59`) becomes an HLS-to-HLS AXIS
@@ -292,7 +292,7 @@ compared offline against records produced by today's production
 bitstream — real-data equivalence without a compare block or dual
 deployment; (c) xsim integration bench through the real shim.
 
-## 7. CycleAggregator extension (MTR2 all-HLS)
+## 7. CycleAggregator extension (MTR2 all-HLS; renamed Mtr2Engine)
 
 - New input: `s_basic` consumes Mtr1Engine's `m_result` stream (replaces
   the shim-assembled event beat). Aggregation math, eligibility rules,
@@ -369,7 +369,8 @@ its own DMA channel (different burstiness/latency/retention — §13 Q2)?
 
 **Status 2026-08-16 (implementation session):** steps 1–6 are code-complete
 on `feat/hls_mtr1`: both engines pass csim + C/RTL cosim and are packaged
-(`Mtr1Engine` 10.0k LUT / 9.7k FF / 82 DSP; extended `CycleAggregator`
+(`Mtr1Engine` 10.0k LUT / 9.7k FF / 82 DSP; extended `CycleAggregator`,
+since renamed `Mtr2Engine` per §7's rename option,
 4.7k LUT / 4.4k FF / 16 DSP); the retired VHDL (meter_rms, hub,
 arbiter, packetizer, aggregate producer, old shim, VoltageRms wrapper and
 their benches) is deleted; meter_core/MeterCore_Wrapper rewired

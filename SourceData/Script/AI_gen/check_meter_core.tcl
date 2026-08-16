@@ -7,14 +7,14 @@ set work_root [file join /tmp msap1_meter_core_sim]
 
 # Packaged HLS RTL (IP repository entry); refreshed by 'mnc HLS build' or
 # SourceData/HLS_DesignFile/run_hls.sh <component>.
-set hls_aggregator_hdl [file join $project_root SourceData HLS_DesignFile \
-  ip_repo CycleAggregator hdl verilog]
-if {![file isdirectory $hls_aggregator_hdl]} {
-  error "missing $hls_aggregator_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+set hls_mtr2_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo Mtr2Engine hdl verilog]
+if {![file isdirectory $hls_mtr2_hdl]} {
+  error "missing $hls_mtr2_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
 }
-set hls_aggregator_verilog [concat \
-  [lsort [glob -directory $hls_aggregator_hdl *.v]] \
-  [list [file join $design_root MeterProcessing tb hls_cycle_aggregator_ip.v]]]
+set hls_mtr2_verilog [concat \
+  [lsort [glob -directory $hls_mtr2_hdl *.v]] \
+  [list [file join $design_root MeterProcessing tb hls_mtr2_engine_ip.v]]]
 set hls_mtr1_hdl [file join $project_root SourceData HLS_DesignFile \
   ip_repo Mtr1Engine hdl verilog]
 if {![file isdirectory $hls_mtr1_hdl]} {
@@ -56,6 +56,7 @@ set vhdl2008_sources [list \
   [file join $design_root MeterProcessing grid_cycle_timing.vhd] \
   [file join $design_root MeterProcessing record_word_tap.vhd] \
   [file join $design_root MeterProcessing meter_mtr1_hls_shim.vhd] \
+  [file join $design_root MeterProcessing meter_mtr2_hls_shim.vhd] \
   [file join $design_root MeterCore adc_simulator_pkg.vhd] \
   [file join $design_root MeterCore adc_simulator.vhd] \
   [file join $design_root MeterCore adc_source_mux.vhd] \
@@ -73,7 +74,7 @@ set original_dir [pwd]
 cd $work_root
 
 puts [exec $xvhdl --2008 {*}$vhdl2008_sources 2>@1]
-puts [exec $xvlog -i $hls_aggregator_hdl {*}$hls_aggregator_verilog 2>@1]
+puts [exec $xvlog -i $hls_mtr2_hdl {*}$hls_mtr2_verilog 2>@1]
 puts [exec $xvlog -i $hls_mtr1_hdl {*}$hls_mtr1_verilog 2>@1]
 puts [exec $xvhdl --2008 {*}$core_vhdl2008_sources 2>@1]
 puts [exec $xvhdl $boundary_wrapper 2>@1]

@@ -134,25 +134,6 @@ entity meter_core is
 end entity;
 
 architecture structural of meter_core is
-  -- Packaged-IP customization of the 150/180-cycle aggregator
-  -- (SourceData/IP/hls_cycle_aggregator_ip); the non-project check flows
-  -- bind the same name through tb/hls_cycle_aggregator_ip.v.
-  component hls_cycle_aggregator_ip is
-    port (
-      ap_clk        : in  std_logic;
-      ap_rst_n      : in  std_logic;
-      s_basic_TDATA : in  std_logic_vector(807 downto 0);
-      s_basic_TVALID: in  std_logic;
-      s_basic_TREADY: out std_logic;
-      m_axis_TDATA  : out std_logic_vector(31 downto 0);
-      m_axis_TVALID : out std_logic;
-      m_axis_TREADY : in  std_logic;
-      m_axis_TKEEP  : out std_logic_vector(3 downto 0);
-      m_axis_TSTRB  : out std_logic_vector(3 downto 0);
-      m_axis_TLAST  : out std_logic_vector(0 downto 0)
-    );
-  end component;
-
   type axis32_stream_t is record
     data  : std_logic_vector(31 downto 0);
     keep  : std_logic_vector(3 downto 0);
@@ -244,9 +225,8 @@ architecture structural of meter_core is
   signal mtr1_axis_tlast  : std_logic;
   signal mtr2_axis_tdata  : std_logic_vector(31 downto 0);
   signal mtr2_axis_tkeep  : std_logic_vector(3 downto 0);
-  signal mtr2_axis_tstrb  : std_logic_vector(3 downto 0);
   signal mtr2_axis_tvalid : std_logic;
-  signal mtr2_axis_tlast  : std_logic_vector(0 downto 0);
+  signal mtr2_axis_tlast  : std_logic;
 
   signal mtr1_tap_sequence     : std_logic_vector(31 downto 0);
   signal mtr1_tap_status       : std_logic_vector(31 downto 0);
@@ -749,28 +729,27 @@ begin
   processing_status <= (31 downto 4 => '0') & mtr1_tap_status(0) & '0' &
                        (apply_toggle xor apply_seen) & active_enable;
 
-  -- MTR2 producer: the 150/180-cycle aggregator consumes the MTR1
-  -- engine's basic-result beats and emits complete MTR2-v2 records
-  -- (packaged IP; SourceData/IP/hls_cycle_aggregator_ip).
-  mtr2_producer : hls_cycle_aggregator_ip
+  -- MTR2 producer: the 150/180-cycle aggregation engine consumes the
+  -- MTR1 engine's basic-result beats and emits complete MTR2-v2 records
+  -- (HLS_DesignFile/MeterProcessing/Mtr2Engine, hosted by its shim).
+  mtr2_producer : entity work.meter_mtr2_hls_shim
     port map (
-      ap_clk => aclk,
-      ap_rst_n => aresetn,
-      s_basic_TDATA => mtr1_result_tdata,
-      s_basic_TVALID => mtr1_result_tvalid,
-      s_basic_TREADY => mtr1_result_tready,
-      m_axis_TDATA => mtr2_axis_tdata,
-      m_axis_TVALID => mtr2_axis_tvalid,
-      m_axis_TREADY => m_axis_mtr2_tready,
-      m_axis_TKEEP => mtr2_axis_tkeep,
-      m_axis_TSTRB => mtr2_axis_tstrb,
-      m_axis_TLAST => mtr2_axis_tlast
+      aclk => aclk,
+      aresetn => aresetn,
+      s_result_tdata => mtr1_result_tdata,
+      s_result_tvalid => mtr1_result_tvalid,
+      s_result_tready => mtr1_result_tready,
+      m_axis_mtr2_tdata => mtr2_axis_tdata,
+      m_axis_mtr2_tkeep => mtr2_axis_tkeep,
+      m_axis_mtr2_tvalid => mtr2_axis_tvalid,
+      m_axis_mtr2_tready => m_axis_mtr2_tready,
+      m_axis_mtr2_tlast => mtr2_axis_tlast
     );
 
   m_axis_mtr2_tdata <= mtr2_axis_tdata;
   m_axis_mtr2_tkeep <= mtr2_axis_tkeep;
   m_axis_mtr2_tvalid <= mtr2_axis_tvalid;
-  m_axis_mtr2_tlast <= mtr2_axis_tlast(0);
+  m_axis_mtr2_tlast <= mtr2_axis_tlast;
 
   -- Register-file taps on both record streams ("as of the last emitted
   -- record"); strictly observational.
@@ -800,7 +779,7 @@ begin
       tdata_i => mtr2_axis_tdata,
       tvalid_i => mtr2_axis_tvalid,
       tready_i => m_axis_mtr2_tready,
-      tlast_i => mtr2_axis_tlast(0),
+      tlast_i => mtr2_axis_tlast,
       sequence_o => mtr2_tap_sequence,
       status_o => open,
       emit_drops_o => mtr2_tap_emit_drops,

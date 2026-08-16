@@ -244,5 +244,5 @@ source SourceData/Script/register_hls_components.tcl
 Already-registered components are untouched (`project unchanged`), so
 re-running is always safe. What it cannot add is the new component's
 maintained VHDL boundary source (its shim, e.g.
-`meter_cycle_aggregator_hls_shim.vhd`) — add that to `sources_1`
+`meter_mtr1_hls_shim.vhd` / `meter_mtr2_hls_shim.vhd`) — add that to `sources_1`
 yourself; the script prints this reminder.

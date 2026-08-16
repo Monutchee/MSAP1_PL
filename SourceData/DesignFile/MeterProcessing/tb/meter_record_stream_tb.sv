@@ -2,9 +2,9 @@
 
 // Whole-chain record-stream integration bench (verification plan TB-1).
 //
-// Drives converted-frame beats into the REAL meter_mtr1_hls_shim, through
-// the PACKAGED hls_mtr1_engine and hls_cycle_aggregator RTL (bound exactly
-// as the build binds them), to both exported 32-bit AXIS record streams —
+// Drives converted-frame beats through the REAL shims and the PACKAGED
+// hls_mtr1_engine and hls_mtr2_engine RTL (bound exactly as the build
+// binds them), to both exported 32-bit AXIS record streams —
 // no stubs anywhere on a path that has ever produced a field fault (TB-2),
 // and stimulus enters only at the sample/event boundary (TB-3).
 //
@@ -83,8 +83,7 @@ module meter_record_stream_tb;
   wire mtr2_tvalid;
   logic mtr2_tready;
   wire [3:0] mtr2_tkeep;
-  wire [3:0] mtr2_tstrb;
-  wire [0:0] mtr2_tlast;
+  wire mtr2_tlast;
 
   wire [31:0] active_generation;
   wire active_enable;
@@ -132,17 +131,16 @@ module meter_record_stream_tb;
     .drop_count_o(shim_drop_count)
   );
 
-  hls_cycle_aggregator_ip aggregator (
-    .ap_clk(clock), .ap_rst_n(resetn),
-    .s_basic_TDATA(result_tdata),
-    .s_basic_TVALID(result_tvalid),
-    .s_basic_TREADY(result_tready),
-    .m_axis_TDATA(mtr2_tdata),
-    .m_axis_TVALID(mtr2_tvalid),
-    .m_axis_TREADY(mtr2_tready),
-    .m_axis_TKEEP(mtr2_tkeep),
-    .m_axis_TSTRB(mtr2_tstrb),
-    .m_axis_TLAST(mtr2_tlast)
+  meter_mtr2_hls_shim aggregator (
+    .aclk(clock), .aresetn(resetn),
+    .s_result_tdata(result_tdata),
+    .s_result_tvalid(result_tvalid),
+    .s_result_tready(result_tready),
+    .m_axis_mtr2_tdata(mtr2_tdata),
+    .m_axis_mtr2_tkeep(mtr2_tkeep),
+    .m_axis_mtr2_tvalid(mtr2_tvalid),
+    .m_axis_mtr2_tready(mtr2_tready),
+    .m_axis_mtr2_tlast(mtr2_tlast)
   );
 
   // Independent framing watchdogs (the in-fabric register taps).
@@ -161,7 +159,7 @@ module meter_record_stream_tb;
   record_word_tap mtr2_tap (
     .aclk(clock), .aresetn(resetn),
     .tdata_i(mtr2_tdata), .tvalid_i(mtr2_tvalid),
-    .tready_i(mtr2_tready), .tlast_i(mtr2_tlast[0]),
+    .tready_i(mtr2_tready), .tlast_i(mtr2_tlast),
     .sequence_o(mtr2_tap_sequence), .status_o(),
     .emit_drops_o(), .result_drops_o(),
     .reset_count_o(mtr2_tap_reset), .ineligible_count_o(mtr2_tap_inelig),
@@ -310,10 +308,10 @@ module meter_record_stream_tb;
         end
       end
       if (mtr2_tvalid && mtr2_tready) begin
-        assert (mtr2_tkeep == 4'hF && mtr2_tstrb == 4'hF)
-          else $fatal(1, "MTR2 TKEEP/TSTRB not full");
+        assert (mtr2_tkeep == 4'hF)
+          else $fatal(1, "MTR2 TKEEP not full");
         mtr2_word[mtr2_beat] <= mtr2_tdata;
-        assert (mtr2_tlast[0] == (mtr2_beat == 63))
+        assert (mtr2_tlast == (mtr2_beat == 63))
           else $fatal(1, "MTR2 TLAST at beat %0d", mtr2_beat);
         if (mtr2_beat == 63) begin
           mtr2_beat <= 0;

@@ -15,7 +15,7 @@
 //
 // This header is the single C++ definition of quantities that used to be
 // declared per language and per module (metering_pkg.vhd,
-// measurement_record_bus_pkg.vhd, cycle_aggregator.hpp). An HLS component
+// measurement_record_bus_pkg.vhd, per-engine headers). An HLS component
 // must include this header instead of restating any value below; the VHDL
 // packages keep mirrored constants only while VHDL consumers still exist,
 // and the mirror is documented at each VHDL site.
