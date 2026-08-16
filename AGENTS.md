@@ -13,11 +13,17 @@
   independent meter and waveform AXI DMA engines, AXI Quad SPI, AXI GPIO,
   heartbeat, fan routing, clocks, resets, and external ports.
 - `SourceData/DesignFile/MeterCore/` is the single metering module-reference
-  boundary. Its VHDL hierarchy owns AD7771 capture, runtime conversion, RMS
-  processing, VLA frequency measurement, grid-cycle timing for IEC 61000-4-30
-  basic measurement blocks (`MeterProcessing/grid_cycle_timing.vhd`, contract
-  in `MeterCommon/grid_timing_pkg.vhd`), the raw ADC simulator/source mux, the
-  result hub, and MTR1 packetization.
+  boundary. Its VHDL hierarchy owns AD7771 capture, runtime conversion, VLA
+  frequency measurement, grid-cycle timing for IEC 61000-4-30 basic
+  measurement blocks (`MeterProcessing/grid_cycle_timing.vhd`, contract in
+  `MeterCommon/grid_timing_pkg.vhd`), the raw ADC simulator/source mux, the
+  MTR1 sample-beat shim (`MeterProcessing/meter_mtr1_hls_shim.vhd`), and the
+  record-stream register taps (`MeterProcessing/record_word_tap.vhd`). The
+  metering numerics and record construction/serialization are Vitis HLS
+  engines hosted inside this hierarchy; each producer's finished 256-byte
+  record stream leaves `MeterCore_Wrapper` as its own AXIS master
+  (`M_AXIS_MTR1`, `M_AXIS_MTR2`) into per-producer packet-mode FIFOs and an
+  AXIS switch in `TopDesign.bd`.
 - The conversion stage owns the 64-bit free-running sample index (low word in
   `TUSER[31:0]`, high word in `TUSER[105:74]`). It is the measurement
   timebase: never reset it on configuration apply and never step it for time
@@ -28,22 +34,29 @@
   committed by the shared `CONTROL.APPLY` toggle). Like the frequency and
   waveform branches, grid timing is observational: it must never backpressure
   ADC capture, RMS, or MTR1 production.
-- The 150/180-cycle aggregation engine is Vitis HLS
-  (`SourceData/HLS_DesignFile/MeterProcessing/CycleAggregator`;
-  `cycle_aggregator.hpp`/`.cpp` are the normative sources -- the
-  hand-written RTL engine it replaced lives in git history). It consumes
-  the internal Basic result event through
-  `MeterProcessing/meter_cycle_aggregator_hls_shim.vhd` and publishes MTR2
-  records (`0x00020001`) through the measurement record bus
-  (`MeterCommon/measurement_record_bus_pkg.vhd`, arbiter + producers in
-  `MeterProcessing/`). Aggregates are formed from exactly 15 eligible
-  Basic results -- never from raw samples or a wall-clock timer -- and
-  aggregate data never travels over RPMsg. Like every metrology observer
-  it must never backpressure measurement. Health registers `0x78`-`0x98`
-  in the processing block are "as of the last emitted aggregate" (the
-  counters ride in the engine's beat); `AGG_STATUS` `0x78` and the
-  reserved mismatch register `0x94` read zero. The AXI4-Stream beat
-  layouts in `cycle_aggregator.hpp` and the shim must stay in lock step.
+- Both record producers are Vitis HLS engines that build and serialize
+  their own records: the MTR1 basic engine
+  (`SourceData/HLS_DesignFile/MeterProcessing/Mtr1Engine`,
+  `mtr1_engine.hpp`/`.cpp` normative) and the 150/180-cycle aggregation
+  engine (`.../Mtr2Engine`, `mtr2_engine.hpp`/`.cpp` normative;
+  the hand-written RTL engines they replaced live in git history). Shared
+  contracts -- the 256-byte record envelope with the MTR1-v3 (`0x00010003`)
+  and MTR2-v2 (`0x00020002`) maps, the basic-result beat, and the serial
+  math -- are single-defined in `SourceData/HLS_DesignFile/common/include/`
+  and mirrored by any VHDL shim in lock step. Aggregates are formed from
+  exactly 15 eligible Basic results -- never from raw samples or a
+  wall-clock timer -- and aggregate data never travels over RPMsg. Like
+  every metrology observer the engines must never backpressure
+  measurement (the MTR1 shim's beat FIFO absorbs finalize latency and
+  counts any overflow). Health registers `0x24`-`0x2c` and `0x78`-`0x98`
+  in the processing block are "as of the last emitted record" (the
+  counters ride inside the records, republished by `record_word_tap`);
+  `AGG_STATUS` `0x78` and the reserved mismatch register `0x94` read
+  zero, and `0x98` now counts MTR1 shim FIFO drops. Never wire two
+  `register_mode=off` HLS axis ports directly together: a raw HLS axis
+  master gates TVALID on TREADY (AXI-illegal) and deadlocks against a
+  TVALID-gated reader -- keep the boundary register on every HLS axis
+  master.
 - `SourceData/HLS_DesignFile/` holds Vitis HLS components: C++ sources are
   the design input; the shared `HLS_DesignFile/run_hls.sh [component]`
   verifies one component (csim + C/RTL cosim), packages the IP, and unpacks
@@ -56,7 +69,8 @@
   reference (`SUPPORTS_MODREF=1`); only the `.xci` is tracked, its output
   products are not. The non-project check scripts compile the packaged RTL
   directly from `ip_repo/<Name>/hdl/verilog` with the module-name binding
-  in `DesignFile/MeterProcessing/tb/hls_cycle_aggregator_ip.v`. A fresh
+  in `DesignFile/MeterProcessing/tb/hls_mtr1_engine_ip.v` and
+  `hls_mtr2_engine_ip.v`. A fresh
   checkout must run `mnc HLS build` (or `HLS_DesignFile/run_hls.sh`) first;
   the check scripts fail with that instruction when the repository is
   absent. After any HLS source change: `run_hls.sh`, then

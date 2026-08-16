@@ -45,11 +45,10 @@ set vhdl2008_sources [list \
     [file join $design_dir MeterProcessing meter_zero_crossing.vhd] \
     [file join $design_dir MeterProcessing meter_frequency_estimator.vhd] \
     [file join $design_dir MeterProcessing meter_frequency.vhd] \
-    [file join $design_dir MeterProcessing meter_rms.vhd] \
     [file join $design_dir MeterProcessing grid_cycle_timing.vhd] \
-    [file join $design_dir MeterProcessing meter_cycle_aggregator.vhd] \
-    [file join $design_dir MeterProcessing aggregate_record_producer.vhd] \
-    [file join $design_dir MeterProcessing measurement_record_arbiter.vhd] \
+    [file join $design_dir MeterProcessing record_word_tap.vhd] \
+    [file join $design_dir MeterProcessing meter_mtr1_hls_shim.vhd] \
+    [file join $design_dir MeterProcessing meter_mtr2_hls_shim.vhd] \
     [file join $design_dir MeterCore adc_simulator_pkg.vhd] \
     [file join $design_dir MeterCore adc_simulator.vhd] \
     [file join $design_dir MeterCore adc_source_mux.vhd] \
@@ -65,8 +64,6 @@ foreach vhdl_source $vhdl2008_sources {
 
 set module_reference_sources [list \
     [file join $design_dir HeatBeat_Controller HeatBeat_Wrapper.vhd] \
-    [file join $design_dir MeterProcessing MeterResultHub_Wrapper.vhd] \
-    [file join $design_dir MeterProcessing MeterPacketizer_Wrapper.vhd] \
     [file join $design_dir MeterCore MeterCore_Wrapper.vhd]]
 foreach module_reference_source $module_reference_sources {
     if {[llength [get_files -quiet $module_reference_source]] == 0} {

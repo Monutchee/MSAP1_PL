@@ -1,0 +1,175 @@
+// Unit test for the common HLS headers. Plain C++ (g++ + the Vitis
+// include tree, csim style) — no HLS tool run needed. Checks three
+// things:
+//
+//   1. Layout pins: the basic-result beat here is byte-identical to the
+//      CycleAggregator's local CAGG_IN_* definition it will replace, so
+//      the two cannot drift apart during the migration window.
+//   2. pack/unpack round-trips every field, including negative Q16 lanes.
+//   3. serialize_record obeys the DMA framing invariant: exactly 64
+//      beats, TKEEP full on all, TLAST on beat 63 only, envelope words
+//      stamped even when the builder wrote garbage over them.
+
+#include <cstdio>
+#include <cstdlib>
+
+#include "basic_result_beat.hpp"
+#include "measurement_record.hpp"
+#include "metering_types.hpp"
+
+// ---------------------------------------------------------------------------
+// 1. Compile-time pins.
+// ---------------------------------------------------------------------------
+
+// Pin the beat layout to the values in CycleAggregator/src/
+// cycle_aggregator.hpp (CAGG_IN_*). If either side changes, this file
+// stops compiling — update BOTH normative comments, the VHDL shim, and
+// the equivalence bench together.
+static_assert(BASIC_BEAT_SEQUENCE_LSB == 0, "layout pin");
+static_assert(BASIC_BEAT_GENERATION_LSB == 32, "layout pin");
+static_assert(BASIC_BEAT_SAMPLE_RATE_LSB == 64, "layout pin");
+static_assert(BASIC_BEAT_SAMPLE_COUNT_LSB == 96, "layout pin");
+static_assert(BASIC_BEAT_VALID_MASK_LSB == 128, "layout pin");
+static_assert(BASIC_BEAT_FLAGS_LSB == 136, "layout pin");
+static_assert(BASIC_BEAT_CYCLE_COUNT_LSB == 144, "layout pin");
+static_assert(BASIC_BEAT_NOMINAL_HZ_LSB == 152, "layout pin");
+static_assert(BASIC_BEAT_STATUS_LSB == 160, "layout pin");
+static_assert(BASIC_BEAT_FREQ_LSB == 192, "layout pin");
+static_assert(BASIC_BEAT_FREQ_VALID_BIT == 224, "layout pin");
+static_assert(BASIC_BEAT_APPLY_TOGGLE_BIT == 225, "layout pin");
+static_assert(BASIC_BEAT_FIRST_SAMPLE_LSB == 232, "layout pin");
+static_assert(BASIC_BEAT_RMS_LSB == 296, "layout pin");
+static_assert(BASIC_BEAT_BITS == 808, "layout pin");
+static_assert(BASIC_BEAT_RMS_LSB + MTR_RMS_LANES_BITS == BASIC_BEAT_BITS,
+              "RMS lanes must end exactly at the beat MSB");
+
+// Record geometry is fixed by the kernel DMA contract.
+static_assert(MREC_WORDS == 64 && MREC_BYTES == 256, "DMA framing contract");
+static_assert(MREC_WORDS * 4 == MREC_BYTES, "words/bytes coherence");
+
+// Interior maps must stay inside the record and clear of each other.
+static_assert(MTR1_CH_BASE_WORD + MTR_CHANNEL_LANES * MTR1_CH_STRIDE_WORDS ==
+                  MTR1_FREQUENCY_VALUE_WORD,
+              "MTR1 channel block must abut the frequency block");
+static_assert(MTR1_ADC_ALERTS_WORD == MREC_WORDS - 1, "MTR1 map fills the record");
+static_assert(MTR2_CH_BASE_WORD + MTR_CHANNEL_LANES * MTR2_CH_STRIDE_WORDS ==
+                  MTR2_FREQUENCY_WORD,
+              "MTR2 channel block must abut the frequency word");
+static_assert(MTR2_CONTINUITY_COUNT_WORD < MREC_WORDS, "MTR2 map in bounds");
+static_assert(MREC_FORMAT_HEADER_WORD > MREC_RESULT_DROPS_WORD &&
+                  MREC_PAYLOAD_WORD > MREC_FORMAT_HEADER_WORD,
+              "envelope / format header / payload ordering");
+
+// ---------------------------------------------------------------------------
+// Run-time checks.
+// ---------------------------------------------------------------------------
+static int failures = 0;
+
+#define CHECK(cond, what)                                        \
+  do {                                                           \
+    if (!(cond)) {                                               \
+      std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, what); \
+      ++failures;                                                \
+    }                                                            \
+  } while (0)
+
+static void test_basic_result_round_trip() {
+  basic_result_t in;
+  in.sequence = 0xDEADBEEF;
+  in.generation = 7;
+  in.sample_rate_hz = 32000;
+  in.sample_count = 6379;             // cycle mode: not the configured window
+  in.valid_mask = 0x7F;               // CH0..CH6
+  in.flags = (1u << MTR_FLAG_LOCKED); // locked, no fallback, not first
+  in.cycle_count = MTR_GRID_CYCLES_60HZ;
+  in.nominal_hz = 60;
+  in.status = 0;
+  in.frequency_millihz = 59987;
+  in.frequency_valid = 1;
+  in.apply_toggle = 1;
+  in.first_sample = ap_uint<64>(0x123456789ABCDEF0ULL);
+  for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane)
+    in.rms_q16[lane] = (lane == 3) ? mtr_q16_t(-1234567891234LL)
+                                   : mtr_q16_t(0x0123456700000000LL + lane);
+
+  const basic_result_t out = unpack_basic_result(pack_basic_result(in));
+
+  CHECK(out.sequence == in.sequence, "sequence");
+  CHECK(out.generation == in.generation, "generation");
+  CHECK(out.sample_rate_hz == in.sample_rate_hz, "sample_rate");
+  CHECK(out.sample_count == in.sample_count, "sample_count");
+  CHECK(out.valid_mask == in.valid_mask, "valid_mask");
+  CHECK(out.flags == in.flags, "flags");
+  CHECK(out.cycle_count == in.cycle_count, "cycle_count");
+  CHECK(out.nominal_hz == in.nominal_hz, "nominal_hz");
+  CHECK(out.status == in.status, "status");
+  CHECK(out.frequency_millihz == in.frequency_millihz, "frequency_millihz");
+  CHECK(out.frequency_valid == in.frequency_valid, "frequency_valid");
+  CHECK(out.apply_toggle == in.apply_toggle, "apply_toggle");
+  CHECK(out.first_sample == in.first_sample, "first_sample");
+  for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane)
+    CHECK(out.rms_q16[lane] == in.rms_q16[lane], "rms lane");
+
+  // Field independence: a beat with exactly one field set must read back
+  // zero everywhere else (catches overlapping ranges). Note ap_uint's
+  // default constructor does NOT zero the value, so unpacking an
+  // explicitly zero beat is the reliable way to get an all-zero struct.
+  basic_result_t lone = unpack_basic_result(basic_result_beat_t(0));
+  lone.frequency_millihz = 0xFFFFFFFF;
+  const basic_result_t lone_out = unpack_basic_result(pack_basic_result(lone));
+  CHECK(lone_out.frequency_millihz == 0xFFFFFFFF, "lone field survives");
+  CHECK(lone_out.sequence == 0 && lone_out.status == 0 &&
+            lone_out.first_sample == 0 && lone_out.frequency_valid == 0 &&
+            lone_out.rms_q16[0] == 0,
+        "no field overlap");
+}
+
+static void test_serialize_record_framing() {
+  record_image_t image;
+  clear_record(image);
+  for (int w = 0; w < MREC_WORDS; ++w)
+    CHECK(image.word[w] == 0, "clear_record zeroes");
+
+  // Deliberately corrupt the envelope words a builder must not own, fill
+  // a recognizable payload, then serialize.
+  image.word[MREC_MAGIC_WORD] = 0xBADBAD00;
+  image.word[MREC_FORMAT_WORD] = 0xBADBAD01;
+  image.word[MREC_SIZE_WORD] = 0xBADBAD02;
+  image.word[MREC_SEQUENCE_WORD] = 1053;
+  image.word[MTR1_TIMING_WORD] =
+      (50u << MTR1_TIMING_NOMINAL_LSB) | (10u << MTR1_TIMING_CYCLES_LSB) |
+      (1u << (MTR1_TIMING_FLAGS_LSB + MTR_FLAG_LOCKED));
+  for (int w = MREC_PAYLOAD_WORD; w < MREC_WORDS; ++w)
+    image.word[w] = 0xA0000000u + w;
+
+  record_axis_stream_t stream("m_axis");
+  serialize_record<0x00010003>(image, stream);
+
+  int beats = 0;
+  while (!stream.empty()) {
+    const record_axis_t beat = stream.read();
+    CHECK(beat.keep == MREC_KEEP_ALL, "TKEEP full on every beat");
+    CHECK(beat.last == (beats == MREC_WORDS - 1 ? 1 : 0),
+          "TLAST on beat 63 only");
+    if (beats == MREC_MAGIC_WORD) CHECK(beat.data == MREC_MAGIC, "magic stamped");
+    if (beats == MREC_FORMAT_WORD)
+      CHECK(beat.data == MREC_FORMAT_MTR1_V3, "format stamped from template");
+    if (beats == MREC_SIZE_WORD) CHECK(beat.data == MREC_BYTES, "size stamped");
+    if (beats == MREC_SEQUENCE_WORD) CHECK(beat.data == 1053, "sequence carried");
+    if (beats >= MREC_PAYLOAD_WORD)
+      CHECK(beat.data == 0xA0000000u + beats, "payload word carried");
+    ++beats;
+  }
+  CHECK(beats == MREC_WORDS, "exactly 64 beats per record");
+}
+
+int main() {
+  test_basic_result_round_trip();
+  test_serialize_record_framing();
+  if (failures) {
+    std::printf("common_headers_test: %d FAILURE(S)\n", failures);
+    return EXIT_FAILURE;
+  }
+  std::printf("common_headers_test: PASS\n");
+  return EXIT_SUCCESS;
+}

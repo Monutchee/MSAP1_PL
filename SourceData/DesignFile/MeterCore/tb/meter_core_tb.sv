@@ -94,11 +94,19 @@ module meter_core_tb;
   wire sim_rvalid;
   logic sim_rready = 1'b1;
 
-  wire [31:0] meter_tdata;
-  wire [3:0] meter_tkeep;
-  wire meter_tvalid;
-  logic meter_tready = 1'b0;
-  wire meter_tlast;
+  // The HLS engines emit records directly on separate producer streams:
+  // MTR1 basic records on mtr1_*, MTR2 aggregate records on mtr2_*.
+  wire [31:0] mtr1_tdata;
+  wire [3:0] mtr1_tkeep;
+  wire mtr1_tvalid;
+  logic mtr1_tready = 1'b0;
+  wire mtr1_tlast;
+
+  wire [31:0] mtr2_tdata;
+  wire [3:0] mtr2_tkeep;
+  wire mtr2_tvalid;
+  logic mtr2_tready = 1'b0;
+  wire mtr2_tlast;
 
   wire [31:0] waveform_tdata;
   wire [3:0] waveform_tkeep;
@@ -212,11 +220,16 @@ module meter_core_tb;
     .s_axi_simulator_rresp(sim_rresp),
     .s_axi_simulator_rvalid(sim_rvalid),
     .s_axi_simulator_rready(sim_rready),
-    .m_axis_meter_tdata(meter_tdata),
-    .m_axis_meter_tkeep(meter_tkeep),
-    .m_axis_meter_tvalid(meter_tvalid),
-    .m_axis_meter_tready(meter_tready),
-    .m_axis_meter_tlast(meter_tlast),
+    .m_axis_mtr1_tdata(mtr1_tdata),
+    .m_axis_mtr1_tkeep(mtr1_tkeep),
+    .m_axis_mtr1_tvalid(mtr1_tvalid),
+    .m_axis_mtr1_tready(mtr1_tready),
+    .m_axis_mtr1_tlast(mtr1_tlast),
+    .m_axis_mtr2_tdata(mtr2_tdata),
+    .m_axis_mtr2_tkeep(mtr2_tkeep),
+    .m_axis_mtr2_tvalid(mtr2_tvalid),
+    .m_axis_mtr2_tready(mtr2_tready),
+    .m_axis_mtr2_tlast(mtr2_tlast),
     .m_axis_waveform_tdata(waveform_tdata),
     .m_axis_waveform_tkeep(waveform_tkeep),
     .m_axis_waveform_tvalid(waveform_tvalid),
@@ -474,64 +487,67 @@ module meter_core_tb;
                                   input integer rms6);
     begin
       case (word_index)
-        0: assert (meter_tdata == 32'h3152_544d) else $fatal(1, "bad MTR1 magic");
-        1: assert (meter_tdata == 32'h0001_0002) else $fatal(1, "bad record format");
-        2: assert (meter_tdata == 32'd256) else $fatal(1, "bad record length");
-        3: assert (meter_tdata == expected_sequence) else $fatal(1, "bad result sequence");
-        4: assert (meter_tdata == expected_generation) else $fatal(1, "bad generation");
-        5: assert (meter_tdata == 32'd20) else $fatal(1, "bad sample rate");
-        6: assert (meter_tdata == 32'd4) else $fatal(1, "bad RMS window");
-        7: assert (meter_tdata[7:0] == 8'h7f) else $fatal(1, "bad valid mask");
-        8: assert (meter_tdata == 0) else $fatal(1, "unexpected result status");
-        15: assert (meter_tdata == expected_timing)
-          else $fatal(1, "bad timing word %08h, expected %08h",
-                      meter_tdata, expected_timing);
-        10: assert (meter_tdata == 0) else $fatal(1, "header errors are non-zero");
-        11: assert (meter_tdata == 0) else $fatal(1, "FIFO overflows are non-zero");
-        12: assert (meter_tdata == 0) else $fatal(1, "packetizer drops are non-zero");
-        13: assert (meter_tdata == 0) else $fatal(1, "hub drops are non-zero");
-        14: assert (meter_tdata == 0) else $fatal(1, "ADC alerts are non-zero");
-        16: assert ($signed(meter_tdata) == 20) else $fatal(1, "CH0 mean mismatch");
-        17: assert (meter_tdata == 0) else $fatal(1, "CH0 mean high mismatch");
-        18: assert (meter_tdata == rms0) else $fatal(1, "CH0 raw RMS mismatch");
-        19: assert ($signed(meter_tdata) == rms0) else $fatal(1, "CH0 RMS mismatch");
-        20: assert (meter_tdata == 0) else $fatal(1, "CH0 RMS high mismatch");
-        21: assert ($signed(meter_tdata) == 20) else $fatal(1, "CH1 mean mismatch");
-        22: assert (meter_tdata == 0) else $fatal(1, "CH1 mean high mismatch");
-        23: assert (meter_tdata == rms1) else $fatal(1, "CH1 raw RMS mismatch");
-        24: assert ($signed(meter_tdata) == rms1) else $fatal(1, "CH1 RMS mismatch");
-        25: assert (meter_tdata == 0) else $fatal(1, "CH1 RMS high mismatch");
-        26: assert ($signed(meter_tdata) == -8) else $fatal(1, "CH2 mean mismatch");
-        27: assert (meter_tdata == 32'hffff_ffff) else $fatal(1, "CH2 mean high mismatch");
-        28: assert (meter_tdata == rms2) else $fatal(1, "CH2 raw RMS mismatch");
-        29: assert ($signed(meter_tdata) == rms2) else $fatal(1, "CH2 RMS mismatch");
-        30: assert (meter_tdata == 0) else $fatal(1, "CH2 RMS high mismatch");
-        31: assert ($signed(meter_tdata) == 0) else $fatal(1, "CH3 mean mismatch");
-        32: assert (meter_tdata == 0) else $fatal(1, "CH3 mean high mismatch");
-        33: assert (meter_tdata == rms3) else $fatal(1, "CH3 raw RMS mismatch");
-        34: assert ($signed(meter_tdata) == rms3) else $fatal(1, "CH3 RMS mismatch");
-        35: assert (meter_tdata == 0) else $fatal(1, "CH3 RMS high mismatch");
-        36: assert ($signed(meter_tdata) == 10) else $fatal(1, "CH4 mean mismatch");
-        37: assert (meter_tdata == 0) else $fatal(1, "CH4 mean high mismatch");
-        38: assert (meter_tdata == rms4) else $fatal(1, "CH4 raw RMS mismatch: %0d", meter_tdata);
-        39: assert ($signed(meter_tdata) == rms4) else $fatal(1, "CH4 RMS mismatch: %0d", $signed(meter_tdata));
-        40: assert (meter_tdata == 0) else $fatal(1, "CH4 RMS high mismatch");
-        41: assert ($signed(meter_tdata) == 20) else $fatal(1, "CH5 mean mismatch");
-        42: assert (meter_tdata == 0) else $fatal(1, "CH5 mean high mismatch");
-        43: assert (meter_tdata == rms5) else $fatal(1, "CH5 raw RMS mismatch: %0d", meter_tdata);
-        44: assert ($signed(meter_tdata) == rms5) else $fatal(1, "CH5 RMS mismatch: %0d", $signed(meter_tdata));
-        45: assert (meter_tdata == 0) else $fatal(1, "CH5 RMS high mismatch");
-        46: assert ($signed(meter_tdata) == -7) else $fatal(1, "CH6 mean mismatch");
-        47: assert (meter_tdata == 32'hffff_ffff) else $fatal(1, "CH6 mean high mismatch");
-        48: assert (meter_tdata == rms6) else $fatal(1, "CH6 raw RMS mismatch: %0d", meter_tdata);
-        49: assert ($signed(meter_tdata) == rms6) else $fatal(1, "CH6 RMS mismatch: %0d", $signed(meter_tdata));
-        50: assert (meter_tdata == 0) else $fatal(1, "CH6 RMS high mismatch");
-        60: assert (meter_tdata == expected_first_sample)
+        0: assert (mtr1_tdata == 32'h3152_544d) else $fatal(1, "bad MTR1 magic");
+        1: assert (mtr1_tdata == 32'h0001_0003) else $fatal(1, "bad record format");
+        2: assert (mtr1_tdata == 32'd256) else $fatal(1, "bad record length");
+        3: assert (mtr1_tdata == expected_sequence) else $fatal(1, "bad result sequence");
+        4: assert (mtr1_tdata == expected_generation) else $fatal(1, "bad generation");
+        5: assert (mtr1_tdata == 32'd20) else $fatal(1, "bad sample rate");
+        6: assert (mtr1_tdata == 32'd4)
+          else $fatal(1, "bad RMS window: got %0d expected 4", mtr1_tdata);
+        7: assert (mtr1_tdata[7:0] == 8'h7f) else $fatal(1, "bad valid mask");
+        8: assert (mtr1_tdata == 0) else $fatal(1, "unexpected result status");
+        9: assert (mtr1_tdata == expected_first_sample)
           else $fatal(1, "bad first sample %0d, expected %0d",
-                      meter_tdata, expected_first_sample);
-        61: assert (meter_tdata == 0) else $fatal(1, "bad first sample high");
-        62: assert (meter_tdata == 0) else $fatal(1, "word 62 not reserved");
-        63: assert (meter_tdata == 0) else $fatal(1, "word 63 not reserved");
+                      mtr1_tdata, expected_first_sample);
+        10: assert (mtr1_tdata == 0) else $fatal(1, "bad first sample high");
+        11: assert (mtr1_tdata == 0) else $fatal(1, "emit drops are non-zero");
+        12: assert (mtr1_tdata == 0) else $fatal(1, "result drops are non-zero");
+        13: assert (mtr1_tdata == expected_timing)
+          else $fatal(1, "bad timing word %08h, expected %08h",
+                      mtr1_tdata, expected_timing);
+        14: assert (mtr1_tdata == 0) else $fatal(1, "word 14 not reserved");
+        15: assert (mtr1_tdata == 0) else $fatal(1, "word 15 not reserved");
+        16: assert ($signed(mtr1_tdata) == 20) else $fatal(1, "CH0 mean mismatch");
+        17: assert (mtr1_tdata == 0) else $fatal(1, "CH0 mean high mismatch");
+        18: assert (mtr1_tdata == rms0) else $fatal(1, "CH0 raw RMS mismatch");
+        19: assert ($signed(mtr1_tdata) == rms0) else $fatal(1, "CH0 RMS mismatch");
+        20: assert (mtr1_tdata == 0) else $fatal(1, "CH0 RMS high mismatch");
+        21: assert ($signed(mtr1_tdata) == 20) else $fatal(1, "CH1 mean mismatch");
+        22: assert (mtr1_tdata == 0) else $fatal(1, "CH1 mean high mismatch");
+        23: assert (mtr1_tdata == rms1) else $fatal(1, "CH1 raw RMS mismatch");
+        24: assert ($signed(mtr1_tdata) == rms1) else $fatal(1, "CH1 RMS mismatch");
+        25: assert (mtr1_tdata == 0) else $fatal(1, "CH1 RMS high mismatch");
+        26: assert ($signed(mtr1_tdata) == -8) else $fatal(1, "CH2 mean mismatch");
+        27: assert (mtr1_tdata == 32'hffff_ffff) else $fatal(1, "CH2 mean high mismatch");
+        28: assert (mtr1_tdata == rms2) else $fatal(1, "CH2 raw RMS mismatch");
+        29: assert ($signed(mtr1_tdata) == rms2) else $fatal(1, "CH2 RMS mismatch");
+        30: assert (mtr1_tdata == 0) else $fatal(1, "CH2 RMS high mismatch");
+        31: assert ($signed(mtr1_tdata) == 0) else $fatal(1, "CH3 mean mismatch");
+        32: assert (mtr1_tdata == 0) else $fatal(1, "CH3 mean high mismatch");
+        33: assert (mtr1_tdata == rms3) else $fatal(1, "CH3 raw RMS mismatch");
+        34: assert ($signed(mtr1_tdata) == rms3) else $fatal(1, "CH3 RMS mismatch");
+        35: assert (mtr1_tdata == 0) else $fatal(1, "CH3 RMS high mismatch");
+        36: assert ($signed(mtr1_tdata) == 10) else $fatal(1, "CH4 mean mismatch");
+        37: assert (mtr1_tdata == 0) else $fatal(1, "CH4 mean high mismatch");
+        38: assert (mtr1_tdata == rms4) else $fatal(1, "CH4 raw RMS mismatch: %0d", mtr1_tdata);
+        39: assert ($signed(mtr1_tdata) == rms4) else $fatal(1, "CH4 RMS mismatch: %0d", $signed(mtr1_tdata));
+        40: assert (mtr1_tdata == 0) else $fatal(1, "CH4 RMS high mismatch");
+        41: assert ($signed(mtr1_tdata) == 20) else $fatal(1, "CH5 mean mismatch");
+        42: assert (mtr1_tdata == 0) else $fatal(1, "CH5 mean high mismatch");
+        43: assert (mtr1_tdata == rms5) else $fatal(1, "CH5 raw RMS mismatch: %0d", mtr1_tdata);
+        44: assert ($signed(mtr1_tdata) == rms5) else $fatal(1, "CH5 RMS mismatch: %0d", $signed(mtr1_tdata));
+        45: assert (mtr1_tdata == 0) else $fatal(1, "CH5 RMS high mismatch");
+        46: assert ($signed(mtr1_tdata) == -7) else $fatal(1, "CH6 mean mismatch");
+        47: assert (mtr1_tdata == 32'hffff_ffff) else $fatal(1, "CH6 mean high mismatch");
+        48: assert (mtr1_tdata == rms6) else $fatal(1, "CH6 raw RMS mismatch: %0d", mtr1_tdata);
+        49: assert ($signed(mtr1_tdata) == rms6) else $fatal(1, "CH6 RMS mismatch: %0d", $signed(mtr1_tdata));
+        50: assert (mtr1_tdata == 0) else $fatal(1, "CH6 RMS high mismatch");
+        // Word 60 is the capture frame count at block close; it varies per
+        // scenario and is left unchecked here.
+        61: assert (mtr1_tdata == 0) else $fatal(1, "header errors are non-zero");
+        62: assert (mtr1_tdata == 0) else $fatal(1, "FIFO overflows are non-zero");
+        63: assert (mtr1_tdata == 0) else $fatal(1, "ADC alerts are non-zero");
         default: ;
       endcase
     end
@@ -551,14 +567,14 @@ module meter_core_tb;
     integer word_index;
     begin
       @(negedge clock);
-      meter_tready = 1'b1;
+      mtr1_tready = 1'b1;
       word_index = 0;
       while (word_index < 64) begin
         @(posedge clock);
-        if (meter_tvalid && meter_tready) begin
-          assert (meter_tkeep == 4'hf) else $fatal(1, "bad meter TKEEP");
-          assert (meter_tlast == (word_index == 63))
-            else $fatal(1, "meter TLAST at word %0d", word_index);
+        if (mtr1_tvalid && mtr1_tready) begin
+          assert (mtr1_tkeep == 4'hf) else $fatal(1, "bad MTR1 TKEEP");
+          assert (mtr1_tlast == (word_index == 63))
+            else $fatal(1, "MTR1 TLAST at word %0d", word_index);
           check_meter_word(word_index, expected_sequence, expected_generation,
                            expected_timing, expected_first_sample,
                            rms0, rms1, rms2, rms3,
@@ -567,7 +583,7 @@ module meter_core_tb;
         end
       end
       @(negedge clock);
-      meter_tready = 1'b0;
+      mtr1_tready = 1'b0;
     end
   endtask
 
@@ -582,37 +598,37 @@ module meter_core_tb;
     integer word_index;
     begin
       @(negedge clock);
-      meter_tready = 1'b1;
+      mtr1_tready = 1'b1;
       word_index = 0;
       while (word_index < 64) begin
         @(posedge clock);
-        if (meter_tvalid && meter_tready) begin
-          assert (meter_tkeep == 4'hf) else $fatal(1, "bad meter TKEEP");
-          assert (meter_tlast == (word_index == 63))
-            else $fatal(1, "meter TLAST at word %0d", word_index);
+        if (mtr1_tvalid && mtr1_tready) begin
+          assert (mtr1_tkeep == 4'hf) else $fatal(1, "bad MTR1 TKEEP");
+          assert (mtr1_tlast == (word_index == 63))
+            else $fatal(1, "MTR1 TLAST at word %0d", word_index);
           case (word_index)
-            0: assert (meter_tdata == 32'h3152_544d) else $fatal(1, "bad MTR1 magic");
-            1: assert (meter_tdata == 32'h0001_0002) else $fatal(1, "bad record format");
-            2: assert (meter_tdata == 32'd256) else $fatal(1, "bad record length");
-            3: assert (meter_tdata == expected_sequence) else $fatal(1, "bad result sequence");
-            4: assert (meter_tdata == expected_generation) else $fatal(1, "bad generation");
-            6: assert (meter_tdata == expected_count)
+            0: assert (mtr1_tdata == 32'h3152_544d) else $fatal(1, "bad MTR1 magic");
+            1: assert (mtr1_tdata == 32'h0001_0003) else $fatal(1, "bad record format");
+            2: assert (mtr1_tdata == 32'd256) else $fatal(1, "bad record length");
+            3: assert (mtr1_tdata == expected_sequence) else $fatal(1, "bad result sequence");
+            4: assert (mtr1_tdata == expected_generation) else $fatal(1, "bad generation");
+            6: assert (mtr1_tdata == expected_count)
               else $fatal(1, "bad block sample count %0d, expected %0d",
-                          meter_tdata, expected_count);
-            15: assert (meter_tdata == expected_timing)
-              else $fatal(1, "bad timing word %08h, expected %08h",
-                          meter_tdata, expected_timing);
-            60: assert (meter_tdata == expected_first_sample)
+                          mtr1_tdata, expected_count);
+            9: assert (mtr1_tdata == expected_first_sample)
               else $fatal(1, "bad first sample %0d, expected %0d",
-                          meter_tdata, expected_first_sample);
-            61: assert (meter_tdata == 0) else $fatal(1, "bad first sample high");
+                          mtr1_tdata, expected_first_sample);
+            10: assert (mtr1_tdata == 0) else $fatal(1, "bad first sample high");
+            13: assert (mtr1_tdata == expected_timing)
+              else $fatal(1, "bad timing word %08h, expected %08h",
+                          mtr1_tdata, expected_timing);
             default: ;
           endcase
           word_index = word_index + 1;
         end
       end
       @(negedge clock);
-      meter_tready = 1'b0;
+      mtr1_tready = 1'b0;
     end
   endtask
 
@@ -669,69 +685,80 @@ module meter_core_tb;
     end
   endtask
 
-  // Consume one MTR2 aggregate record and check every meaningful word.
+  // Consume one MTR2 aggregate record from the MTR2 stream and check every
+  // meaningful word.
   task automatic consume_mtr2_record(input integer expected_sequence,
                                      input integer expected_generation,
                                      input logic [31:0] expected_samples,
                                      input logic [31:0] expected_first_basic,
                                      input logic [31:0] expected_last_basic,
                                      input logic [31:0] expected_shape,
-                                     input logic [31:0] expected_first_lo);
+                                     input logic [31:0] expected_first_lo,
+                                     input logic [31:0] expected_ineligible);
     integer word_index;
     begin
       @(negedge clock);
-      meter_tready = 1'b1;
+      mtr2_tready = 1'b1;
       word_index = 0;
       while (word_index < 64) begin
         @(posedge clock);
-        if (meter_tvalid && meter_tready) begin
-          assert (meter_tkeep == 4'hf) else $fatal(1, "MTR2 bad TKEEP");
-          assert (meter_tlast == (word_index == 63))
+        if (mtr2_tvalid && mtr2_tready) begin
+          assert (mtr2_tkeep == 4'hf) else $fatal(1, "MTR2 bad TKEEP");
+          assert (mtr2_tlast == (word_index == 63))
             else $fatal(1, "MTR2 TLAST at word %0d", word_index);
           case (word_index)
-            0: assert (meter_tdata == 32'h3152_544d) else $fatal(1, "MTR2 magic");
-            1: assert (meter_tdata == 32'h0002_0001) else $fatal(1, "MTR2 format");
-            2: assert (meter_tdata == 32'd256) else $fatal(1, "MTR2 length");
-            3: assert (meter_tdata == expected_sequence) else $fatal(1, "MTR2 sequence");
-            4: assert (meter_tdata == expected_generation) else $fatal(1, "MTR2 generation");
-            5: assert (meter_tdata == 32'd20) else $fatal(1, "MTR2 sample rate");
-            6: assert (meter_tdata == expected_samples)
-              else $fatal(1, "MTR2 samples %0d != %0d", meter_tdata, expected_samples);
-            7: assert (meter_tdata == 32'h7f) else $fatal(1, "MTR2 mask");
+            0: assert (mtr2_tdata == 32'h3152_544d) else $fatal(1, "MTR2 magic");
+            1: assert (mtr2_tdata == 32'h0002_0002) else $fatal(1, "MTR2 format");
+            2: assert (mtr2_tdata == 32'd256) else $fatal(1, "MTR2 length");
+            3: assert (mtr2_tdata == expected_sequence) else $fatal(1, "MTR2 sequence");
+            4: assert (mtr2_tdata == expected_generation) else $fatal(1, "MTR2 generation");
+            5: assert (mtr2_tdata == 32'd20) else $fatal(1, "MTR2 sample rate");
+            6: assert (mtr2_tdata == expected_samples)
+              else $fatal(1, "MTR2 samples %0d != %0d", mtr2_tdata, expected_samples);
+            7: assert (mtr2_tdata == 32'h7f) else $fatal(1, "MTR2 mask");
             // complete=1, frequency invalid (no DRDY baseline in sim),
             // no arithmetic error.
-            8: assert (meter_tdata == 32'h0000_0002)
-              else $fatal(1, "MTR2 status %08h", meter_tdata);
-            9: assert (meter_tdata == expected_first_basic)
+            8: assert (mtr2_tdata == 32'h0000_0002)
+              else $fatal(1, "MTR2 status %08h", mtr2_tdata);
+            9: assert (mtr2_tdata == expected_first_lo)
+              else $fatal(1, "MTR2 first sample %0d", mtr2_tdata);
+            10: assert (mtr2_tdata == 0) else $fatal(1, "MTR2 first sample high");
+            11: assert (mtr2_tdata == 0) else $fatal(1, "MTR2 emit drops");
+            12: assert (mtr2_tdata == 0) else $fatal(1, "MTR2 result drops");
+            13: assert (mtr2_tdata == expected_shape)
+              else $fatal(1, "MTR2 shape %08h != %08h", mtr2_tdata, expected_shape);
+            14: assert (mtr2_tdata == expected_first_basic)
               else $fatal(1, "MTR2 first basic");
-            10: assert (meter_tdata == expected_last_basic)
+            15: assert (mtr2_tdata == expected_last_basic)
               else $fatal(1, "MTR2 last basic");
-            11: assert (meter_tdata == expected_shape)
-              else $fatal(1, "MTR2 shape %08h != %08h", meter_tdata, expected_shape);
-            12: assert (meter_tdata == expected_first_lo)
-              else $fatal(1, "MTR2 first sample %0d", meter_tdata);
-            13: assert (meter_tdata == 0) else $fatal(1, "MTR2 first sample high");
             // Uniform blocks: the aggregate equals the per-block RMS in
             // micro-units (zero-referenced, no DC removal).
-            16: assert (meter_tdata == 32'd22) else $fatal(1, "MTR2 CH0: %0d", meter_tdata);
-            17: assert (meter_tdata == 0) else $fatal(1, "MTR2 CH0 high");
-            18: assert (meter_tdata == 32'd20) else $fatal(1, "MTR2 CH1: %0d", meter_tdata);
-            20: assert (meter_tdata == 32'd8) else $fatal(1, "MTR2 CH2: %0d", meter_tdata);
-            22: assert (meter_tdata == 32'd5) else $fatal(1, "MTR2 CH3: %0d", meter_tdata);
-            24: assert (meter_tdata == 32'd10) else $fatal(1, "MTR2 CH4: %0d", meter_tdata);
-            26: assert (meter_tdata == 32'd20) else $fatal(1, "MTR2 CH5: %0d", meter_tdata);
-            28: assert (meter_tdata == 32'd10) else $fatal(1, "MTR2 CH6: %0d", meter_tdata);
-            30: assert (meter_tdata == 0) else $fatal(1, "MTR2 CH7 must be zero");
-            32: assert (meter_tdata == 0) else $fatal(1, "MTR2 frequency must be invalid");
-            62: assert (meter_tdata == 0) else $fatal(1, "MTR2 word 62 reserved");
-            63: assert (meter_tdata == 0) else $fatal(1, "MTR2 word 63 reserved");
+            16: assert (mtr2_tdata == 32'd22) else $fatal(1, "MTR2 CH0: %0d", mtr2_tdata);
+            17: assert (mtr2_tdata == 0) else $fatal(1, "MTR2 CH0 high");
+            18: assert (mtr2_tdata == 32'd20) else $fatal(1, "MTR2 CH1: %0d", mtr2_tdata);
+            20: assert (mtr2_tdata == 32'd8) else $fatal(1, "MTR2 CH2: %0d", mtr2_tdata);
+            22: assert (mtr2_tdata == 32'd5) else $fatal(1, "MTR2 CH3: %0d", mtr2_tdata);
+            24: assert (mtr2_tdata == 32'd10) else $fatal(1, "MTR2 CH4: %0d", mtr2_tdata);
+            26: assert (mtr2_tdata == 32'd20) else $fatal(1, "MTR2 CH5: %0d", mtr2_tdata);
+            28: assert (mtr2_tdata == 32'd10) else $fatal(1, "MTR2 CH6: %0d", mtr2_tdata);
+            30: assert (mtr2_tdata == 0) else $fatal(1, "MTR2 CH7 must be zero");
+            32: assert (mtr2_tdata == 0) else $fatal(1, "MTR2 frequency must be invalid");
+            // Engine diagnostics ride in the record: no resets or continuity
+            // errors in a clean run; ineligible blocks are scenario-driven.
+            33: assert (mtr2_tdata == 0) else $fatal(1, "MTR2 reset count");
+            34: assert (mtr2_tdata == expected_ineligible)
+              else $fatal(1, "MTR2 ineligible count %0d != %0d",
+                          mtr2_tdata, expected_ineligible);
+            35: assert (mtr2_tdata == 0) else $fatal(1, "MTR2 continuity count");
+            62: assert (mtr2_tdata == 0) else $fatal(1, "MTR2 word 62 reserved");
+            63: assert (mtr2_tdata == 0) else $fatal(1, "MTR2 word 63 reserved");
             default: ;
           endcase
           word_index = word_index + 1;
         end
       end
       @(negedge clock);
-      meter_tready = 1'b0;
+      mtr2_tready = 1'b0;
     end
   endtask
 
@@ -781,14 +808,14 @@ module meter_core_tb;
     for (int frame = 0; frame < 4; frame++)
       send_frame(frame);
 
-    wait (meter_tvalid);
-    stalled_word = meter_tdata;
-    stalled_last = meter_tlast;
+    wait (mtr1_tvalid);
+    stalled_word = mtr1_tdata;
+    stalled_last = mtr1_tlast;
     repeat (12) begin
       @(posedge clock);
-      assert (meter_tvalid && meter_tdata == stalled_word &&
-              meter_tlast == stalled_last)
-        else $fatal(1, "meter output changed under DMA backpressure");
+      assert (mtr1_tvalid && mtr1_tdata == stalled_word &&
+              mtr1_tlast == stalled_last)
+        else $fatal(1, "MTR1 output changed under DMA backpressure");
     end
 
     // Capture another complete window while the first DMA record is stalled.
@@ -801,7 +828,7 @@ module meter_core_tb;
 
     // Cycle timing is enabled by default but CH6 never crosses zero with
     // the legacy pattern and the 1 V default hysteresis, so blocks close on
-    // the free-run fallback: word 15 carries nominal 60 Hz, zero cycles,
+    // the free-run fallback: word 13 carries nominal 60 Hz, zero cycles,
     // and the fallback flag (plus first-block after each APPLY).
     consume_record(1, 42, 32'h0006_003c, 32'd1, 10, 2, 4, 5, 3, 4, 5);
     consume_record(2, 42, 32'h0002_003c, 32'd5, 10, 2, 4, 5, 3, 4, 5);
@@ -823,7 +850,7 @@ module meter_core_tb;
     processing_read(8'h28, read_value);
     assert (read_value == 0) else $fatal(1, "unexpected RMS result drop");
     processing_read(8'h2c, read_value);
-    assert (read_value == 0) else $fatal(1, "unexpected packetizer drop");
+    assert (read_value == 0) else $fatal(1, "unexpected emit drop");
     waveform_read(8'h28, read_value);
     assert (read_value == 12)
       else $fatal(1, "waveform frame sequence mismatch");
@@ -839,8 +866,10 @@ module meter_core_tb;
     // crossing-aligned, exactly 2 cycles / 40 samples each, and gapless:
     // first sample 13, then 34, then 74.
     configure_meter_cycle(32'd44);
-    // Consume each record after its closing crossing so the packetizer's
-    // two-deep latest-wins buffer never has to replace a pending record.
+    // Consume each record after its closing crossing. The HLS engine
+    // finalizes every close and emits directly on the MTR1 stream, so no
+    // record is ever replaced or dropped; pacing just keeps the checks in
+    // lockstep with the blocks.
     for (int position = 0; position <= 20; position++)
       send_grid_frame(position);
     consume_timing_record(4, 44, 32'd21, 32'h0006_0032, 32'd13);
@@ -879,16 +908,20 @@ module meter_core_tb;
       consume_timing_record(8 + block, 45, 32'd80, 32'h0001_0a32,
                             32'd123 + block * 80);
     end
+    // Seven earlier basic results were ineligible for aggregation (the
+    // fallback and 2-cycle blocks r1..r6 plus the r7 relock partial), and
+    // the record's engine diagnostics must reflect that.
     consume_mtr2_record(1, 45, 32'd1200, 32'd8, 32'd22,
-                        32'h0096_320f, 32'd123);
+                        32'h0096_320f, 32'd123, 32'd7);
 
     repeat (20) @(posedge clock);
     capture_read(8'h10, read_value);
     assert (read_value == 1322)
       else $fatal(1, "aggregate scenario frame count: %0d", read_value);
-    // AGG_RECORD_COUNT updates at the engine's emit and the MTR2 record
-    // follows through the producer/packetizer; poll rather than assume
-    // any ordering between record consumption and the register.
+    // AGG_RECORD_COUNT updates at the engine's emit; the record just
+    // consumed was emitted directly on the MTR2 stream, so the counter
+    // should already read 1 — poll defensively rather than assume the
+    // exact update cycle.
     begin : wait_aggregate_record_count
       int guard = 0;
       processing_read(8'h7c, read_value);
@@ -911,7 +944,7 @@ module meter_core_tb;
     processing_read(8'h28, read_value);
     assert (read_value == 0) else $fatal(1, "RMS result drop in aggregation");
     processing_read(8'h2c, read_value);
-    assert (read_value == 0) else $fatal(1, "packetizer drop in aggregation");
+    assert (read_value == 0) else $fatal(1, "emit drop in aggregation");
 
     $display("PASS: meter_core_tb");
     $finish;

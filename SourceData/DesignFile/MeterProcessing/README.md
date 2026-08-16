@@ -1,7 +1,9 @@
 # Meter processing stage
 
-The meter-processing stage computes block RMS for current channels 0 through 3
-and voltage channels 4 through 6 from one coherent converted-sample window.
+The meter-processing stage computes block statistics for current channels 0
+through 3 and voltage channels 4 through 6 from one coherent
+converted-sample window, and emits them as self-serialized 256-byte
+records on per-producer AXIS streams.
 
 The measurement unit is an IEC 61000-4-30 basic measurement block, defined by
 grid cycles rather than time: 10 complete cycles at a declared 50 Hz nominal,
@@ -10,6 +12,11 @@ grid cycles rather than time: 10 complete cycles at a declared 50 Hz nominal,
 the free-run fallback window used while the voltage reference is unusable
 (and the whole block-close source when cycle timing is disabled); software
 programs it to the nominal block length, 6,400 frames at 32 kSPS.
+
+The numerics are a Vitis HLS engine
+(`SourceData/HLS_DesignFile/MeterProcessing/Mtr1Engine`;
+`mtr1_engine.hpp/.cpp` are the normative sources — the hand-written
+`meter_rms`/`MeterResultHub` pair it replaced lives in git history).
 Mean-corrected AC RMS uses
 
 ```text
@@ -18,9 +25,13 @@ sqrt((N * sum(x^2) - sum(x)^2) / N^2)
 
 where `N` is the number of samples actually accumulated in the block (equal
 to the configured window only in fixed-window mode), with 128-bit
-accumulators and multi-cycle unsigned division and integer square root.
-Zero-referenced total RMS uses `sqrt(sum(x^2) / N)`. Accumulation of the next
-window continues while the previous snapshot is evaluated.
+accumulators, serial restoring division, and an exact restoring integer
+square root; zero-referenced total RMS uses `sqrt(sum(x^2) / N)`; all
+rounding is floor/truncation as pinned in the engine header. The engine
+finalizes each closed block inline (~15 us) while
+`meter_mtr1_hls_shim`'s 8-deep beat FIFO absorbs incoming frames, so
+measurement is never backpressured and any overflow is a counted fault,
+never silent.
 
 ## Grid-cycle timing
 
@@ -89,16 +100,19 @@ periods at the configured minimum frequency without a qualified crossing, the
 published value becomes unavailable. Missing signal and out-of-range input are
 measurement states; divide/overflow failures set the arithmetic-error flag.
 
-## Module references
+## Modules
 
-- `meter_rms`: reusable VHDL-2008 engine parameterized by first channel,
-  channel count, and result mask.
-- `VoltageRms_Wrapper`: compatibility AXI4-Stream/AXI-Lite boundary using the
-  voltage-only default generics.
-- `MeterResultHub_Wrapper`: caches the newest coherent result and builds a
-  fixed 256-byte record.
-- `MeterPacketizer_Wrapper`: two-record latest-wins buffer and 32-bit AXI4-
-  Stream packetizer. `TLAST` is asserted only on word 63.
+- `meter_mtr1_hls_shim`: packs one 1264-bit sample beat per accepted
+  converted frame (layout mirrors `mtr1_engine.hpp` MTR1_IN_*, kept in
+  lock step), buffers up to eight beats, hosts the packaged
+  `hls_mtr1_engine_ip`, and mirrors the APPLY commit for the register
+  file. Deliberately contains NO level-to-event conversion — the
+  2026-08-13..16 record-duplication incident was localized to exactly
+  that pattern in the retired aggregator shim.
+- `record_word_tap`: passive observer on each producer's record stream;
+  republishes the in-record health counters to the register file
+  ("as of the last emitted record") and watchdogs the 64-beat framing
+  invariant.
 
 ## MeterProcessing AXI-Lite registers
 
@@ -113,9 +127,9 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
 | `0x18` | `SHADOW_WINDOW_SAMPLES` | samples in each RMS result |
 | `0x1c` | `SHADOW_VALID_MASK` | valid converted channels |
 | `0x20` | `ACTIVE_GENERATION` | committed generation |
-| `0x24` | `RESULT_SEQUENCE` | completed RMS snapshots |
-| `0x28` | `RESULT_DROP_COUNT` | arithmetic engine missed a window |
-| `0x2c` | `PACKET_DROP_COUNT` | newest-pending packet replacements |
+| `0x24` | `RESULT_SEQUENCE` | MTR1 record sequence, as of the last emitted record (tap on word 3) |
+| `0x28` | `RESULT_DROP_COUNT` | MTR1 record word 12 (`result_drops`, constant 0: every close is finalized) |
+| `0x2c` | `PACKET_DROP_COUNT` | MTR1 record word 11 (`emit_drops`, constant 0: emission is blocking) |
 | `0x30` | `FREQUENCY_SHADOW_CONTROL` | enable, mode, CH6, cycle count |
 | `0x34` | `FREQUENCY_SHADOW_WINDOW_SAMPLES` | rolling-time target |
 | `0x38` | `FREQUENCY_SHADOW_MIN_MILLIHZ` | accepted lower limit |
@@ -130,15 +144,15 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
 | `0x6c` | `GRID_SHADOW_CONFIG` | [7:0] cycles/block, [15:8] nominal Hz, [16] enable |
 | `0x70` | `GRID_ACTIVE_CONFIG` | committed grid-timing readback |
 | `0x74` | `GRID_STATUS` | [0] locked, [1] reference usable, [2] enabled, [15:8] cycles in open block |
-| `0x78` | `AGG_STATUS` | reads 0 — no live view since the RTL engine's retirement; liveness shows as `0x7c` advancing |
-| `0x7c` | `AGG_RECORD_COUNT` | completed 150/180-cycle aggregates, as of the last emitted aggregate |
-| `0x80` | `AGG_RESET_COUNT` | partial aggregates discarded (any cause), as of the last emit |
-| `0x84` | `AGG_INELIGIBLE_COUNT` | Basic inputs rejected by the eligibility rule, as of the last emit |
-| `0x88` | `AGG_CONTINUITY_COUNT` | sequence or sample-range discontinuities, as of the last emit |
-| `0x8c` | `AGG_DROP_COUNT` | aggregate records replaced before transport |
+| `0x78` | `AGG_STATUS` | reads 0 — the HLS engines expose no live open-aggregate view; liveness shows as `0x7c` advancing |
+| `0x7c` | `AGG_RECORD_COUNT` | MTR2 record sequence, as of the last emitted aggregate (tap on word 3) |
+| `0x80` | `AGG_RESET_COUNT` | MTR2 record word 33, as of the last emit |
+| `0x84` | `AGG_INELIGIBLE_COUNT` | MTR2 record word 34, as of the last emit |
+| `0x88` | `AGG_CONTINUITY_COUNT` | MTR2 record word 35, as of the last emit |
+| `0x8c` | `AGG_DROP_COUNT` | MTR2 record word 11 (`emit_drops`, constant 0: emission is blocking) |
 | `0x90` | `HLS_AGG_RECORD_COUNT` | mirrors `AGG_RECORD_COUNT` |
 | `0x94` | `HLS_AGG_MISMATCH_COUNT` | reserved, reads 0 (the compared-pair trial ended) |
-| `0x98` | `HLS_AGG_DROP_COUNT` | Basic events the HLS shim discarded while busy (any nonzero value is a fault) |
+| `0x98` | `HLS_AGG_DROP_COUNT` | sample beats the MTR1 shim FIFO discarded while the engine was finalizing (any nonzero value is a fault) |
 
 Frequency and grid shadow fields commit on the existing processing `APPLY`
 toggle at the same frame boundary as RMS. Applying a new configuration clears
@@ -147,112 +161,48 @@ basic block from spanning configuration generations. The RPU derives the
 cycle count from the declared nominal frequency (50 Hz → 10, 60 Hz → 12);
 the PL does not validate the pairing.
 
-## 150/180-cycle aggregation and the measurement record bus
+## Record streams and the 150/180-cycle aggregation engine
 
-The aggregation engine (Vitis HLS, integrated through
-`meter_cycle_aggregator_hls_shim`) consumes the internal Basic measurement
-result event -- the same event the Basic record producer consumes -- and aggregates
-exactly 15 consecutive eligible Basic blocks into one 150-cycle (50 Hz) or
-180-cycle (60 Hz) fundamental aggregate. It is an aggregator of
-standardized Basic results, not a second RMS engine over raw samples, and
-the close event is 15 blocks, never a 3-second timer.
+Both record producers are Vitis HLS engines that build and serialize
+their own 256-byte records; the wire formats are normative in C++
+(`SourceData/HLS_DesignFile/common/include/measurement_record.hpp`: the
+common envelope in words 0..12 — magic `MTR1`, format, size 256,
+per-producer sequence, generation, sample rate, sample count, valid mask,
+status, 64-bit first-sample timestamp, emit/result drop words — plus the
+MTR1-v3 and MTR2-v2 interior maps).
 
-Aggregation rules: RMS lanes use the square root of the arithmetic mean of
-the squares of the 15 Basic values (unweighted, computed in the internal
-Q16 domain; floor division and floor root, 132-bit accumulators that
-cannot overflow at 15 x the maximum input). Frequency is the arithmetic
-mean of the 15 sampled values, published only when all inputs were valid.
+- The MTR1 engine (`HLS_DesignFile/MeterProcessing/Mtr1Engine`) emits one
+  `0x00010003` record per basic block on `M_AXIS_MTR1` and one
+  basic-result beat (common `basic_result_beat.hpp`, 808 bits) to the
+  aggregator.
+- The aggregation engine (`HLS_DesignFile/MeterProcessing/Mtr2Engine`)
+  consumes exactly 15 consecutive eligible basic results — never raw
+  samples, never a wall-clock timer — and emits one `0x00020002` record
+  per completed 150-cycle (50 Hz) / 180-cycle (60 Hz) aggregate on
+  `M_AXIS_MTR2`. RMS lanes aggregate as floor(sqrt(floor(mean of
+  squares))) in the Q16 domain with 132-bit accumulators; frequency is
+  the arithmetic mean, published only when all 15 inputs were valid.
+  Eligibility mirrors the APU rule: cycle-locked, not fallback, not the
+  first block after APPLY, exact 10/12 cycle count, one generation /
+  nominal / sample rate, consecutive sequences and gapless sample ranges;
+  any violation discards the partial aggregate, counted per cause in
+  record words 33..35.
 
-Eligibility mirrors the APU rule: cycle-locked, not fallback, not the
-first block after APPLY, and an exact 10/12 cycle count. Membership of one
-interval additionally requires the same configuration generation, the same
-nominal frequency, the same sample rate, consecutive Basic result
-sequences (modulo 2^32), and gapless sample ranges. Sequence continuity
-and sample-range continuity are both enforced because they catch different
-faults -- a lost result event versus a sample-domain discontinuity -- so
-neither replaces the other. The sample-rate test is defensive: the
-configuration fingerprint already makes a rate change alter the
-generation, but MTR2 reports one sample rate for the whole interval, so
-the invariant is checked directly. Any violation discards the partial
-aggregate (counted per cause in the `AGG_*` registers); an ineligible
-block never seeds the next aggregate, so a rejected block can never be
-silently replaced by a later one inside the same interval.
+Each producer's stream leaves `MeterCore_Wrapper` as its own AXIS master;
+the block design gives each a packet-mode `axis_data_fifo` and an
+`axis_switch` slave port (arbitrate-on-TLAST), and the switch feeds the
+meter DMA. Every record is exactly 64 x 32-bit beats with TLAST on beat
+63 — the DMA-ring framing invariant, watchdogged in fabric by
+`record_word_tap`. Future producers add an engine, a wrapper port, a
+FIFO, and a switch port; nothing existing changes. RPMsg remains
+control-plane only; measurement records stay on DMA.
 
-Both producers publish complete 256-byte records on the measurement
-record bus (`measurement_record_bus_pkg`): the Basic producer
-(`MeterResultHub_Wrapper`, MTR1 format 2) and the aggregate producer
-(`aggregate_record_producer`, MTR2). A deterministic fixed-priority
-arbiter (`measurement_record_arbiter`, Basic first) forwards records to
-the single existing packetizer and AXI DMA channel; each producer holds
-its newest pending record with a drop counter, so a stalled DMA can never
-backpressure measurement. Future producers (harmonics, PQ events) add an
-arbiter port, not a new DMA path. RPMsg remains control-plane only;
-measurement records stay on DMA.
-
-### The HLS aggregation engine
-
-The aggregator is a Vitis HLS engine
-(`SourceData/HLS_DesignFile/MeterProcessing/CycleAggregator`; the C++
-sources are normative). `meter_cycle_aggregator_hls_shim` feeds it the
-internal Basic result event over an AXI4-Stream beat and republishes its
-aggregate beat as the event the MTR2 producer consumes. It replaced the
-hand-written RTL engine after a compared hardware deployment showed
-bit-exact agreement (the RTL engine, its compare block, and the
-equivalence bench live in git history). The engine's counters ride in
-its aggregate beat, so the `AGG_*` registers are "as of the last emitted
-aggregate"; `AGG_STATUS` and `HLS_AGG_MISMATCH_COUNT` read zero. Like
-every metrology block, the engine cannot backpressure measurement. The
-twelve-scenario golden bench runs as C simulation and C/RTL
-co-simulation on every HLS build; the component README documents the
-build flow and the two accepted APPLY-race behaviours.
-
-## 256-byte MTR2 aggregate record
-
-Word 0 is the container magic `MTR1`, word 1 is `0x00020001` (aggregate
-fundamental record, version 1), word 2 is the byte length (256). Word 3 is
-the independent aggregate sequence; words 9/10 carry the first/last Basic
-sequence so the relationship between the streams is explicit. Word 6 is
-the total sample count of the interval, words 12/13 the 64-bit first
-sample index (last = first + count - 1, derived), and word 11 packs the
-basic block count (15), nominal frequency, and total cycle count
-(150/180). Word 8 carries arithmetic/complete/frequency-valid status;
-only complete aggregates are ever emitted, and the APU decoder rejects any
-record that declares otherwise. The word 32 frequency mean is
-informational only: the standardized Class A frequency product has its own
-measurement interval and is not implemented in this tier, so the APU
-carries the value for diagnostics without advertising it as a valid
-measurement. Words 16..31 hold eight
-channels x two words of aggregate RMS in signed 64-bit micro-units, word
-32 the aggregate frequency in millihertz, and all remaining words are
-reserved zero.
-
-## 256-byte periodic meter record
-
-Words 0 through 15 form the header. Word 0 is ASCII `MTR1`, word 1 is
-format/version `0x00010002`, and word 2 is the byte length (`256`). The header
-also contains result sequence (the basic-block sequence), configuration
-generation, sample rate, valid/status masks, capture
-frame/header/overflow/alert counters, and result-drop counters.
-
-Format 2 changes versus the original `0x00010001`:
-
-- Word 6 carries the **actual** sample count of the basic block. In cycle
-  mode this varies with grid frequency; format 1 reported the configured
-  window.
-- Word 15 is the basic-block timing word: bits [7:0] declared nominal
-  frequency in Hz, bits [15:8] complete cycles in the block, bit 16
-  `cycle_locked`, bit 17 `free_run_fallback`, bit 18
-  `first_block_after_apply`.
-- Words 60/61 are the low/high halves of the block's first sample index on
-  the 64-bit free-running conversion sample counter. The last index is
-  `first + count - 1` by construction and is deliberately not recorded.
-
-Words 16 through 55 contain five words per channel: signed mean micro-units,
-unsigned raw ADC RMS counts, and signed 64-bit RMS micro-units. Word 56 is
-frequency in millihertz, word 57 contains frequency status/mode/reference/cycle
-fields, word 58 is the averaged Q16 period, and word 59 is its measurement
-sequence. Words 62 and 63 remain reserved.
-
-The synchronized capture counters are internal MeterCore signals connecting
-the capture entity directly to `MeterResultHub_Wrapper`; they do not cross the
-single `MeterCore_Wrapper` module-reference boundary in `TopDesign.bd`.
+Records leave the Q16 domain at serialization: mean and RMS words carry
+signed 64-bit micro-units (`Q16 >> 16`, arithmetic); the raw-count RMS
+word carries ADC counts. The per-engine C++ headers pin the arithmetic
+(floor semantics, saturation, sticky overflow-until-APPLY) and the
+accepted APPLY-race divergences; each engine's golden C bench runs as C
+simulation and C/RTL co-simulation on every `mnc HLS build` /
+`run_hls.sh` build, and `tb/meter_record_stream_tb.sv` drives the whole
+chain — real shim, both packaged engines, both exported streams — with
+word-exact golden records under TREADY backpressure.
