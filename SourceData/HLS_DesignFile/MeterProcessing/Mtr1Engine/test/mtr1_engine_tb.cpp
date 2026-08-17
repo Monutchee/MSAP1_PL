@@ -392,6 +392,10 @@ struct Scoreboard {
   Golden &golden;
   unsigned delivered = 0;
   unsigned last_result_drops = 0;
+  // Mask word of the most recently delivered record, so the valid-mask
+  // contract scenarios can assert on what the ENGINE emitted rather than
+  // only on engine-vs-golden agreement.
+  unsigned last_valid_mask = 0;
   std::vector<basic_result_t> results;
 
   explicit Scoreboard(Golden &g) : golden(g) {}
@@ -418,6 +422,7 @@ struct Scoreboard {
       CHECK(b.last == (i == MREC_WORDS - 1 ? 1 : 0), "beat %d last", i);
     }
     delivered += 1;
+    last_valid_mask = (unsigned)(uint32_t)word[MREC_VALID_MASK_WORD];
 
     const unsigned long long first_sample =
         ((unsigned long long)(uint32_t)word[MREC_FIRST_SAMPLE_HIGH_WORD] << 32) |
@@ -925,6 +930,117 @@ int main() {
     for (unsigned i = 0; i < 520; ++i) {
       bench.step(f, /*must_deliver=*/i == 519);
     }
+  }
+
+  // -------------------------------------------------------------------
+  // mask_contract_*: the MTR1 valid-mask contract.
+  //
+  // The frame mask carries CONFIGURED channel enablement, not per-frame
+  // validity: adc_conversion.vhd:198 drives TUSER(71:64) from a register
+  // written only at reset and APPLY, so it is constant for every frame of
+  // a block and the closing frame's mask is authoritative. The retired
+  // meter_rms.vhd computed the same value the same way. Full derivation:
+  // the valid-mask contract block in mtr1_engine.hpp.
+  //
+  // Cases 2 and 4 below deliberately feed a mask that VARIES within one
+  // block — unreachable in hardware — to pin the decision. If
+  // adc_conversion ever reports genuine per-frame validity, this engine
+  // needs a block-level AND accumulator and those two cases must be
+  // re-specified to expect the AND of every contributing frame.
+  // -------------------------------------------------------------------
+  {
+    const long long mask_samples[MTR_CHANNEL_LANES] = {
+        1 << 16, 2 << 16, 3 << 16, 4 << 16, 5 << 16, 6 << 16, 7 << 16, 0};
+    const int mask_raw[MTR_CHANNEL_LANES] = {1, 2, 3, 4, 5, 6, 7, 0};
+
+    // One cycle-mode window whose frames carry the given per-frame masks;
+    // the last entry is the closing frame. A negative entry marks a
+    // malformed frame (mask value ignored by the engine and the golden).
+    auto masked_window = [&](const std::vector<int> &masks) {
+      FrameSpec f = bench.base;
+      f.frame_generation = bench.base.cfg_generation;
+      f.cycle_mode = true;
+      for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+        f.samples[lane] = mask_samples[lane];
+        f.raw[lane] = mask_raw[lane];
+      }
+      f.first_sample = bench.next_first_sample;
+      bench.next_first_sample += masks.size() + 7;
+      f.cycle_count = 10;
+      f.nominal_hz = 50;
+      f.block_flags = 1u << MTR_FLAG_LOCKED;
+      f.freq_millihz = 50000;
+      f.freq_status = 0x2;
+      f.freq_period = 0x00140000;
+      f.freq_sequence = 5;
+      f.cap_frames = 42;
+      f.cap_headers = 0;
+      f.cap_overflows = 0;
+      f.cap_alerts = 0;
+      for (size_t i = 0; i < masks.size(); ++i) {
+        f.malformed = masks[i] < 0;
+        f.frame_mask = f.malformed ? 0x7F : (unsigned)masks[i];
+        f.closes = (i + 1 == masks.size());
+        bench.step(f, /*must_deliver=*/f.closes);
+      }
+      f.malformed = false;
+      bench.flush(8);
+    };
+
+    // Case 1 + 5: every frame fully valid; the configured mask disables
+    // channel 3 and must gate the result.
+    bench.apply(20, 32000, /*window=*/0, /*mask=*/0x77, true, true);
+    masked_window({0x7F, 0x7F, 0x7F, 0x7F});
+    CHECK(bench.board.last_valid_mask == 0x77,
+          "mask_contract case1/5: configured mask must gate the result "
+          "(got 0x%02X, expected 0x77)",
+          bench.board.last_valid_mask);
+
+    // Case 2 (PINNING): an EARLY frame clears channel 2 while the closing
+    // frame is fully valid. Contract: closing frame authoritative.
+    bench.apply(21, 32000, 0, 0x7F, true, true);
+    masked_window({0x7F, 0x7B, 0x7F, 0x7F});
+    CHECK(bench.board.last_valid_mask == 0x7F,
+          "mask_contract case2: closing frame is authoritative; an earlier "
+          "frame's mask must not persist (got 0x%02X, expected 0x7F). If "
+          "the frame mask is now per-frame, add the block AND accumulator "
+          "and re-specify this case.",
+          bench.board.last_valid_mask);
+
+    // Case 3: the CLOSING frame clears channel 2 -> cleared in the record.
+    bench.apply(22, 32000, 0, 0x7F, true, true);
+    masked_window({0x7F, 0x7F, 0x7F, 0x7B});
+    CHECK(bench.board.last_valid_mask == 0x7B,
+          "mask_contract case3: closing frame's cleared channel must reach "
+          "the record (got 0x%02X, expected 0x7B)",
+          bench.board.last_valid_mask);
+
+    // Case 4 (PINNING): a different channel invalid on every frame.
+    bench.apply(23, 32000, 0, 0x7F, true, true);
+    masked_window({0x7E, 0x7D, 0x7B, 0x77});
+    CHECK(bench.board.last_valid_mask == 0x77,
+          "mask_contract case4: only the closing frame's mask applies "
+          "(got 0x%02X, expected 0x77; an AND across frames would be 0x70)",
+          bench.board.last_valid_mask);
+
+    // Case 6: APPLY between blocks — the previous block's mask must not
+    // leak into the new generation.
+    bench.apply(24, 32000, 0, 0x0F, true, true);
+    masked_window({0x7F, 0x7F, 0x7F});
+    CHECK(bench.board.last_valid_mask == 0x0F,
+          "mask_contract case6: new configured mask must govern after "
+          "APPLY (got 0x%02X, expected 0x0F)",
+          bench.board.last_valid_mask);
+
+    // Case 7: a malformed frame discards the running window; the frames
+    // after it form the block and its closing mask governs — no validity
+    // state survives the reset.
+    bench.apply(25, 32000, 0, 0x7F, true, true);
+    masked_window({0x7B, -1, 0x7F, 0x7F});
+    CHECK(bench.board.last_valid_mask == 0x7F,
+          "mask_contract case7: no mask state may survive a malformed-frame "
+          "window reset (got 0x%02X, expected 0x7F)",
+          bench.board.last_valid_mask);
   }
 
   bench.flush(64);
