@@ -2,10 +2,47 @@
 # Comments name the SOM240_2 connector position from the KR260 schematic;
 # PACKAGE_PIN names the corresponding XCK26 device ball from XTP685.
 # AXI Quad SPI standard-mode pin mapping: IO0=MOSI, IO1=MISO.
-set_property -dict { PACKAGE_PIN AE13 IOSTANDARD LVCMOS33 } [get_ports {EXT_ADC_SPI_io0_io}]  ;# SOM240_2 C59, HDC10
-set_property -dict { PACKAGE_PIN AC13 IOSTANDARD LVCMOS33 } [get_ports {EXT_ADC_SPI_io1_io}]  ;# SOM240_2 C58, HDC09
-set_property -dict { PACKAGE_PIN AC14 IOSTANDARD LVCMOS33 } [get_ports {EXT_ADC_SPI_sck_io}]  ;# SOM240_2 C56, HDC08_CC
-set_property -dict { PACKAGE_PIN AF13 IOSTANDARD LVCMOS33 } [get_ports {EXT_ADC_SPI_ss_io[0]}] ;# SOM240_2 C60, HDC11
+#
+# DRIVE/SLEW are stated explicitly rather than inherited. The AD7771 sits on
+# a 200 mm unshielded flying lead, which is several times the length at which
+# an FPGA edge starts behaving as a transmission line, so the edge rate on
+# these pins is a real design parameter and not a detail to leave at
+# whatever the tool defaults to. SLEW SLOW is already the LVCMOS default;
+# naming it documents the intent and stops a future default change from
+# silently altering the interface.
+#
+# The two output roles are constrained differently on purpose:
+#
+#   IO0/MOSI, SS - carry data and framing, sampled by the ADC at a defined
+#                  instant, so a softer edge costs nothing and lowers what
+#                  they couple into their neighbours. DRIVE 8.
+#
+#   SCK          - kept at full DRIVE 12. It is tempting to soften the clock
+#                  too, since it is the aggressor sitting next to MOSI, but a
+#                  slow edge lingers near the ADC's input threshold, and a
+#                  noise glitch there is read as an EXTRA CLOCK. That
+#                  desynchronises the whole frame, which is exactly the
+#                  observed failure (SPI_INVALID_READ_ERR plus a misframed
+#                  reply). A clock wants the cleanest, fastest threshold
+#                  crossing available; reflections belong to series
+#                  termination at the driver, not to a weaker driver.
+#
+# IO1/MISO is an INPUT. DRIVE and SLEW are output-only properties and do not
+# apply; its signal quality is set by the ADC's SDO_DRIVE_STR register and by
+# the cable, neither of which this file reaches.
+set_property -dict { PACKAGE_PIN AE13 IOSTANDARD LVCMOS33 DRIVE 8  SLEW SLOW } [get_ports {EXT_ADC_SPI_io0_io}]  ;# SOM240_2 C59, HDC10
+set_property -dict { PACKAGE_PIN AC13 IOSTANDARD LVCMOS33 }                    [get_ports {EXT_ADC_SPI_io1_io}]  ;# SOM240_2 C58, HDC09
+set_property -dict { PACKAGE_PIN AC14 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW } [get_ports {EXT_ADC_SPI_sck_io}]  ;# SOM240_2 C56, HDC08_CC
+set_property -dict { PACKAGE_PIN AF13 IOSTANDARD LVCMOS33 DRIVE 8  SLEW SLOW } [get_ports {EXT_ADC_SPI_ss_io[0]}] ;# SOM240_2 C60, HDC11
+
+# The SPI pins carry no timing constraints, deliberately. SCK is generated
+# inside the AXI Quad SPI core from divided AXI clock logic, not forwarded
+# through an ODDR, so there is no port for create_generated_clock to hang a
+# verified source-synchronous relationship on. Vivado ships no such
+# constraints for this IP either. It is also unnecessary: at ratio 16 the bit
+# period is 160 ns against the AD7771's 5 ns SDI setup/hold (t20/t21), so
+# routing skew has roughly thirty times the margin it needs. Pin-level timing
+# is not the fault here and constraining it would only add risk.
 
 # Four-lane source-synchronous conversion-data interface.
 set_property -dict { PACKAGE_PIN Y13  IOSTANDARD LVCMOS33 } [get_ports {ADC_DOUT[0]}] ;# SOM240_2 A55, HDC19
