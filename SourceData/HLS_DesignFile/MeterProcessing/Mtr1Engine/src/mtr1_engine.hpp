@@ -93,6 +93,53 @@
 // the shim on every beat but are MEANINGFUL on a closing beat: they are
 // grid_cycle_timing's latched values for the block that beat closes,
 // stable until the next close.
+//
+// VALID-MASK CONTRACT (normative — read before changing the mask handling).
+//
+// MTR1_IN_FRAME_MASK_LSB carries CONFIGURED CHANNEL ENABLEMENT, not
+// instantaneous per-frame validity. It is constant for every frame of a
+// basic block by construction, so the engine's result mask
+//
+//     result_mask = active_valid_mask & closing_frame_mask & 0x7F
+//
+// is exact: ANDing across the block's frames would compute the identical
+// value. Traced end to end 2026-08-16:
+//
+//   * adc_conversion.vhd:198 drives TUSER(71:64) from `active_valid_mask`
+//     (x"00" when disabled) — a configuration register written ONLY at
+//     reset (:133) and at APPLY (:152). No sample-domain condition can
+//     modify it.
+//   * Conditions that DO vary per frame are carried elsewhere and never
+//     touch the mask: ADC saturation -> TUSER(72); a malformed frame
+//     (TKEEP != all-ones) zeroes the converted VALUE (:174-177) and is
+//     reported through MTR1_IN_MALFORMED_BIT, which discards the whole
+//     running window here; header errors / FIFO overflows / ADC alerts are
+//     separate capture counters (bits 1136..1263).
+//   * Transport between them is a stock axis_data_fifo plus the shim's
+//     staging register, both of which pass TUSER through unmodified.
+//   * APPLY — the only event that can change the mask — clears the window
+//     (sample_count = 0) and re-tags the generation, and the
+//     stale-generation guard rejects frames tagged with the other
+//     generation. A block therefore can never span two masks.
+//
+// The retired RTL computed the same thing the same way, so this is the
+// intended metrology semantics rather than a reproduced accident:
+// meter_rms.vhd (git history) pipelined the frame mask alongside the
+// samples and, at block close, latched
+// `snapshot_valid_mask <= active_valid_mask and square_stage_valid_mask`
+// (:378-379) then `result_mask <= snapshot_valid_mask and G_RESULT_MASK`
+// (:558) — the closing frame's mask, never an accumulation.
+//
+// IF THIS EVER CHANGES: should adc_conversion begin reporting genuine
+// per-frame validity (e.g. per-channel conversion errors or clipping
+// folded into TUSER(71:64)), this engine MUST gain a block-level AND
+// accumulator — seeded on the block's first accepted frame, ANDed on each
+// subsequent one, and cleared on the same events that clear the window
+// (APPLY, malformed frame, stale generation, block close) — so that a
+// channel invalid for part of a block is reported invalid for the whole
+// block, matching the AND reduction Mtr2Engine already performs across its
+// 15 contributing blocks. `mask_contract_*` in test/mtr1_engine_tb.cpp
+// pins the present behaviour and will fail if it is changed silently.
 // ---------------------------------------------------------------------------
 static const int MTR1_IN_SAMPLES_LSB      = 0;     // [511:0]   8 x 64b Q16 converted
 static const int MTR1_IN_RAW_LSB          = 512;   // [767:512] 8 x 32b raw samples

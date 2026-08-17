@@ -195,6 +195,19 @@ begin
                       TUSER_SAMPLE_INDEX_HIGH_LSB) :=
               std_logic_vector(next_sequence(63 downto 32));
             next_user(63 downto 32) := active_generation;
+            -- CONTRACT: bits 71:64 are CONFIGURED channel enablement, not
+            -- per-frame validity -- active_valid_mask changes only at APPLY,
+            -- so it is constant for every frame of a basic measurement
+            -- block. Mtr1Engine relies on this: it takes the CLOSING
+            -- frame's mask as authoritative instead of ANDing across the
+            -- block (see the valid-mask contract in mtr1_engine.hpp). If a
+            -- genuinely per-frame condition is ever folded in here, that
+            -- engine must gain a block-level AND accumulator in the same
+            -- change, or a channel invalid mid-block will be reported
+            -- valid. Per-frame conditions today travel elsewhere:
+            -- saturation in bit 72, malformed frames via TKEEP (which
+            -- discards the running window), capture faults in their own
+            -- counters.
             next_user(71 downto 64) := active_valid_mask when active_enable = '1' else x"00";
             next_user(72) := saturation_seen or saturated;
             next_user(73) := s_axis_tlast;
