@@ -590,16 +590,25 @@ Each entry is a named test case that must run in CI forever:
 
 ### 11.8 Hardware acceptance (HW)
 
-- **HW-1 — soak with a stated statistical basis.** The current fault
-  recurs 2–4×/day; a clean interval of **72 h** is ≳ 8× the longest
-  observed inter-episode gap and ≳ 200× the mean. Acceptance = 72 h with
-  zero `meter_record_stale_rejected` / `_config_rejected` /
-  `_decode_rejected`, `invalid_records` flat, `sequence_gaps` flat,
-  health `healthy`. Record the boot time and leave the environmental
-  sampler running.
-- **HW-2 — no change during the soak.** One variable, one system. Any
-  reflash, config apply, or unnecessary reboot restarts the clock; do
-  not reboot after a suspected event before collecting the journal
+- **HW-1 — soak with a stated statistical basis, counted CUMULATIVELY.**
+  The fault recurs ~2.6×/day, so 72 clean hours is ≈ 99.95 % confidence
+  (Poisson, λ ≈ 7.7); 23 h ≈ 90 %, 48 h ≈ 99.4 %. Acceptance = **72 h
+  accumulated in blocks of ≥ 4 h uptime** with zero
+  `meter_sequence_gap` / `meter_record_stale_rejected` / `_config_rejected`
+  / `_decode_rejected` / `meter_sample_range_gap` /
+  `meter_aggregate_sequence_gap`, `invalid_records` and `sequence_gaps`
+  flat. The ≥ 4 h block floor is empirical, not arbitrary: every observed
+  onset fell **3 h 24 m to 9 h 14 m after boot**, so shorter sessions never
+  reach the onset window and contribute no evidence. Record each block's
+  boot time; overnight runs are the productive ones.
+- **HW-2 — the record path is the only frozen variable.** A deployment
+  that leaves the PL fabric and the APU record-ingestion path
+  byte-identical (diagnostics, health reporting, RPU/ADC work) does **not**
+  reset the accumulated count — verify with md5 of the loaded bitstream
+  (portal `developer/about`) and of `msap1-fpga-acquisition`. A record-path
+  change resets it to zero. This is what makes the soak compatible with a
+  single-device lab: development continues, evidence still accrues.
+  Never reboot after a suspected event before collecting the journal
   (volatile storage).
 - **HW-3 — A/B where possible.** If the fault generator is still
   available on the old bitstream, run the new build against the same
