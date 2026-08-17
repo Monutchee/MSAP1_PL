@@ -39,10 +39,12 @@ set_property -dict { PACKAGE_PIN AF13 IOSTANDARD LVCMOS33 DRIVE 8  SLEW SLOW } [
 # inside the AXI Quad SPI core from divided AXI clock logic, not forwarded
 # through an ODDR, so there is no port for create_generated_clock to hang a
 # verified source-synchronous relationship on. Vivado ships no such
-# constraints for this IP either. It is also unnecessary: at ratio 16 the bit
-# period is 160 ns against the AD7771's 5 ns SDI setup/hold (t20/t21), so
-# routing skew has roughly thirty times the margin it needs. Pin-level timing
-# is not the fault here and constraining it would only add risk.
+# constraints for this IP either. It is also unnecessary: at the configured
+# ratio of 32 (Multiples16 = 2 on the ADC_SPI instance, SCK 3.125 MHz) the bit
+# period is 320 ns against the AD7771's 5 ns SDI setup/hold (t20/t21), so
+# routing skew has some sixty times the margin it needs -- and thirty times
+# even at the ratio 16 this design used previously. Pin-level timing is not
+# the fault here and constraining it would only add risk.
 
 # Four-lane source-synchronous conversion-data interface.
 set_property -dict { PACKAGE_PIN Y13  IOSTANDARD LVCMOS33 } [get_ports {ADC_DOUT[0]}] ;# SOM240_2 A55, HDC19
