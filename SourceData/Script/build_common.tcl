@@ -414,6 +414,22 @@ proc pl_build_finish_run {run {poll_seconds 5} {heartbeat_seconds 60}} {
                 [string match -nocase "*error*" $status]} {
             break
         }
+
+        # A failed DEPENDENCY run leaves this run parked at "Queued"/
+        # "Scripts Generated" forever: its own STATUS never says error, so
+        # without this scan the loop idles at 0% while nothing is running
+        # (seen 2026-08-18: a failed MeterCore OOC synthesis left synth_1
+        # apparently alive for 12 minutes). Abort naming the actual
+        # failure instead.
+        foreach dependency_run [get_runs -quiet] {
+            set dependency_status \
+                [get_property -quiet STATUS $dependency_run]
+            if {[string match -nocase "*error*" $dependency_status]} {
+                error "$dependency_run failed while $run waited:\
+ $dependency_status (see\
+ [file join [pl_build_run_dir $dependency_run] runme.log])"
+            }
+        }
         after [expr {$poll_seconds * 1000}]
     }
 
