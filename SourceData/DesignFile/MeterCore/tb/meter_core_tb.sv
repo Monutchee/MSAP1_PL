@@ -76,7 +76,7 @@ module meter_core_tb;
   wire wave_rvalid;
   logic wave_rready = 1'b1;
 
-  logic [7:0] sim_awaddr = '0;
+  logic [11:0] sim_awaddr = '0;
   logic sim_awvalid = 1'b0;
   wire sim_awready;
   logic [31:0] sim_wdata = '0;
@@ -86,7 +86,7 @@ module meter_core_tb;
   wire [1:0] sim_bresp;
   wire sim_bvalid;
   logic sim_bready = 1'b1;
-  logic [7:0] sim_araddr = '0;
+  logic [11:0] sim_araddr = '0;
   logic sim_arvalid = 1'b0;
   wire sim_arready;
   wire [31:0] sim_rdata;

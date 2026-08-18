@@ -2,12 +2,21 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
--- Shared register and numeric definitions for the raw ADC simulator.
+-- Shared register and stream definitions for the raw ADC simulator.
 -- Phases use unsigned Q0.32 turns: 0x00000000 is 0 degrees and
--- 0x80000000 is 180 degrees. Peak values are signed 24-bit ADC counts.
+-- 0x80000000 is 180 degrees. Peak and DC-offset values are signed 24-bit
+-- ADC counts in 32-bit words.
+--
+-- Version history:
+--   0x00010000  original inline-VHDL sine datapath (8-bit LUT index)
+--   0x00010001  waveform math moved to the packaged HLS engine
+--               (hls_sim_wave_engine): interpolated quarter-wave sine,
+--               per-channel DC offset and uniform noise fluctuation,
+--               preserve-phase APPLY, counter clears, 12-bit register
+--               decode
 package adc_simulator_pkg is
   constant ADC_SIMULATOR_ID      : std_logic_vector(31 downto 0) := x"53494D31"; -- SIM1
-  constant ADC_SIMULATOR_VERSION : std_logic_vector(31 downto 0) := x"00010000";
+  constant ADC_SIMULATOR_VERSION : std_logic_vector(31 downto 0) := x"00010001";
 
   constant ADC_SIM_REG_ID                 : natural := 16#00#;
   constant ADC_SIM_REG_VERSION            : natural := 16#04#;
@@ -30,267 +39,46 @@ package adc_simulator_pkg is
   constant ADC_SIM_REG_SHADOW_PHASE_STEP  : natural := 16#80#;
   constant ADC_SIM_REG_ACTIVE_CONTROL     : natural := 16#84#;
   constant ADC_SIM_REG_ACTIVE_PHASE_STEP  : natural := 16#88#;
+  constant ADC_SIM_REG_SHADOW_DC_BASE     : natural := 16#8C#;
+  constant ADC_SIM_REG_COUNTER_CLEAR      : natural := 16#AC#;
+  constant ADC_SIM_REG_ACTIVE_DC_BASE     : natural := 16#B0#;
+  constant ADC_SIM_REG_SHADOW_NOISE_BASE  : natural := 16#D0#;
+  constant ADC_SIM_REG_ACTIVE_NOISE_BASE  : natural := 16#100#;
 
-  subtype sine_value_t is signed(17 downto 0);
-  type sine_lut_t is array (0 to 255) of sine_value_t;
-  constant SINE_LUT : sine_lut_t := (
-    0 => to_signed(0, 18),
-    1 => to_signed(3217, 18),
-    2 => to_signed(6431, 18),
-    3 => to_signed(9642, 18),
-    4 => to_signed(12847, 18),
-    5 => to_signed(16044, 18),
-    6 => to_signed(19232, 18),
-    7 => to_signed(22408, 18),
-    8 => to_signed(25571, 18),
-    9 => to_signed(28718, 18),
-    10 => to_signed(31848, 18),
-    11 => to_signed(34958, 18),
-    12 => to_signed(38048, 18),
-    13 => to_signed(41115, 18),
-    14 => to_signed(44156, 18),
-    15 => to_signed(47172, 18),
-    16 => to_signed(50159, 18),
-    17 => to_signed(53115, 18),
-    18 => to_signed(56040, 18),
-    19 => to_signed(58931, 18),
-    20 => to_signed(61786, 18),
-    21 => to_signed(64605, 18),
-    22 => to_signed(67384, 18),
-    23 => to_signed(70123, 18),
-    24 => to_signed(72819, 18),
-    25 => to_signed(75472, 18),
-    26 => to_signed(78079, 18),
-    27 => to_signed(80639, 18),
-    28 => to_signed(83151, 18),
-    29 => to_signed(85612, 18),
-    30 => to_signed(88022, 18),
-    31 => to_signed(90379, 18),
-    32 => to_signed(92681, 18),
-    33 => to_signed(94928, 18),
-    34 => to_signed(97117, 18),
-    35 => to_signed(99248, 18),
-    36 => to_signed(101319, 18),
-    37 => to_signed(103329, 18),
-    38 => to_signed(105277, 18),
-    39 => to_signed(107162, 18),
-    40 => to_signed(108982, 18),
-    41 => to_signed(110736, 18),
-    42 => to_signed(112423, 18),
-    43 => to_signed(114043, 18),
-    44 => to_signed(115594, 18),
-    45 => to_signed(117076, 18),
-    46 => to_signed(118487, 18),
-    47 => to_signed(119826, 18),
-    48 => to_signed(121094, 18),
-    49 => to_signed(122288, 18),
-    50 => to_signed(123409, 18),
-    51 => to_signed(124456, 18),
-    52 => to_signed(125427, 18),
-    53 => to_signed(126323, 18),
-    54 => to_signed(127143, 18),
-    55 => to_signed(127886, 18),
-    56 => to_signed(128553, 18),
-    57 => to_signed(129141, 18),
-    58 => to_signed(129652, 18),
-    59 => to_signed(130085, 18),
-    60 => to_signed(130440, 18),
-    61 => to_signed(130716, 18),
-    62 => to_signed(130913, 18),
-    63 => to_signed(131032, 18),
-    64 => to_signed(131071, 18),
-    65 => to_signed(131032, 18),
-    66 => to_signed(130913, 18),
-    67 => to_signed(130716, 18),
-    68 => to_signed(130440, 18),
-    69 => to_signed(130085, 18),
-    70 => to_signed(129652, 18),
-    71 => to_signed(129141, 18),
-    72 => to_signed(128553, 18),
-    73 => to_signed(127886, 18),
-    74 => to_signed(127143, 18),
-    75 => to_signed(126323, 18),
-    76 => to_signed(125427, 18),
-    77 => to_signed(124456, 18),
-    78 => to_signed(123409, 18),
-    79 => to_signed(122288, 18),
-    80 => to_signed(121094, 18),
-    81 => to_signed(119826, 18),
-    82 => to_signed(118487, 18),
-    83 => to_signed(117076, 18),
-    84 => to_signed(115594, 18),
-    85 => to_signed(114043, 18),
-    86 => to_signed(112423, 18),
-    87 => to_signed(110736, 18),
-    88 => to_signed(108982, 18),
-    89 => to_signed(107162, 18),
-    90 => to_signed(105277, 18),
-    91 => to_signed(103329, 18),
-    92 => to_signed(101319, 18),
-    93 => to_signed(99248, 18),
-    94 => to_signed(97117, 18),
-    95 => to_signed(94928, 18),
-    96 => to_signed(92681, 18),
-    97 => to_signed(90379, 18),
-    98 => to_signed(88022, 18),
-    99 => to_signed(85612, 18),
-    100 => to_signed(83151, 18),
-    101 => to_signed(80639, 18),
-    102 => to_signed(78079, 18),
-    103 => to_signed(75472, 18),
-    104 => to_signed(72819, 18),
-    105 => to_signed(70123, 18),
-    106 => to_signed(67384, 18),
-    107 => to_signed(64605, 18),
-    108 => to_signed(61786, 18),
-    109 => to_signed(58931, 18),
-    110 => to_signed(56040, 18),
-    111 => to_signed(53115, 18),
-    112 => to_signed(50159, 18),
-    113 => to_signed(47172, 18),
-    114 => to_signed(44156, 18),
-    115 => to_signed(41115, 18),
-    116 => to_signed(38048, 18),
-    117 => to_signed(34958, 18),
-    118 => to_signed(31848, 18),
-    119 => to_signed(28718, 18),
-    120 => to_signed(25571, 18),
-    121 => to_signed(22408, 18),
-    122 => to_signed(19232, 18),
-    123 => to_signed(16044, 18),
-    124 => to_signed(12847, 18),
-    125 => to_signed(9642, 18),
-    126 => to_signed(6431, 18),
-    127 => to_signed(3217, 18),
-    128 => to_signed(0, 18),
-    129 => to_signed(-3217, 18),
-    130 => to_signed(-6431, 18),
-    131 => to_signed(-9642, 18),
-    132 => to_signed(-12847, 18),
-    133 => to_signed(-16044, 18),
-    134 => to_signed(-19232, 18),
-    135 => to_signed(-22408, 18),
-    136 => to_signed(-25571, 18),
-    137 => to_signed(-28718, 18),
-    138 => to_signed(-31848, 18),
-    139 => to_signed(-34958, 18),
-    140 => to_signed(-38048, 18),
-    141 => to_signed(-41115, 18),
-    142 => to_signed(-44156, 18),
-    143 => to_signed(-47172, 18),
-    144 => to_signed(-50159, 18),
-    145 => to_signed(-53115, 18),
-    146 => to_signed(-56040, 18),
-    147 => to_signed(-58931, 18),
-    148 => to_signed(-61786, 18),
-    149 => to_signed(-64605, 18),
-    150 => to_signed(-67384, 18),
-    151 => to_signed(-70123, 18),
-    152 => to_signed(-72819, 18),
-    153 => to_signed(-75472, 18),
-    154 => to_signed(-78079, 18),
-    155 => to_signed(-80639, 18),
-    156 => to_signed(-83151, 18),
-    157 => to_signed(-85612, 18),
-    158 => to_signed(-88022, 18),
-    159 => to_signed(-90379, 18),
-    160 => to_signed(-92681, 18),
-    161 => to_signed(-94928, 18),
-    162 => to_signed(-97117, 18),
-    163 => to_signed(-99248, 18),
-    164 => to_signed(-101319, 18),
-    165 => to_signed(-103329, 18),
-    166 => to_signed(-105277, 18),
-    167 => to_signed(-107162, 18),
-    168 => to_signed(-108982, 18),
-    169 => to_signed(-110736, 18),
-    170 => to_signed(-112423, 18),
-    171 => to_signed(-114043, 18),
-    172 => to_signed(-115594, 18),
-    173 => to_signed(-117076, 18),
-    174 => to_signed(-118487, 18),
-    175 => to_signed(-119826, 18),
-    176 => to_signed(-121094, 18),
-    177 => to_signed(-122288, 18),
-    178 => to_signed(-123409, 18),
-    179 => to_signed(-124456, 18),
-    180 => to_signed(-125427, 18),
-    181 => to_signed(-126323, 18),
-    182 => to_signed(-127143, 18),
-    183 => to_signed(-127886, 18),
-    184 => to_signed(-128553, 18),
-    185 => to_signed(-129141, 18),
-    186 => to_signed(-129652, 18),
-    187 => to_signed(-130085, 18),
-    188 => to_signed(-130440, 18),
-    189 => to_signed(-130716, 18),
-    190 => to_signed(-130913, 18),
-    191 => to_signed(-131032, 18),
-    192 => to_signed(-131071, 18),
-    193 => to_signed(-131032, 18),
-    194 => to_signed(-130913, 18),
-    195 => to_signed(-130716, 18),
-    196 => to_signed(-130440, 18),
-    197 => to_signed(-130085, 18),
-    198 => to_signed(-129652, 18),
-    199 => to_signed(-129141, 18),
-    200 => to_signed(-128553, 18),
-    201 => to_signed(-127886, 18),
-    202 => to_signed(-127143, 18),
-    203 => to_signed(-126323, 18),
-    204 => to_signed(-125427, 18),
-    205 => to_signed(-124456, 18),
-    206 => to_signed(-123409, 18),
-    207 => to_signed(-122288, 18),
-    208 => to_signed(-121094, 18),
-    209 => to_signed(-119826, 18),
-    210 => to_signed(-118487, 18),
-    211 => to_signed(-117076, 18),
-    212 => to_signed(-115594, 18),
-    213 => to_signed(-114043, 18),
-    214 => to_signed(-112423, 18),
-    215 => to_signed(-110736, 18),
-    216 => to_signed(-108982, 18),
-    217 => to_signed(-107162, 18),
-    218 => to_signed(-105277, 18),
-    219 => to_signed(-103329, 18),
-    220 => to_signed(-101319, 18),
-    221 => to_signed(-99248, 18),
-    222 => to_signed(-97117, 18),
-    223 => to_signed(-94928, 18),
-    224 => to_signed(-92681, 18),
-    225 => to_signed(-90379, 18),
-    226 => to_signed(-88022, 18),
-    227 => to_signed(-85612, 18),
-    228 => to_signed(-83151, 18),
-    229 => to_signed(-80639, 18),
-    230 => to_signed(-78079, 18),
-    231 => to_signed(-75472, 18),
-    232 => to_signed(-72819, 18),
-    233 => to_signed(-70123, 18),
-    234 => to_signed(-67384, 18),
-    235 => to_signed(-64605, 18),
-    236 => to_signed(-61786, 18),
-    237 => to_signed(-58931, 18),
-    238 => to_signed(-56040, 18),
-    239 => to_signed(-53115, 18),
-    240 => to_signed(-50159, 18),
-    241 => to_signed(-47172, 18),
-    242 => to_signed(-44156, 18),
-    243 => to_signed(-41115, 18),
-    244 => to_signed(-38048, 18),
-    245 => to_signed(-34958, 18),
-    246 => to_signed(-31848, 18),
-    247 => to_signed(-28718, 18),
-    248 => to_signed(-25571, 18),
-    249 => to_signed(-22408, 18),
-    250 => to_signed(-19232, 18),
-    251 => to_signed(-16044, 18),
-    252 => to_signed(-12847, 18),
-    253 => to_signed(-9642, 18),
-    254 => to_signed(-6431, 18),
-    255 => to_signed(-3217, 18)
-  );
+  -- CONTROL register bits (shadow and active banks share the layout).
+  constant ADC_SIM_CONTROL_SOURCE_BIT         : natural := 0;
+  constant ADC_SIM_CONTROL_ENABLE_BIT         : natural := 1;
+  -- When set at APPLY, the phase accumulator, fractional scheduler, and
+  -- packet framing survive the commit: the waveform continues seamlessly
+  -- under the new configuration instead of restarting from 0 degrees and
+  -- packet frame 0. Prerequisite for runtime scenario changes (sag/swell
+  -- events) that must not inject phase discontinuities.
+  constant ADC_SIM_CONTROL_PRESERVE_PHASE_BIT : natural := 2;
+
+  -- COUNTER_CLEAR write-1-to-clear strobes. A clear coincident with the
+  -- same counter's increment discards that one event; the register exists
+  -- for per-scenario bookkeeping, not for lossless accounting.
+  constant ADC_SIM_CLEAR_SATURATION_BIT : natural := 0;
+  constant ADC_SIM_CLEAR_MISSED_BIT     : natural := 1;
+  constant ADC_SIM_CLEAR_FRAME_BIT      : natural := 2;
+
+  -- Waveform-engine beat layout, kept in lock step with the normative
+  -- definitions in HLS_DesignFile/MeterCore/SimWaveEngine/src/
+  -- sim_wave_engine.hpp. The VHDL packs one request per due frame from
+  -- the ACTIVE bank; the engine returns one frame of eight samples plus
+  -- per-channel saturation flags.
+  constant SIM_WAVE_CHANNELS            : natural := 8;
+  constant SIM_WAVE_REQ_BASE_PHASE_LSB  : natural := 0;
+  constant SIM_WAVE_REQ_VALID_MASK_LSB  : natural := 32;
+  constant SIM_WAVE_REQ_FRAME_INDEX_LSB : natural := 64;
+  constant SIM_WAVE_REQ_PEAK_LSB        : natural := 128;
+  constant SIM_WAVE_REQ_PHASE_LSB       : natural := 384;
+  constant SIM_WAVE_REQ_DC_LSB          : natural := 640;
+  constant SIM_WAVE_REQ_NOISE_LSB       : natural := 896;
+  constant SIM_WAVE_REQ_BITS            : natural := 1152;
+  constant SIM_WAVE_RSP_SAMPLE_LSB      : natural := 0;
+  constant SIM_WAVE_RSP_SATURATED_LSB   : natural := 256;
+  constant SIM_WAVE_RSP_BITS            : natural := 264;
 end package;
 
 package body adc_simulator_pkg is

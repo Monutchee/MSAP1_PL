@@ -6,11 +6,26 @@ use work.adc_simulator_pkg.all;
 
 -- Raw signed-24-bit ADC source used to exercise the complete MeterCore data
 -- path without physical ADC traffic.  Software supplies already-calculated
--- raw peak counts and phase offsets, keeping sensor/profile policy in Linux.
+-- raw peak counts, phase offsets, and DC offsets, keeping sensor/profile
+-- policy in Linux.
 --
--- CONTROL bit 0 selects this source and bit 1 enables sample generation.
--- Shadow values are committed by writing bit 0 to APPLY.  A commit occurs
--- only between eight-channel frames, so a frame never mixes generations.
+-- This block owns the deterministic infrastructure: the AXI-Lite register
+-- file with its shadow/APPLY banks, the fractional sample-rate scheduler,
+-- the Q0.32 phase accumulator, AXIS framing/TLAST, and the backpressure
+-- and saturation accounting.  The per-frame waveform mathematics
+-- (interpolated sine, amplitude scaling, DC offset, rail clamping) lives
+-- in the packaged HLS engine hls_sim_wave_engine
+-- (HLS_DesignFile/MeterCore/SimWaveEngine, normative beat layout in
+-- sim_wave_engine.hpp, mirrored by adc_simulator_pkg).  One request beat
+-- is issued per due frame; the engine returns exactly one response, so
+-- the scheduler's single-frame pending accounting is unchanged from the
+-- retired inline datapath.
+--
+-- CONTROL bit 0 selects this source, bit 1 enables sample generation, and
+-- bit 2 preserves the phase accumulator, scheduler, and packet framing
+-- across APPLY (seamless reconfiguration for scenario changes).  Shadow
+-- values are committed by writing bit 0 to APPLY.  A commit occurs only
+-- between eight-channel frames, so a frame never mixes generations.
 entity adc_simulator is
   generic (
     G_ACLK_HZ       : positive := 99999001;
@@ -20,7 +35,7 @@ entity adc_simulator is
     aclk    : in std_logic;
     aresetn : in std_logic;
 
-    s_axi_awaddr  : in  std_logic_vector(7 downto 0);
+    s_axi_awaddr  : in  std_logic_vector(11 downto 0);
     s_axi_awvalid : in  std_logic;
     s_axi_awready : out std_logic;
     s_axi_wdata   : in  std_logic_vector(31 downto 0);
@@ -30,7 +45,7 @@ entity adc_simulator is
     s_axi_bresp   : out std_logic_vector(1 downto 0);
     s_axi_bvalid  : out std_logic;
     s_axi_bready  : in  std_logic;
-    s_axi_araddr  : in  std_logic_vector(7 downto 0);
+    s_axi_araddr  : in  std_logic_vector(11 downto 0);
     s_axi_arvalid : in  std_logic;
     s_axi_arready : out std_logic;
     s_axi_rdata   : out std_logic_vector(31 downto 0);
@@ -53,6 +68,22 @@ entity adc_simulator is
 end entity;
 
 architecture rtl of adc_simulator is
+  -- Packaged HLS waveform engine (SourceData/IP/hls_sim_wave_engine_ip in
+  -- the product project; the non-project checks bind the same name to the
+  -- packaged RTL through tb/hls_sim_wave_engine_ip.v).
+  component hls_sim_wave_engine_ip is
+    port (
+      ap_clk           : in  std_logic;
+      ap_rst_n         : in  std_logic;
+      s_request_TDATA  : in  std_logic_vector(SIM_WAVE_REQ_BITS - 1 downto 0);
+      s_request_TVALID : in  std_logic;
+      s_request_TREADY : out std_logic;
+      m_frame_TDATA    : out std_logic_vector(SIM_WAVE_RSP_BITS - 1 downto 0);
+      m_frame_TVALID   : out std_logic;
+      m_frame_TREADY   : in  std_logic
+    );
+  end component;
+
   type word_array_t is array (0 to 7) of std_logic_vector(31 downto 0);
 
   signal shadow_control     : std_logic_vector(31 downto 0) := (others => '0');
@@ -63,6 +94,8 @@ architecture rtl of adc_simulator is
   signal shadow_phase_step  : std_logic_vector(31 downto 0) := (others => '0');
   signal shadow_peak        : word_array_t := (others => (others => '0'));
   signal shadow_phase       : word_array_t := (others => (others => '0'));
+  signal shadow_dc          : word_array_t := (others => (others => '0'));
+  signal shadow_noise       : word_array_t := (others => (others => '0'));
 
   signal active_control     : std_logic_vector(31 downto 0) := (others => '0');
   signal active_sample_rate : std_logic_vector(31 downto 0) := std_logic_vector(to_unsigned(32000, 32));
@@ -72,6 +105,8 @@ architecture rtl of adc_simulator is
   signal active_phase_step  : std_logic_vector(31 downto 0) := (others => '0');
   signal active_peak        : word_array_t := (others => (others => '0'));
   signal active_phase       : word_array_t := (others => (others => '0'));
+  signal active_dc          : word_array_t := (others => (others => '0'));
+  signal active_noise       : word_array_t := (others => (others => '0'));
 
   signal apply_pending : std_logic := '0';
   signal sample_accumulator : unsigned(32 downto 0) := (others => '0');
@@ -79,16 +114,29 @@ architecture rtl of adc_simulator is
   signal base_phase         : unsigned(31 downto 0) := (others => '0');
   signal channel_index      : natural range 0 to 7 := 0;
   signal packet_frame_index : natural range 0 to G_PACKET_FRAMES - 1 := 0;
-  signal frame_active       : std_logic := '0';
-  signal axis_data          : std_logic_vector(31 downto 0) := (others => '0');
-  signal axis_valid         : std_logic := '0';
-  signal axis_last          : std_logic := '0';
+
+  -- Frame generation sequencer: IDLE (nothing in flight), REQUEST (beat
+  -- offered to the engine), WAIT (response outstanding), EMIT (streaming
+  -- the returned frame's eight beats).
+  type gen_state_t is (GEN_IDLE, GEN_REQUEST, GEN_WAIT, GEN_EMIT);
+  signal gen_state : gen_state_t := GEN_IDLE;
+
+  signal req_data  : std_logic_vector(SIM_WAVE_REQ_BITS - 1 downto 0) := (others => '0');
+  signal req_valid : std_logic := '0';
+  signal req_ready : std_logic;
+  signal rsp_data  : std_logic_vector(SIM_WAVE_RSP_BITS - 1 downto 0);
+  signal rsp_valid : std_logic;
+
+  signal frame_samples : word_array_t := (others => (others => '0'));
+  signal axis_data     : std_logic_vector(31 downto 0) := (others => '0');
+  signal axis_valid    : std_logic := '0';
+  signal axis_last     : std_logic := '0';
   signal frame_count        : unsigned(31 downto 0) := (others => '0');
   signal saturation_count   : unsigned(31 downto 0) := (others => '0');
   signal missed_sample_count : unsigned(31 downto 0) := (others => '0');
 
   signal aw_stored : std_logic := '0';
-  signal awaddr    : std_logic_vector(7 downto 0) := (others => '0');
+  signal awaddr    : std_logic_vector(11 downto 0) := (others => '0');
   signal w_stored  : std_logic := '0';
   signal wdata     : std_logic_vector(31 downto 0) := (others => '0');
   signal wstrb     : std_logic_vector(3 downto 0) := (others => '0');
@@ -110,6 +158,45 @@ architecture rtl of adc_simulator is
     end loop;
     return result;
   end function;
+
+  function pack_request(
+    base_phase_v  : unsigned(31 downto 0);
+    frame_index_v : unsigned(31 downto 0);
+    mask_v        : std_logic_vector(7 downto 0);
+    peak_v        : word_array_t;
+    phase_v       : word_array_t;
+    dc_v          : word_array_t;
+    noise_v       : word_array_t) return std_logic_vector is
+    variable beat : std_logic_vector(SIM_WAVE_REQ_BITS - 1 downto 0) := (others => '0');
+  begin
+    beat(SIM_WAVE_REQ_BASE_PHASE_LSB + 31 downto SIM_WAVE_REQ_BASE_PHASE_LSB) :=
+      std_logic_vector(base_phase_v);
+    beat(SIM_WAVE_REQ_VALID_MASK_LSB + 7 downto SIM_WAVE_REQ_VALID_MASK_LSB) := mask_v;
+    beat(SIM_WAVE_REQ_FRAME_INDEX_LSB + 31 downto SIM_WAVE_REQ_FRAME_INDEX_LSB) :=
+      std_logic_vector(frame_index_v);
+    for lane in 0 to SIM_WAVE_CHANNELS - 1 loop
+      beat(SIM_WAVE_REQ_PEAK_LSB + (lane * 32) + 31 downto
+           SIM_WAVE_REQ_PEAK_LSB + (lane * 32)) := peak_v(lane);
+      beat(SIM_WAVE_REQ_PHASE_LSB + (lane * 32) + 31 downto
+           SIM_WAVE_REQ_PHASE_LSB + (lane * 32)) := phase_v(lane);
+      beat(SIM_WAVE_REQ_DC_LSB + (lane * 32) + 31 downto
+           SIM_WAVE_REQ_DC_LSB + (lane * 32)) := dc_v(lane);
+      beat(SIM_WAVE_REQ_NOISE_LSB + (lane * 32) + 31 downto
+           SIM_WAVE_REQ_NOISE_LSB + (lane * 32)) := noise_v(lane);
+    end loop;
+    return beat;
+  end function;
+
+  function count_ones(bits : std_logic_vector(7 downto 0)) return natural is
+    variable total : natural range 0 to 8 := 0;
+  begin
+    for bit_index in bits'range loop
+      if bits(bit_index) = '1' then
+        total := total + 1;
+      end if;
+    end loop;
+    return total;
+  end function;
 begin
   s_axi_awready <= not aw_stored;
   s_axi_wready <= not w_stored;
@@ -125,21 +212,33 @@ begin
   m_axis_tvalid <= axis_valid;
   m_axis_tlast <= axis_last;
 
-  source_select_o <= active_control(0);
+  source_select_o <= active_control(ADC_SIM_CONTROL_SOURCE_BIT);
   frame_count_o <= std_logic_vector(frame_count);
   frame_rate_hz_o <= active_sample_rate;
-  frame_rate_valid_o <= active_control(0) and active_control(1);
+  frame_rate_valid_o <= active_control(ADC_SIM_CONTROL_SOURCE_BIT) and
+                        active_control(ADC_SIM_CONTROL_ENABLE_BIT);
   saturation_count_o <= std_logic_vector(saturation_count);
 
+  waveform_engine : hls_sim_wave_engine_ip
+    port map (
+      ap_clk           => aclk,
+      ap_rst_n         => aresetn,
+      s_request_TDATA  => req_data,
+      s_request_TVALID => req_valid,
+      s_request_TREADY => req_ready,
+      m_frame_TDATA    => rsp_data,
+      m_frame_TVALID   => rsp_valid,
+      -- Responses are captured (or deliberately discarded) the cycle they
+      -- appear; the engine is never backpressured.
+      m_frame_TREADY   => '1'
+    );
+
   process (aclk)
-    variable write_address : natural range 0 to 255;
-    variable read_address  : natural range 0 to 255;
+    variable write_address : natural range 0 to 4095;
+    variable read_address  : natural range 0 to 4095;
     variable array_index   : natural range 0 to 7;
-    variable phase_value   : unsigned(31 downto 0);
-    variable product       : signed(49 downto 0);
-    variable scaled        : signed(49 downto 0);
-    variable sample_value  : signed(31 downto 0);
     variable next_accumulator : unsigned(32 downto 0);
+    variable start_frame      : boolean;
   begin
     if rising_edge(aclk) then
       if aresetn = '0' then
@@ -151,6 +250,8 @@ begin
         shadow_phase_step <= (others => '0');
         shadow_peak <= (others => (others => '0'));
         shadow_phase <= (others => (others => '0'));
+        shadow_dc <= (others => (others => '0'));
+        shadow_noise <= (others => (others => '0'));
         active_control <= (others => '0');
         active_sample_rate <= std_logic_vector(to_unsigned(32000, 32));
         active_frequency <= std_logic_vector(to_unsigned(60000, 32));
@@ -159,13 +260,18 @@ begin
         active_phase_step <= (others => '0');
         active_peak <= (others => (others => '0'));
         active_phase <= (others => (others => '0'));
+        active_dc <= (others => (others => '0'));
+        active_noise <= (others => (others => '0'));
         apply_pending <= '0';
         sample_accumulator <= (others => '0');
         sample_pending <= '0';
         base_phase <= (others => '0');
         channel_index <= 0;
         packet_frame_index <= 0;
-        frame_active <= '0';
+        gen_state <= GEN_IDLE;
+        req_data <= (others => '0');
+        req_valid <= '0';
+        frame_samples <= (others => (others => '0'));
         axis_data <= (others => '0');
         axis_valid <= '0';
         axis_last <= '0';
@@ -178,6 +284,139 @@ begin
         rvalid <= '0';
         rdata <= (others => '0');
       else
+        -- The shadow bank crosses into active operation only while no
+        -- frame is in flight, so a frame never mixes generations.  Unless
+        -- the committed CONTROL preserves it, the scheduler/phase/framing
+        -- state clears so the first generated frame is deterministic
+        -- after a source/configuration transaction.
+        if apply_pending = '1' and gen_state = GEN_IDLE and axis_valid = '0' then
+          active_control <= shadow_control;
+          active_sample_rate <= shadow_sample_rate;
+          active_frequency <= shadow_frequency;
+          active_valid_mask <= shadow_valid_mask and x"7F";
+          active_generation <= shadow_generation;
+          active_phase_step <= shadow_phase_step;
+          active_peak <= shadow_peak;
+          active_phase <= shadow_phase;
+          active_dc <= shadow_dc;
+          active_noise <= shadow_noise;
+          apply_pending <= '0';
+          if shadow_control(ADC_SIM_CONTROL_PRESERVE_PHASE_BIT) = '0' then
+            sample_accumulator <= (others => '0');
+            sample_pending <= '0';
+            base_phase <= (others => '0');
+            channel_index <= 0;
+            packet_frame_index <= 0;
+          end if;
+        elsif active_control(ADC_SIM_CONTROL_SOURCE_BIT) = '1' and
+              active_control(ADC_SIM_CONTROL_ENABLE_BIT) = '1' then
+          -- Advance the fractional scheduler every PL clock, including
+          -- while a frame is computed or emitted.  A one-frame pending
+          -- flag absorbs normal latency without biasing the requested
+          -- sample rate; every tick beyond it is a counted miss, never a
+          -- silent timebase slide.
+          start_frame := false;
+          next_accumulator := sample_accumulator + resize(unsigned(active_sample_rate), 33);
+          if next_accumulator >= to_unsigned(G_ACLK_HZ, 33) then
+            sample_accumulator <= next_accumulator - to_unsigned(G_ACLK_HZ, 33);
+            if gen_state = GEN_IDLE then
+              start_frame := true;
+            else
+              if sample_pending = '1' then
+                missed_sample_count <= missed_sample_count + 1;
+              end if;
+              sample_pending <= '1';
+            end if;
+          else
+            sample_accumulator <= next_accumulator;
+            if sample_pending = '1' and gen_state = GEN_IDLE then
+              sample_pending <= '0';
+              start_frame := true;
+            end if;
+          end if;
+
+          if start_frame then
+            -- frame_count doubles as the engine's noise sequence index, so
+            -- the fluctuation is white across frames yet fully reproducible
+            -- from the observable frame counter.
+            req_data <= pack_request(base_phase, frame_count, active_valid_mask,
+                                     active_peak, active_phase, active_dc,
+                                     active_noise);
+            req_valid <= '1';
+            gen_state <= GEN_REQUEST;
+          end if;
+
+          case gen_state is
+            when GEN_IDLE =>
+              null;
+            when GEN_REQUEST =>
+              if req_valid = '1' and req_ready = '1' then
+                req_valid <= '0';
+                gen_state <= GEN_WAIT;
+              end if;
+            when GEN_WAIT =>
+              if rsp_valid = '1' then
+                for lane in 0 to SIM_WAVE_CHANNELS - 1 loop
+                  frame_samples(lane) <=
+                    rsp_data(SIM_WAVE_RSP_SAMPLE_LSB + (lane * 32) + 31 downto
+                             SIM_WAVE_RSP_SAMPLE_LSB + (lane * 32));
+                end loop;
+                saturation_count <= saturation_count +
+                  count_ones(rsp_data(SIM_WAVE_RSP_SATURATED_LSB + 7 downto
+                                      SIM_WAVE_RSP_SATURATED_LSB));
+                channel_index <= 0;
+                gen_state <= GEN_EMIT;
+              end if;
+            when GEN_EMIT =>
+              if axis_valid = '0' then
+                axis_data <= frame_samples(channel_index);
+                axis_last <= '1' when channel_index = 7 and
+                                      packet_frame_index = G_PACKET_FRAMES - 1 else '0';
+                axis_valid <= '1';
+              elsif m_axis_tready = '1' then
+                axis_valid <= '0';
+                axis_last <= '0';
+                if channel_index = 7 then
+                  frame_count <= frame_count + 1;
+                  base_phase <= base_phase + unsigned(active_phase_step);
+                  if packet_frame_index = G_PACKET_FRAMES - 1 then
+                    packet_frame_index <= 0;
+                  else
+                    packet_frame_index <= packet_frame_index + 1;
+                  end if;
+                  gen_state <= GEN_IDLE;
+                else
+                  channel_index <= channel_index + 1;
+                end if;
+              end if;
+          end case;
+        else
+          -- Deselected or disabled: stop emitting and rearming, but obey
+          -- AXI-Stream on the engine boundary -- an offered request stays
+          -- offered until accepted, and its response is drained silently.
+          axis_valid <= '0';
+          axis_last <= '0';
+          sample_accumulator <= (others => '0');
+          sample_pending <= '0';
+          case gen_state is
+            when GEN_REQUEST =>
+              if req_valid = '1' and req_ready = '1' then
+                req_valid <= '0';
+                gen_state <= GEN_WAIT;
+              end if;
+            when GEN_WAIT =>
+              if rsp_valid = '1' then
+                gen_state <= GEN_IDLE;
+              end if;
+            when others =>
+              gen_state <= GEN_IDLE;
+          end case;
+        end if;
+
+        -- AXI-Lite write channel.  Deliberately after the generation
+        -- logic in process order: a register write coincident with a
+        -- datapath update to the same counter wins, so COUNTER_CLEAR
+        -- always leaves the counter observably cleared.
         if s_axi_awvalid = '1' and aw_stored = '0' then
           awaddr <= s_axi_awaddr;
           aw_stored <= '1';
@@ -210,6 +449,16 @@ begin
               end if;
             when ADC_SIM_REG_SHADOW_PHASE_STEP =>
               shadow_phase_step <= merge_strobes(shadow_phase_step, wdata, wstrb);
+            when ADC_SIM_REG_COUNTER_CLEAR =>
+              if wdata(ADC_SIM_CLEAR_SATURATION_BIT) = '1' then
+                saturation_count <= (others => '0');
+              end if;
+              if wdata(ADC_SIM_CLEAR_MISSED_BIT) = '1' then
+                missed_sample_count <= (others => '0');
+              end if;
+              if wdata(ADC_SIM_CLEAR_FRAME_BIT) = '1' then
+                frame_count <= (others => '0');
+              end if;
             when others =>
               if write_address >= ADC_SIM_REG_SHADOW_PEAK_BASE and
                  write_address < ADC_SIM_REG_SHADOW_PEAK_BASE + 32 and
@@ -221,6 +470,16 @@ begin
                     (write_address mod 4) = 0 then
                 array_index := (write_address - ADC_SIM_REG_SHADOW_PHASE_BASE) / 4;
                 shadow_phase(array_index) <= merge_strobes(shadow_phase(array_index), wdata, wstrb);
+              elsif write_address >= ADC_SIM_REG_SHADOW_DC_BASE and
+                    write_address < ADC_SIM_REG_SHADOW_DC_BASE + 32 and
+                    (write_address mod 4) = 0 then
+                array_index := (write_address - ADC_SIM_REG_SHADOW_DC_BASE) / 4;
+                shadow_dc(array_index) <= merge_strobes(shadow_dc(array_index), wdata, wstrb);
+              elsif write_address >= ADC_SIM_REG_SHADOW_NOISE_BASE and
+                    write_address < ADC_SIM_REG_SHADOW_NOISE_BASE + 32 and
+                    (write_address mod 4) = 0 then
+                array_index := (write_address - ADC_SIM_REG_SHADOW_NOISE_BASE) / 4;
+                shadow_noise(array_index) <= merge_strobes(shadow_noise(array_index), wdata, wstrb);
               end if;
           end case;
           aw_stored <= '0';
@@ -243,8 +502,8 @@ begin
             when ADC_SIM_REG_SHADOW_GENERATION => rdata <= shadow_generation;
             when ADC_SIM_REG_STATUS =>
               rdata <= (others => '0');
-              rdata(0) <= active_control(0);
-              rdata(1) <= active_control(1);
+              rdata(0) <= active_control(ADC_SIM_CONTROL_SOURCE_BIT);
+              rdata(1) <= active_control(ADC_SIM_CONTROL_ENABLE_BIT);
               rdata(2) <= apply_pending;
               if saturation_count /= 0 then
                 rdata(3) <= '1';
@@ -278,100 +537,29 @@ begin
                     (read_address mod 4) = 0 then
                 array_index := (read_address - ADC_SIM_REG_SHADOW_PHASE_BASE) / 4;
                 rdata <= shadow_phase(array_index);
+              elsif read_address >= ADC_SIM_REG_SHADOW_DC_BASE and
+                    read_address < ADC_SIM_REG_SHADOW_DC_BASE + 32 and
+                    (read_address mod 4) = 0 then
+                array_index := (read_address - ADC_SIM_REG_SHADOW_DC_BASE) / 4;
+                rdata <= shadow_dc(array_index);
+              elsif read_address >= ADC_SIM_REG_ACTIVE_DC_BASE and
+                    read_address < ADC_SIM_REG_ACTIVE_DC_BASE + 32 and
+                    (read_address mod 4) = 0 then
+                array_index := (read_address - ADC_SIM_REG_ACTIVE_DC_BASE) / 4;
+                rdata <= active_dc(array_index);
+              elsif read_address >= ADC_SIM_REG_SHADOW_NOISE_BASE and
+                    read_address < ADC_SIM_REG_SHADOW_NOISE_BASE + 32 and
+                    (read_address mod 4) = 0 then
+                array_index := (read_address - ADC_SIM_REG_SHADOW_NOISE_BASE) / 4;
+                rdata <= shadow_noise(array_index);
+              elsif read_address >= ADC_SIM_REG_ACTIVE_NOISE_BASE and
+                    read_address < ADC_SIM_REG_ACTIVE_NOISE_BASE + 32 and
+                    (read_address mod 4) = 0 then
+                array_index := (read_address - ADC_SIM_REG_ACTIVE_NOISE_BASE) / 4;
+                rdata <= active_noise(array_index);
               end if;
           end case;
           rvalid <= '1';
-        end if;
-
-        -- The shadow bank crosses into active operation only at an idle frame
-        -- boundary.  Clearing scheduler state makes the first generated frame
-        -- deterministic after a source/configuration transaction.
-        if apply_pending = '1' and frame_active = '0' and axis_valid = '0' then
-          active_control <= shadow_control;
-          active_sample_rate <= shadow_sample_rate;
-          active_frequency <= shadow_frequency;
-          active_valid_mask <= shadow_valid_mask and x"7F";
-          active_generation <= shadow_generation;
-          active_phase_step <= shadow_phase_step;
-          active_peak <= shadow_peak;
-          active_phase <= shadow_phase;
-          apply_pending <= '0';
-          sample_accumulator <= (others => '0');
-          sample_pending <= '0';
-          base_phase <= (others => '0');
-          channel_index <= 0;
-          packet_frame_index <= 0;
-        elsif active_control(0) = '1' and active_control(1) = '1' then
-          -- Advance the fractional scheduler every PL clock, including while
-          -- the eight beats of the previous frame are emitted.  A one-frame
-          -- pending flag absorbs normal AXI latency without biasing the
-          -- requested sample rate.
-          next_accumulator := sample_accumulator + resize(unsigned(active_sample_rate), 33);
-          if next_accumulator >= to_unsigned(G_ACLK_HZ, 33) then
-            sample_accumulator <= next_accumulator - to_unsigned(G_ACLK_HZ, 33);
-            if frame_active = '0' and axis_valid = '0' then
-              frame_active <= '1';
-              channel_index <= 0;
-            else
-              if sample_pending = '1' then
-                missed_sample_count <= missed_sample_count + 1;
-              end if;
-              sample_pending <= '1';
-            end if;
-          else
-            sample_accumulator <= next_accumulator;
-            if sample_pending = '1' and frame_active = '0' and axis_valid = '0' then
-              sample_pending <= '0';
-              frame_active <= '1';
-              channel_index <= 0;
-            end if;
-          end if;
-
-          if frame_active = '1' and axis_valid = '0' then
-            if channel_index = 7 or active_valid_mask(channel_index) = '0' then
-              sample_value := (others => '0');
-            else
-              phase_value := base_phase + unsigned(active_phase(channel_index));
-              product := signed(active_peak(channel_index)) * SINE_LUT(to_integer(phase_value(31 downto 24)));
-              scaled := shift_right(product, 17);
-              if scaled > to_signed(8388607, scaled'length) then
-                sample_value := to_signed(8388607, 32);
-                saturation_count <= saturation_count + 1;
-              elsif scaled < to_signed(-8388608, scaled'length) then
-                sample_value := to_signed(-8388608, 32);
-                saturation_count <= saturation_count + 1;
-              else
-                sample_value := resize(scaled, 32);
-              end if;
-            end if;
-            axis_data <= std_logic_vector(sample_value);
-            axis_last <= '1' when channel_index = 7 and
-                                  packet_frame_index = G_PACKET_FRAMES - 1 else '0';
-            axis_valid <= '1';
-          end if;
-
-          if axis_valid = '1' and m_axis_tready = '1' then
-            axis_valid <= '0';
-            axis_last <= '0';
-            if channel_index = 7 then
-              frame_active <= '0';
-              frame_count <= frame_count + 1;
-              base_phase <= base_phase + unsigned(active_phase_step);
-              if packet_frame_index = G_PACKET_FRAMES - 1 then
-                packet_frame_index <= 0;
-              else
-                packet_frame_index <= packet_frame_index + 1;
-              end if;
-            else
-              channel_index <= channel_index + 1;
-            end if;
-          end if;
-        else
-          frame_active <= '0';
-          axis_valid <= '0';
-          axis_last <= '0';
-          sample_accumulator <= (others => '0');
-          sample_pending <= '0';
         end if;
       end if;
     end if;

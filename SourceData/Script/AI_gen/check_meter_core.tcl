@@ -23,6 +23,14 @@ if {![file isdirectory $hls_mtr1_hdl]} {
 set hls_mtr1_verilog [concat \
   [lsort [glob -directory $hls_mtr1_hdl *.v]] \
   [list [file join $design_root MeterProcessing tb hls_mtr1_engine_ip.v]]]
+set hls_sim_wave_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo SimWaveEngine hdl verilog]
+if {![file isdirectory $hls_sim_wave_hdl]} {
+  error "missing $hls_sim_wave_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+}
+set hls_sim_wave_verilog [concat \
+  [lsort [glob -directory $hls_sim_wave_hdl *.v]] \
+  [list [file join $design_root MeterCore tb hls_sim_wave_engine_ip.v]]]
 
 set xvlog [lindex [auto_execok xvlog] 0]
 set xvhdl [lindex [auto_execok xvhdl] 0]
@@ -70,12 +78,19 @@ set simulator_testbench [file join $design_root MeterCore tb adc_simulator_tb.sv
 
 file delete -force $work_root
 file mkdir $work_root
+# ROM initialization images referenced by the packaged HLS RTL via
+# relative $readmemh paths -- xsim resolves them against the working
+# directory, so stage them beside the compiled snapshot.
+foreach rom_image [glob -nocomplain -directory $hls_sim_wave_hdl *.dat] {
+  file copy -force $rom_image $work_root
+}
 set original_dir [pwd]
 cd $work_root
 
 puts [exec $xvhdl --2008 {*}$vhdl2008_sources 2>@1]
 puts [exec $xvlog -i $hls_mtr2_hdl {*}$hls_mtr2_verilog 2>@1]
 puts [exec $xvlog -i $hls_mtr1_hdl {*}$hls_mtr1_verilog 2>@1]
+puts [exec $xvlog -i $hls_sim_wave_hdl {*}$hls_sim_wave_verilog 2>@1]
 puts [exec $xvhdl --2008 {*}$core_vhdl2008_sources 2>@1]
 puts [exec $xvhdl $boundary_wrapper 2>@1]
 puts [exec $xvlog --sv $testbench 2>@1]

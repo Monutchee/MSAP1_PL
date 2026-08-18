@@ -85,7 +85,7 @@ entity meter_core is
     s_axi_waveform_rvalid  : out std_logic;
     s_axi_waveform_rready  : in  std_logic;
 
-    s_axi_simulator_awaddr  : in  std_logic_vector(7 downto 0);
+    s_axi_simulator_awaddr  : in  std_logic_vector(11 downto 0);
     s_axi_simulator_awvalid : in  std_logic;
     s_axi_simulator_awready : out std_logic;
     s_axi_simulator_wdata   : in  std_logic_vector(31 downto 0);
@@ -95,7 +95,7 @@ entity meter_core is
     s_axi_simulator_bresp   : out std_logic_vector(1 downto 0);
     s_axi_simulator_bvalid  : out std_logic;
     s_axi_simulator_bready  : in  std_logic;
-    s_axi_simulator_araddr  : in  std_logic_vector(7 downto 0);
+    s_axi_simulator_araddr  : in  std_logic_vector(11 downto 0);
     s_axi_simulator_arvalid : in  std_logic;
     s_axi_simulator_arready : out std_logic;
     s_axi_simulator_rdata   : out std_logic_vector(31 downto 0);

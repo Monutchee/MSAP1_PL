@@ -80,7 +80,7 @@ entity MeterCore_Wrapper is
     s_axi_waveform_rvalid  : out std_logic;
     s_axi_waveform_rready  : in  std_logic;
 
-    s_axi_simulator_awaddr  : in  std_logic_vector(7 downto 0);
+    s_axi_simulator_awaddr  : in  std_logic_vector(11 downto 0);
     s_axi_simulator_awvalid : in  std_logic;
     s_axi_simulator_awready : out std_logic;
     s_axi_simulator_wdata   : in  std_logic_vector(31 downto 0);
@@ -90,7 +90,7 @@ entity MeterCore_Wrapper is
     s_axi_simulator_bresp   : out std_logic_vector(1 downto 0);
     s_axi_simulator_bvalid  : out std_logic;
     s_axi_simulator_bready  : in  std_logic;
-    s_axi_simulator_araddr  : in  std_logic_vector(7 downto 0);
+    s_axi_simulator_araddr  : in  std_logic_vector(11 downto 0);
     s_axi_simulator_arvalid : in  std_logic;
     s_axi_simulator_arready : out std_logic;
     s_axi_simulator_rdata   : out std_logic_vector(31 downto 0);
@@ -225,7 +225,7 @@ architecture structural of MeterCore_Wrapper is
 
   attribute X_INTERFACE_INFO of s_axi_simulator_awaddr : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR AWADDR";
   attribute X_INTERFACE_PARAMETER of s_axi_simulator_awaddr : signal is
-    "XIL_INTERFACENAME S_AXI_SIMULATOR, PROTOCOL AXI4LITE, DATA_WIDTH 32, ADDR_WIDTH 8, ID_WIDTH 0, READ_WRITE_MODE READ_WRITE";
+    "XIL_INTERFACENAME S_AXI_SIMULATOR, PROTOCOL AXI4LITE, DATA_WIDTH 32, ADDR_WIDTH 12, ID_WIDTH 0, READ_WRITE_MODE READ_WRITE";
   attribute X_INTERFACE_INFO of s_axi_simulator_awvalid : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR AWVALID";
   attribute X_INTERFACE_INFO of s_axi_simulator_awready : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR AWREADY";
   attribute X_INTERFACE_INFO of s_axi_simulator_wdata : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR WDATA";

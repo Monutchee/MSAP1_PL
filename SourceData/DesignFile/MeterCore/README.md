@@ -55,21 +55,33 @@ exercises every normal downstream path. Only the selected source receives
 `TREADY`; software must stop capture before changing the source. The physical
 AD7771 receiver and its clock-domain crossing remain unchanged.
 
-The simulator has a fractional sample scheduler, a 32-bit phase accumulator,
-and a shared 256-entry sine table. Linux converts engineering RMS values into
-signed raw peak counts and supplies per-channel Q0.32 phase offsets. Software
-also supplies the Q0.32 phase increment, keeping floating-point calculations
-and sensor-profile policy outside PL. CH7 remains implemented internally but
-is zero and invalid by default.
+The simulator's VHDL owns the deterministic infrastructure: a fractional
+sample scheduler, a 32-bit phase accumulator, AXIS framing, and the AXI-Lite
+shadow/apply register file. The per-frame waveform mathematics lives in the
+packaged HLS engine `hls_sim_wave_engine`
+(`SourceData/HLS_DesignFile/MeterCore/SimWaveEngine`, beat layout normative
+in `sim_wave_engine.hpp` and mirrored by `adc_simulator_pkg.vhd`): an
+interpolated quarter-wave sine (4096 points per cycle, 20-bit linear
+interpolation; spurs below -100 dBc), per-channel DC offset, and a uniform
+white fluctuation of configurable amplitude whose noise words are a
+deterministic hash of the frame index, so golden models reproduce them
+bit-exactly. Linux converts engineering RMS/DC/noise values into signed raw
+counts and supplies per-channel Q0.32 phase offsets plus the Q0.32 phase
+increment, keeping floating-point calculations and sensor-profile policy
+outside PL. CH7 remains implemented internally but is zero and invalid by
+default.
 
 Configuration is shadowed and committed only between complete eight-channel
-frames. `CONTROL[0]` selects the simulator and `CONTROL[1]` enables generation.
-The current register contract is:
+frames. `CONTROL[0]` selects the simulator, `CONTROL[1]` enables generation,
+and `CONTROL[2]` preserves the phase accumulator, scheduler, and packet
+framing across the commit (seamless reconfiguration; without it the waveform
+restarts deterministically at 0 degrees and packet frame 0). The register
+decode is 12 bits wide (4 KB window). The current register contract is:
 
 | Offset | Register |
 | ---: | --- |
 | `0x00` | Identifier (`SIM1`) |
-| `0x04` | Version (`0x00010000`) |
+| `0x04` | Version (`0x00010001`) |
 | `0x08` | Shadow control |
 | `0x0C` | Shadow sample rate, frame/s |
 | `0x10` | Shadow signal frequency, mHz |
@@ -89,9 +101,16 @@ The current register contract is:
 | `0x80` | Shadow Q0.32 phase step per sample |
 | `0x84` | Active control |
 | `0x88` | Active Q0.32 phase step |
+| `0x8C`-`0xA8` | Eight signed DC-offset shadow registers, counts |
+| `0xAC` | Counter clear (W1C: `0` saturation, `1` missed, `2` frames) |
+| `0xB0`-`0xCC` | Eight active DC-offset readbacks |
+| `0xD0`-`0xEC` | Eight unsigned noise-amplitude shadow registers, counts |
+| `0x100`-`0x11C` | Eight active noise-amplitude readbacks |
 
 Peak counts outside the signed 24-bit range saturate and increment the
-saturation counter. If downstream backpressure consumes the single pending
+saturation counter, as does any sine + DC + noise sum that crosses a rail.
+The noise amplitude is the half-width of a uniform distribution (RMS =
+amplitude / sqrt(3)); zero disables the path. If downstream backpressure consumes the single pending
 sample slot before another scheduled frame can be emitted, the simulator
 increments the missed-sample counter rather than silently changing time.
 
