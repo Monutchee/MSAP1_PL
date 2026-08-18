@@ -54,6 +54,21 @@ set bd_was_open [expr {[current_bd_design -quiet] ne ""}]
 if {!$bd_was_open} {
     open_bd_design $bd
 }
+
+# A module-reference cell snapshots its HDL interface into the block design;
+# an RTL port or interface edit (a widened AXI address bus, say) reaches
+# neither the BD nor the out-of-context run's staleness check until the
+# reference is updated. Without this, synthesis silently links the previous
+# checkpoint and ships yesterday's logic (2026-08-18: a MeterCore interface
+# change left the built bitstream on the prior ADC-simulator core). The
+# refresh is idempotent and costs seconds when nothing changed.
+set module_cells [get_bd_cells -quiet -filter {VLNV =~ "*:module_ref:*"}]
+if {[llength $module_cells] > 0} {
+    puts "PL_BUILD_MODULE_REFS=$module_cells"
+    update_module_reference $module_cells
+    save_bd_design
+}
+
 validate_bd_design
 puts "PL_BUILD_BD_VALIDATED=$bd"
 if {!$bd_was_open} {
