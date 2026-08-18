@@ -117,7 +117,7 @@ static void take_record(Bench &b, ap_uint<32> (&words)[MREC_WORDS]) {
 
 int main() {
   static_assert(SCYC_IN_BITS == 1152, "input beat width is normative");
-  static_assert(SCYC_BEAT_BITS == 5280, "result beat width is normative");
+  static_assert(SCYC_BEAT_BITS == 7072, "result beat width is normative");
 
   Bench b;
 
@@ -157,7 +157,7 @@ int main() {
   ap_uint<32> words[MREC_WORDS];
   take_record(b, words);
   CHECK(words[MREC_MAGIC_WORD] == MREC_MAGIC, "record magic");
-  CHECK(words[MREC_FORMAT_WORD] == MREC_FORMAT_SCYC_V3, "record format");
+  CHECK(words[MREC_FORMAT_WORD] == MREC_FORMAT_SCYC_V4, "record format");
   CHECK(words[MREC_SEQUENCE_WORD] == 1 && words[MREC_SAMPLE_COUNT_WORD] == 5,
         "record envelope sequence/count");
   CHECK(words[MREC_FIRST_SAMPLE_LOW_WORD] == 1000 &&
@@ -386,6 +386,96 @@ int main() {
     CHECK((std::fabs((double)got - expected_pw) <= 1.0),
           "reverse power record: got %lld expected %.1f pW", got, expected_pw);
     CHECK(got < 0, "record power word must carry the export sign");
+  }
+
+  // --- PhasorCore: synchronous correlation on synthetic sinusoids. ------
+  // fs = 32 kHz, f = 64 Hz -> exactly 500 samples per cycle. Va at 0 deg,
+  // Ia at -60 deg; a 10% 3rd harmonic rides on Va and must NOT move the
+  // fundamental while the total RMS grows by sqrt(1.01).
+  {
+    const int cycle_samples = 500;
+    const double amplitude = 65536.0 * 100.0;  // 100 units in Q16
+    const double ia_amplitude = 65536.0 * 10.0;
+    const double phi_ia = -60.0 * M_PI / 180.0;
+    for (int pass = 0; pass < 2; ++pass) {
+      const bool with_harmonic = (pass == 1);
+      for (int i = 0; i < cycle_samples; ++i) {
+        FrameSpec h = b.leveled(f);
+        h.freq_mhz = 64000;
+        h.cfg_rate = 32000;
+        h.sample_index = 20000 + pass * 1000 + i;
+        const double theta = 2.0 * M_PI * i / cycle_samples;
+        double va = amplitude * std::sin(theta);
+        if (with_harmonic) va += 0.1 * amplitude * std::sin(3.0 * theta);
+        h.q16[MET_LANE_VA] = (long long)std::llround(va);
+        h.q16[MET_LANE_IA] =
+            (long long)std::llround(ia_amplitude * std::sin(theta + phi_ia));
+        h.closes = (i == cycle_samples - 1);
+        b.send(h);
+      }
+      const single_cycle_result_t rs =
+          unpack_single_cycle_result(b.m_result.read());
+      CHECK((rs.status & 2) == 0, "phasor must be valid with a good reference");
+      take_record(b, words);
+
+      // Fundamental RMS record words: amplitude/sqrt(2) in micro-units,
+      // harmonic present or not (the rejection property).
+      const double expected_fund =
+          amplitude / std::sqrt(2.0) / 65536.0;  // micro-units
+      const int va_base = SCYC_FUND_BASE_WORD + MET_LANE_VA * SCYC_CH_STRIDE_WORDS;
+      const unsigned long long got_fund =
+          (unsigned long long)words[va_base] |
+          ((unsigned long long)words[va_base + 1] << 32);
+      CHECK((std::fabs((double)got_fund - expected_fund) <=
+             expected_fund * 0.002 + 2.0),
+            "pass %d Va fundamental RMS: got %llu expected %.1f", pass,
+            got_fund, expected_fund);
+
+      // Total RMS grows with the harmonic; fundamental must not.
+      const int va_total_base = SCYC_CH_BASE_WORD + MET_LANE_VA * SCYC_CH_STRIDE_WORDS;
+      const unsigned long long got_total =
+          (unsigned long long)words[va_total_base] |
+          ((unsigned long long)words[va_total_base + 1] << 32);
+      const double expected_total = with_harmonic
+          ? expected_fund * std::sqrt(1.01)
+          : expected_fund;
+      CHECK((std::fabs((double)got_total - expected_total) <=
+             expected_total * 0.002 + 2.0),
+            "pass %d Va total RMS: got %llu expected %.1f", pass, got_total,
+            expected_total);
+
+      // Phase recovery from the beat's Re/Im (double atan2; the M9
+      // finalizer will do this in fabric). Ia must read -60 deg.
+      const double re = (double)(long long)ap_int<64>(
+          (rs.phasor_re[MET_LANE_IA] >> 37).range(63, 0));
+      const double im = (double)(long long)ap_int<64>(
+          (rs.phasor_im[MET_LANE_IA] >> 37).range(63, 0));
+      // x = A sin(theta+phi): re = (A/2) sin(phi), im_sum = -sum x sin ->
+      // im = -(A/2) cos(phi) ... recover phi = atan2(re, -im).
+      const double phi = std::atan2(re, -im) * 180.0 / M_PI;
+      CHECK((std::fabs(phi - (-60.0)) <= 0.05),
+            "pass %d Ia phase: got %.3f deg expected -60", pass, phi);
+    }
+  }
+
+  // --- Invalid frequency reference: phasor gated, flagged, zeroed. -------
+  {
+    for (int i = 0; i < 4; ++i) {
+      FrameSpec h = b.leveled(f);
+      h.freq_status = 0;  // FREQUENCY_STATUS_VALID clear
+      h.sample_index = 25000 + i;
+      h.q16[MET_LANE_VA] = 65536 * 10;
+      h.closes = (i == 3);
+      b.send(h);
+    }
+    const single_cycle_result_t rs =
+        unpack_single_cycle_result(b.m_result.read());
+    take_record(b, words);
+    CHECK((rs.status & 2) == 2, "invalid reference must set status bit 1");
+    CHECK((rs.phasor_re[MET_LANE_VA] == 0 && rs.phasor_im[MET_LANE_VA] == 0),
+          "phasor sections must zero without a reference");
+    CHECK(words[SCYC_FUND_BASE_WORD + MET_LANE_VA * SCYC_CH_STRIDE_WORDS] == 0,
+          "fundamental RMS words must zero without a reference");
   }
 
   // --- A malformed frame clears the running window. ---------------------

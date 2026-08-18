@@ -228,7 +228,7 @@ architecture structural of meter_core is
   signal grid_cycle_sequence  : std_logic_vector(31 downto 0);
   -- Single-cycle result beats: consumed by the 10/12-cycle tier from M7;
   -- drained unconditionally until then so the engine can never stall.
-  signal scyc_result_tdata  : std_logic_vector(5279 downto 0);
+  signal scyc_result_tdata  : std_logic_vector(7071 downto 0);
   signal scyc_result_tvalid : std_logic;
   signal mtr1_result_tdata    : std_logic_vector(807 downto 0);
   signal mtr1_result_tvalid   : std_logic;

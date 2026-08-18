@@ -57,7 +57,7 @@ entity meter_single_cycle_hls_shim is
     m_axis_scyc_tlast  : out std_logic;
 
     -- Single-cycle result beats (the 10/12-cycle tier's input, M7).
-    m_result_tdata  : out std_logic_vector(5279 downto 0);
+    m_result_tdata  : out std_logic_vector(7071 downto 0);
     m_result_tvalid : out std_logic;
     m_result_tready : in  std_logic;
 
@@ -103,7 +103,7 @@ architecture rtl of meter_single_cycle_hls_shim is
       m_axis_TKEEP    : out std_logic_vector(3 downto 0);
       m_axis_TSTRB    : out std_logic_vector(3 downto 0);
       m_axis_TLAST    : out std_logic_vector(0 downto 0);
-      m_result_TDATA  : out std_logic_vector(5279 downto 0);
+      m_result_TDATA  : out std_logic_vector(7071 downto 0);
       m_result_TVALID : out std_logic;
       m_result_TREADY : in  std_logic
     );

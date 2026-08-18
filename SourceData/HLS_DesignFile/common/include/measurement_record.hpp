@@ -52,7 +52,7 @@ static const uint32_t MREC_MAGIC = 0x3152544Du;  // ASCII "MTR1", little-endian
 
 static const uint32_t MREC_FORMAT_MTR1_V3 = 0x00010003u;  // proposed (deployed: v2 0x00010002)
 static const uint32_t MREC_FORMAT_MTR2_V2 = 0x00020002u;  // proposed (deployed: v1 0x00020001)
-static const uint32_t MREC_FORMAT_SCYC_V3 = 0x000A0003u;  // single-cycle diagnostic
+static const uint32_t MREC_FORMAT_SCYC_V4 = 0x000A0004u;  // single-cycle diagnostic
 
 // ---------------------------------------------------------------------------
 // Common envelope — words 0..12 mean the same thing in EVERY format, so
@@ -155,7 +155,7 @@ static const int MTR2_INELIGIBLE_COUNT_WORD = 34;  // basic inputs rejected
 static const int MTR2_CONTINUITY_COUNT_WORD = 35;
 
 // ---------------------------------------------------------------------------
-// SCYC-v3 interior: the single-cycle diagnostic record. One record per
+// SCYC-v4 interior: the single-cycle diagnostic record. One record per
 // complete grid cycle while cycle timing is locked; observability for
 // the single-cycle foundation before the 10/12-cycle tier consumes its
 // result beats. Envelope words 0..12 as always (first-sample timestamp
@@ -182,7 +182,13 @@ static const int SCYC_VLL_BASE_WORD = 38;
 // Words 44..49: per-phase one-cycle ACTIVE power, SIGNED 64-bit
 // picowatts (v3 / metrology M4; sign conventions in metering_types.hpp:
 // import positive). Diagnostic — the mergeable sum(v*i) rides the beat.
-static const int SCYC_POWER_BASE_WORD = 44;  // sequence/sample-range breaks
+static const int SCYC_POWER_BASE_WORD = 44;
+// Words 50..63: per-lane FUNDAMENTAL RMS, micro-units 64-bit (v4 /
+// metrology M5): |mean phasor| * sqrt(2) from the synchronous
+// correlation. Under distortion this reads BELOW the total RMS in words
+// 24..37 — that separation is the phasor-rejection acceptance check.
+// Status bit 1: phasor invalid this cycle (frequency reference unusable).
+static const int SCYC_FUND_BASE_WORD = 50;  // sequence/sample-range breaks
 
 // MTR2 status bits (word 8), beyond the common arithmetic bit.
 static const int MTR2_STATUS_COMPLETE_BIT  = 1;  // always set — only complete aggregates emit

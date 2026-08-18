@@ -80,7 +80,14 @@ static const int SCYC_STAT_VLL_PEAK_LSB   = 4704;  // 3 x u64 peak |diff|
 // --- contract-max product occupies 126 bits, real products stay below
 // --- 2^80, and the 10/12-cycle merge stays a pure addition. -------------
 static const int SCYC_POWER_SUM_LSB       = 4896;  // 3 x s128 sum(v*i) Q32
-static const int SCYC_BEAT_BITS           = 5280;  // 660 bytes on AXIS
+
+// --- M5 phasor section: fundamental correlation sums in the raw Q1.37
+// --- trig domain (see phasor_core.hpp; products <= 2^102, cycle sums
+// --- < 2^116, so the 128-bit signed saturating width has >= 11 bits of
+// --- headroom and the 10/12-cycle merge stays a pure addition). --------
+static const int SCYC_PHASOR_RE_LSB       = 5280;  // 7 x s128
+static const int SCYC_PHASOR_IM_LSB       = 6176;  // 7 x s128
+static const int SCYC_BEAT_BITS           = 7072;  // 884 bytes on AXIS
 
 typedef ap_uint<SCYC_BEAT_BITS> single_cycle_beat_t;
 
@@ -110,6 +117,8 @@ struct single_cycle_result_t {
   ap_uint<128>       vll_square[MET_VLL_PAIRS];
   ap_uint<64>        vll_peak[MET_VLL_PAIRS];
   ap_int<128>        power_sum[MET_POWER_PHASES];
+  ap_int<128>        phasor_re[MET_ACTIVE_CHANNELS];
+  ap_int<128>        phasor_im[MET_ACTIVE_CHANNELS];
 };
 
 inline single_cycle_beat_t pack_single_cycle_result(const single_cycle_result_t &r) {
@@ -155,6 +164,13 @@ inline single_cycle_beat_t pack_single_cycle_result(const single_cycle_result_t 
 #pragma HLS UNROLL
     beat.range(SCYC_POWER_SUM_LSB + phase * 128 + 127,
                SCYC_POWER_SUM_LSB + phase * 128) = r.power_sum[phase];
+  }
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+#pragma HLS UNROLL
+    beat.range(SCYC_PHASOR_RE_LSB + lane * 128 + 127,
+               SCYC_PHASOR_RE_LSB + lane * 128) = r.phasor_re[lane];
+    beat.range(SCYC_PHASOR_IM_LSB + lane * 128 + 127,
+               SCYC_PHASOR_IM_LSB + lane * 128) = r.phasor_im[lane];
   }
   return beat;
 }
@@ -203,6 +219,13 @@ inline single_cycle_result_t unpack_single_cycle_result(const single_cycle_beat_
 #pragma HLS UNROLL
     r.power_sum[phase] = beat.range(SCYC_POWER_SUM_LSB + phase * 128 + 127,
                                     SCYC_POWER_SUM_LSB + phase * 128);
+  }
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+#pragma HLS UNROLL
+    r.phasor_re[lane] = beat.range(SCYC_PHASOR_RE_LSB + lane * 128 + 127,
+                                   SCYC_PHASOR_RE_LSB + lane * 128);
+    r.phasor_im[lane] = beat.range(SCYC_PHASOR_IM_LSB + lane * 128 + 127,
+                                   SCYC_PHASOR_IM_LSB + lane * 128);
   }
   return r;
 }

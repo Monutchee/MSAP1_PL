@@ -1,6 +1,7 @@
 #include "single_cycle_engine.hpp"
 
 #include "metrology_stats.hpp"
+#include "phasor_core.hpp"
 #include "power_core.hpp"
 #include "statistics_core.hpp"
 
@@ -34,6 +35,13 @@ void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
   static ap_uint<1> window_overflow = 0;
   static cycle_statistics_t stats;
   static cycle_power_t power;
+  static cycle_phasor_t phasor;
+  // Fundamental correlation reference: theta restarts each cycle; the
+  // per-sample increment and its validity latch at the cycle's first
+  // frame from the MEASURED frequency (off-nominal tolerant).
+  static ap_uint<32> phasor_theta = 0;
+  static ap_uint<32> phasor_delta = 0;
+  static ap_uint<1> phasor_valid = 0;
 
   if (s_sample.empty()) {
     return;
@@ -83,6 +91,15 @@ void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
   if (first_frame) {
     window_first_sample = sample_index;
     window_overflow = 0;
+    phasor_theta = 0;
+    phasor_valid =
+        beat.bit(SCYC_IN_FREQ_STATUS_LSB + SCYC_FREQ_STATUS_VALID_BIT);
+    if (phasor_valid == 1) {
+      phasor_delta = phasor_delta_q32(
+          ap_uint<32>(beat.range(SCYC_IN_FREQ_MHZ_LSB + 31,
+                                 SCYC_IN_FREQ_MHZ_LSB)),
+          active_sample_rate);
+    }
   }
   const ap_uint<32> count_now = sample_count + 1;
 
@@ -103,6 +120,11 @@ extract_lanes:
   }
   accumulate_statistics(stats, q16, raw, first_frame, window_overflow);
   accumulate_power(power, q16, first_frame, window_overflow);
+  if (phasor_valid == 1) {
+    accumulate_phasor(phasor, q16, phasor_theta, first_frame,
+                      window_overflow);
+    phasor_theta += phasor_delta;
+  }
 
   if (beat.bit(SCYC_IN_CLOSES_BIT) == 0) {
     sample_count = count_now;
@@ -151,7 +173,22 @@ finalize_power:
         met_floor_mean_signed<128, 128>(power.power_sum[phase], count_now);
     phase_power_pw[phase] = ap_int<64>((mean_q32 >> 32).range(63, 0));
   }
-  const ap_uint<32> status = ap_uint<32>(window_overflow);
+  // Diagnostic fundamental RMS per lane; zero (and status bit 1) when
+  // the frequency reference was unusable at cycle start.
+  ap_uint<64> fund_rms[MET_ACTIVE_CHANNELS];
+#pragma HLS ARRAY_PARTITION variable=fund_rms complete
+finalize_fundamental:
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+#pragma HLS PIPELINE off
+    fund_rms[lane] =
+        (phasor_valid == 1)
+            ? phasor_fundamental_rms(phasor.re_sum[lane],
+                                     phasor.im_sum[lane], count_now)
+            : ap_uint<64>(0);
+  }
+  const ap_uint<32> status =
+      ap_uint<32>(window_overflow) |
+      (ap_uint<32>(phasor_valid == 0 ? 1 : 0) << 1);
 
   single_cycle_result_t result;
   result.sequence = sequence;
@@ -176,6 +213,16 @@ finalize_power:
       beat.range(SCYC_IN_PL_TICK_LSB + 63, SCYC_IN_PL_TICK_LSB);
   export_statistics(stats, result);
   export_power(power, result);
+  if (phasor_valid == 1) {
+    export_phasor(phasor, result);
+  } else {
+zero_phasor:
+    for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+#pragma HLS UNROLL
+      result.phasor_re[lane] = 0;
+      result.phasor_im[lane] = 0;
+    }
+  }
   m_result.write(pack_single_cycle_result(result));
 
   // SCYC-v1 diagnostic record.
@@ -218,6 +265,14 @@ record_power:
     image.word[base] = raw_bits.range(31, 0);
     image.word[base + 1] = raw_bits.range(63, 32);
   }
+record_fundamental:
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+#pragma HLS PIPELINE off
+    const ap_uint<64> rms_units = fund_rms[lane] >> 16;  // micro-units
+    const int base = SCYC_FUND_BASE_WORD + lane * SCYC_CH_STRIDE_WORDS;
+    image.word[base] = rms_units.range(31, 0);
+    image.word[base + 1] = rms_units.range(63, 32);
+  }
 
-  serialize_record<MREC_FORMAT_SCYC_V3>(image, m_axis);
+  serialize_record<MREC_FORMAT_SCYC_V4>(image, m_axis);
 }

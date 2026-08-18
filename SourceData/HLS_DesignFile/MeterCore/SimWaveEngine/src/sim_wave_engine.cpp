@@ -1,40 +1,6 @@
 #include "sim_wave_engine.hpp"
 
-#include "sim_wave_sine_lut.hpp"
-
-// Sine of one 12-bit point index (4096 points per cycle), folded onto the
-// 1025-entry quarter-wave table. Pure combinational lookup; the +1
-// neighbour a caller needs for interpolation goes through the same fold,
-// so quadrant boundaries need no special case.
-static ap_int<18> sine_point(ap_uint<12> point) {
-#pragma HLS INLINE
-  const ap_uint<2> quadrant = point.range(11, 10);
-  const ap_uint<10> q = point.range(9, 0);
-  // Index from the quadrant end for the mirrored quadrants (1 and 3).
-  const ap_uint<11> idx =
-      (quadrant[0] == 0) ? ap_uint<11>(q) : ap_uint<11>(1024 - ap_uint<11>(q));
-  const ap_int<18> value = ap_int<18>(SIM_SINE_QLUT[idx]);
-  return (quadrant[1] == 0) ? value : ap_int<18>(-value);
-}
-
-// Q0.32 turns -> Q1.37 sine (Q1.17 table value carrying the full 20-bit
-// interpolation fraction). The fraction is NOT floored back to table
-// resolution before the amplitude multiply -- doing so costs up to
-// peak/2^17 output counts, which at full scale is 64 counts and would
-// dominate the error budget. The single floor happens once, after the
-// peak multiply.
-static ap_int<39> sine_q32(ap_uint<32> phase) {
-#pragma HLS INLINE
-  const ap_uint<12> point = phase.range(31, 20);
-  const ap_uint<20> frac = phase.range(19, 0);
-  const ap_int<18> s0 = sine_point(point);
-  const ap_int<18> s1 = sine_point(ap_uint<12>(point + 1));
-  const ap_int<19> diff = ap_int<19>(s1) - ap_int<19>(s0);
-  // |diff| <= 202 and frac < 2^20, so the step fits comfortably in 28
-  // bits; s0 << 20 needs 38. The sum is the sine in Q1.37.
-  const ap_int<41> step = diff * ap_int<22>(ap_uint<21>(frac));
-  return ap_int<39>((ap_int<39>(s0) << 20) + ap_int<39>(step));
-}
+#include "metrology_trig.hpp"
 
 // splitmix32-style finalizing mixer: a bijective avalanche over 32 bits.
 // Seeded per (frame_index, lane) it yields white, channel-uncorrelated
@@ -97,9 +63,35 @@ channel_lanes:
       // saturates at the rails instead of aliasing (legacy behaviour).
       // product is peak(32) x sine Q1.37(39) = 71 bits; >> 37 restores
       // integer counts with a single floor (arithmetic shift).
-      const ap_int<39> sine = sine_q32(base_phase + phase_offset);
+      const ap_uint<32> lane_angle = base_phase + phase_offset;
+      const ap_int<39> sine = met_sin_q32(lane_angle);
       const ap_int<71> product = peak * sine;
       const ap_int<34> scaled = ap_int<34>(product >> 37);
+
+      // Harmonic slots: fraction-of-fundamental amplitude, one floor per
+      // slot after the combined peak*fraction*sine product (>> 16+37).
+      // Four full-scale slots extend the pre-clamp sum by at most 3 bits.
+      ap_int<37> harmonic_counts = 0;
+harmonic_slots:
+      for (int slot = 0; slot < SIM_WAVE_HARMONIC_SLOTS; ++slot) {
+#pragma HLS PIPELINE off
+        const int slot_lsb = SIM_WAVE_REQ_HARMONIC_LSB + slot * 64;
+        const ap_uint<8> order = request.range(slot_lsb + 7, slot_lsb);
+        const ap_uint<8> slot_mask = request.range(slot_lsb + 15, slot_lsb + 8);
+        const ap_uint<16> fraction = request.range(slot_lsb + 31, slot_lsb + 16);
+        const ap_uint<32> slot_phase =
+            request.range(slot_lsb + 63, slot_lsb + 32);
+        if (order == 0 || slot_mask[lane] == 0 || fraction == 0) {
+          continue;
+        }
+        // order * angle wraps mod 2^32 = mod one turn: exact.
+        const ap_uint<32> harmonic_angle =
+            ap_uint<32>(order * lane_angle) + slot_phase;
+        const ap_int<39> harmonic_sine = met_sin_q32(harmonic_angle);
+        const ap_int<49> scaled_peak = peak * ap_int<17>(ap_uint<17>(fraction));
+        const ap_int<88> harmonic_product = scaled_peak * harmonic_sine;
+        harmonic_counts += ap_int<37>(harmonic_product >> 53);
+      }
 
       // Uniform fluctuation in +/- noise_level counts: the mixed word's
       // top 24 bits are a signed uniform in +/- 2^23, scaled by the level
@@ -110,12 +102,13 @@ channel_lanes:
       const ap_int<49> noise_product = noise_uniform * ap_int<25>(noise_level);
       const ap_int<26> noise_counts = ap_int<26>(noise_product >> 23);
 
-      const ap_int<36> with_dc =
-          ap_int<36>(scaled) + ap_int<36>(dc_offset) + ap_int<36>(noise_counts);
-      if (with_dc > ap_int<36>(SIM_WAVE_SAMPLE_MAX)) {
+      const ap_int<39> with_dc = ap_int<39>(scaled) + ap_int<39>(dc_offset) +
+                                 ap_int<39>(noise_counts) +
+                                 ap_int<39>(harmonic_counts);
+      if (with_dc > ap_int<39>(SIM_WAVE_SAMPLE_MAX)) {
         sample = SIM_WAVE_SAMPLE_MAX;
         saturated = 1;
-      } else if (with_dc < ap_int<36>(SIM_WAVE_SAMPLE_MIN)) {
+      } else if (with_dc < ap_int<39>(SIM_WAVE_SAMPLE_MIN)) {
         sample = SIM_WAVE_SAMPLE_MIN;
         saturated = 1;
       } else {

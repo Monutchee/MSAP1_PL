@@ -44,6 +44,15 @@ struct ChannelSpec {
   bool enabled;
 };
 
+// Global harmonic slots for the request under test (zero = disabled).
+struct HarmonicSpec {
+  unsigned order = 0;
+  unsigned mask = 0;
+  unsigned fraction_q16 = 0;
+  unsigned long phase = 0;
+};
+static HarmonicSpec g_harmonics[SIM_WAVE_HARMONIC_SLOTS];
+
 static sim_wave_request_t pack_request(unsigned long base_phase,
                                        unsigned long frame_index,
                                        const ChannelSpec (&ch)[SIM_WAVE_CHANNELS]) {
@@ -65,6 +74,13 @@ static sim_wave_request_t pack_request(unsigned long base_phase,
     request.range(noise_lsb + 31, noise_lsb) = ap_uint<32>(ch[lane].noise);
   }
   request.range(SIM_WAVE_REQ_VALID_MASK_LSB + 7, SIM_WAVE_REQ_VALID_MASK_LSB) = mask;
+  for (int slot = 0; slot < SIM_WAVE_HARMONIC_SLOTS; ++slot) {
+    const int lsb = SIM_WAVE_REQ_HARMONIC_LSB + slot * 64;
+    request.range(lsb + 7, lsb) = g_harmonics[slot].order;
+    request.range(lsb + 15, lsb + 8) = g_harmonics[slot].mask;
+    request.range(lsb + 31, lsb + 16) = g_harmonics[slot].fraction_q16;
+    request.range(lsb + 63, lsb + 32) = ap_uint<32>(g_harmonics[slot].phase);
+  }
   return request;
 }
 
@@ -108,15 +124,42 @@ static long noise_counts_model(unsigned long frame_index, int lane,
   return (long)(product >> 23);
 }
 
-// The sine + DC + noise model with the implementation's gain convention;
-// pre-clamp, so callers can also predict the saturation flags.
+// The sine + harmonics + DC + noise model with the implementation's gain
+// convention; pre-clamp, so callers can also predict the saturation flags.
 static double golden_unclamped(unsigned long base_phase, unsigned long frame_index,
                                int lane, const ChannelSpec &ch) {
-  const double turns =
-      (double)((base_phase + ch.phase) & 0xFFFFFFFFul) / 4294967296.0;
+  const unsigned long angle = (base_phase + ch.phase) & 0xFFFFFFFFul;
+  const double turns = (double)angle / 4294967296.0;
   const double sine = std::sin(2.0 * M_PI * turns) * (131071.0 / 131072.0);
-  return (double)ch.peak * sine + (double)ch.dc +
-         (double)noise_counts_model(frame_index, lane, ch.noise);
+  double value = (double)ch.peak * sine + (double)ch.dc +
+                 (double)noise_counts_model(frame_index, lane, ch.noise);
+  for (int slot = 0; slot < SIM_WAVE_HARMONIC_SLOTS; ++slot) {
+    const HarmonicSpec &h = g_harmonics[slot];
+    if (h.order == 0 || ((h.mask >> lane) & 1u) == 0 || h.fraction_q16 == 0)
+      continue;
+    const unsigned long harmonic_angle =
+        (unsigned long)(((unsigned long long)h.order * angle + h.phase) &
+                        0xFFFFFFFFull);
+    const double harmonic_turns = (double)harmonic_angle / 4294967296.0;
+    value += (double)ch.peak * ((double)h.fraction_q16 / 65536.0) *
+             std::sin(2.0 * M_PI * harmonic_turns) * (131071.0 / 131072.0);
+  }
+  return value;
+}
+
+// Extra tolerance per active harmonic slot on this lane (its own table
+// quantization, sagitta, and floor).
+static double harmonic_tolerance(int lane, long peak) {
+  double extra = 0.0;
+  for (int slot = 0; slot < SIM_WAVE_HARMONIC_SLOTS; ++slot) {
+    const HarmonicSpec &h = g_harmonics[slot];
+    if (h.order == 0 || ((h.mask >> lane) & 1u) == 0 || h.fraction_q16 == 0)
+      continue;
+    const double component =
+        std::fabs((double)peak) * ((double)h.fraction_q16 / 65536.0);
+    extra += component / 262144.0 + component * 2.9e-7 + 1.0;
+  }
+  return extra;
 }
 
 // Error budget, in output counts, for a channel of the given peak: the
@@ -146,7 +189,8 @@ static void check_frame(const char *what, unsigned long base_phase,
       continue;
     }
     const double ideal = golden_unclamped(base_phase, frame_index, lane, ch[lane]);
-    const double tol = tolerance_counts(ch[lane].peak);
+    const double tol =
+        tolerance_counts(ch[lane].peak) + harmonic_tolerance(lane, ch[lane].peak);
     if (ideal > (double)SIM_WAVE_SAMPLE_MAX + tol) {
       CHECK(got == SIM_WAVE_SAMPLE_MAX && saturated,
             "%s: lane %d should clamp high, got %ld (sat %d)", what, lane, got,
@@ -174,7 +218,7 @@ static void check_frame(const char *what, unsigned long base_phase,
 }
 
 int main() {
-  static_assert(SIM_WAVE_REQ_BITS == 1152, "request beat width is normative");
+  static_assert(SIM_WAVE_REQ_BITS == 1408, "request beat width is normative");
   static_assert(SIM_WAVE_RSP_BITS == 264, "response beat width is normative");
   static_assert(SIM_WAVE_REQ_FRAME_INDEX_LSB == 64 &&
                     SIM_WAVE_REQ_PEAK_LSB == 128 &&
@@ -276,6 +320,25 @@ int main() {
     CHECK(std::fabs(mean_acc / frames) < (double)level / 10.0,
           "noise mean %.1f is implausibly biased for level %lu",
           mean_acc / frames, level);
+  }
+
+  // --- Harmonics: 5% 3rd + 3% 5th on the three voltage lanes, against ---
+  // --- the double model (which itself encodes the physical rule that a --
+  // --- balanced set's 3rd harmonic lands zero-sequence). -----------------
+  {
+    g_harmonics[0] = {3, 0x70, (unsigned)(0.05 * 65536), 0};
+    g_harmonics[1] = {5, 0x70, (unsigned)(0.03 * 65536), 0x20000000ul};
+    ChannelSpec ch[SIM_WAVE_CHANNELS] = {};
+    ch[4] = {4000000, 0x55555555ul, 0, 0, true};   // Vc at +120 deg
+    ch[5] = {4000000, 0xAAAAAAABul, 0, 0, true};   // Vb at -120 deg
+    ch[6] = {4000000, 0x00000000ul, 0, 0, true};   // Va at 0 deg
+    ch[0] = {1000000, 0x00000000ul, 0, 0, true};   // Ia: no harmonics (mask)
+    for (int step = 0; step < 64; ++step) {
+      const unsigned long base = (unsigned long)step * 0x03000001ul;
+      check_frame("harmonics", base, (unsigned long)step, ch);
+    }
+    g_harmonics[0] = {};
+    g_harmonics[1] = {};
   }
 
   // --- Saturation: sine + dc past each rail clamps and flags, per lane. -

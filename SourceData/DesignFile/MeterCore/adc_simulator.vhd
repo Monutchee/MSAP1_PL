@@ -96,6 +96,7 @@ architecture rtl of adc_simulator is
   signal shadow_phase       : word_array_t := (others => (others => '0'));
   signal shadow_dc          : word_array_t := (others => (others => '0'));
   signal shadow_noise       : word_array_t := (others => (others => '0'));
+  signal shadow_harmonic    : word_array_t := (others => (others => '0'));
 
   signal active_control     : std_logic_vector(31 downto 0) := (others => '0');
   signal active_sample_rate : std_logic_vector(31 downto 0) := std_logic_vector(to_unsigned(32000, 32));
@@ -107,6 +108,7 @@ architecture rtl of adc_simulator is
   signal active_phase       : word_array_t := (others => (others => '0'));
   signal active_dc          : word_array_t := (others => (others => '0'));
   signal active_noise       : word_array_t := (others => (others => '0'));
+  signal active_harmonic    : word_array_t := (others => (others => '0'));
 
   signal apply_pending : std_logic := '0';
   signal sample_accumulator : unsigned(32 downto 0) := (others => '0');
@@ -166,7 +168,8 @@ architecture rtl of adc_simulator is
     peak_v        : word_array_t;
     phase_v       : word_array_t;
     dc_v          : word_array_t;
-    noise_v       : word_array_t) return std_logic_vector is
+    noise_v       : word_array_t;
+    harmonic_v    : word_array_t) return std_logic_vector is
     variable beat : std_logic_vector(SIM_WAVE_REQ_BITS - 1 downto 0) := (others => '0');
   begin
     beat(SIM_WAVE_REQ_BASE_PHASE_LSB + 31 downto SIM_WAVE_REQ_BASE_PHASE_LSB) :=
@@ -183,6 +186,10 @@ architecture rtl of adc_simulator is
            SIM_WAVE_REQ_DC_LSB + (lane * 32)) := dc_v(lane);
       beat(SIM_WAVE_REQ_NOISE_LSB + (lane * 32) + 31 downto
            SIM_WAVE_REQ_NOISE_LSB + (lane * 32)) := noise_v(lane);
+    end loop;
+    for word in 0 to SIM_WAVE_HARMONIC_WORDS - 1 loop
+      beat(SIM_WAVE_REQ_HARMONIC_LSB + (word * 32) + 31 downto
+           SIM_WAVE_REQ_HARMONIC_LSB + (word * 32)) := harmonic_v(word);
     end loop;
     return beat;
   end function;
@@ -252,6 +259,7 @@ begin
         shadow_phase <= (others => (others => '0'));
         shadow_dc <= (others => (others => '0'));
         shadow_noise <= (others => (others => '0'));
+        shadow_harmonic <= (others => (others => '0'));
         active_control <= (others => '0');
         active_sample_rate <= std_logic_vector(to_unsigned(32000, 32));
         active_frequency <= std_logic_vector(to_unsigned(60000, 32));
@@ -262,6 +270,7 @@ begin
         active_phase <= (others => (others => '0'));
         active_dc <= (others => (others => '0'));
         active_noise <= (others => (others => '0'));
+        active_harmonic <= (others => (others => '0'));
         apply_pending <= '0';
         sample_accumulator <= (others => '0');
         sample_pending <= '0';
@@ -300,6 +309,7 @@ begin
           active_phase <= shadow_phase;
           active_dc <= shadow_dc;
           active_noise <= shadow_noise;
+          active_harmonic <= shadow_harmonic;
           apply_pending <= '0';
           if shadow_control(ADC_SIM_CONTROL_PRESERVE_PHASE_BIT) = '0' then
             sample_accumulator <= (others => '0');
@@ -341,7 +351,7 @@ begin
             -- from the observable frame counter.
             req_data <= pack_request(base_phase, frame_count, active_valid_mask,
                                      active_peak, active_phase, active_dc,
-                                     active_noise);
+                                     active_noise, active_harmonic);
             req_valid <= '1';
             gen_state <= GEN_REQUEST;
           end if;
@@ -480,6 +490,11 @@ begin
                     (write_address mod 4) = 0 then
                 array_index := (write_address - ADC_SIM_REG_SHADOW_NOISE_BASE) / 4;
                 shadow_noise(array_index) <= merge_strobes(shadow_noise(array_index), wdata, wstrb);
+              elsif write_address >= ADC_SIM_REG_SHADOW_HARMONIC_BASE and
+                    write_address < ADC_SIM_REG_SHADOW_HARMONIC_BASE + 32 and
+                    (write_address mod 4) = 0 then
+                array_index := (write_address - ADC_SIM_REG_SHADOW_HARMONIC_BASE) / 4;
+                shadow_harmonic(array_index) <= merge_strobes(shadow_harmonic(array_index), wdata, wstrb);
               end if;
           end case;
           aw_stored <= '0';
@@ -557,6 +572,16 @@ begin
                     (read_address mod 4) = 0 then
                 array_index := (read_address - ADC_SIM_REG_ACTIVE_NOISE_BASE) / 4;
                 rdata <= active_noise(array_index);
+              elsif read_address >= ADC_SIM_REG_SHADOW_HARMONIC_BASE and
+                    read_address < ADC_SIM_REG_SHADOW_HARMONIC_BASE + 32 and
+                    (read_address mod 4) = 0 then
+                array_index := (read_address - ADC_SIM_REG_SHADOW_HARMONIC_BASE) / 4;
+                rdata <= shadow_harmonic(array_index);
+              elsif read_address >= ADC_SIM_REG_ACTIVE_HARMONIC_BASE and
+                    read_address < ADC_SIM_REG_ACTIVE_HARMONIC_BASE + 32 and
+                    (read_address mod 4) = 0 then
+                array_index := (read_address - ADC_SIM_REG_ACTIVE_HARMONIC_BASE) / 4;
+                rdata <= active_harmonic(array_index);
               end if;
           end case;
           rvalid <= '1';

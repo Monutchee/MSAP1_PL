@@ -14,9 +14,13 @@ use ieee.numeric_std.all;
 --               per-channel DC offset and uniform noise fluctuation,
 --               preserve-phase APPLY, counter clears, 12-bit register
 --               decode
+--   0x00010002  four global harmonic slots (order, channel mask, Q16
+--               fraction of the fundamental, phase); harmonic angles
+--               scale the lane offset by the order (physical 3-phase
+--               relationship)
 package adc_simulator_pkg is
   constant ADC_SIMULATOR_ID      : std_logic_vector(31 downto 0) := x"53494D31"; -- SIM1
-  constant ADC_SIMULATOR_VERSION : std_logic_vector(31 downto 0) := x"00010001";
+  constant ADC_SIMULATOR_VERSION : std_logic_vector(31 downto 0) := x"00010002";
 
   constant ADC_SIM_REG_ID                 : natural := 16#00#;
   constant ADC_SIM_REG_VERSION            : natural := 16#04#;
@@ -44,6 +48,11 @@ package adc_simulator_pkg is
   constant ADC_SIM_REG_ACTIVE_DC_BASE     : natural := 16#B0#;
   constant ADC_SIM_REG_SHADOW_NOISE_BASE  : natural := 16#D0#;
   constant ADC_SIM_REG_ACTIVE_NOISE_BASE  : natural := 16#100#;
+  -- Four harmonic slots, two words each (mirrors sim_wave_engine.hpp):
+  -- word0 = order[7:0] | channel mask[15:8] | Q16 fraction[31:16];
+  -- word1 = phase, Q0.32 turns.
+  constant ADC_SIM_REG_SHADOW_HARMONIC_BASE : natural := 16#200#;
+  constant ADC_SIM_REG_ACTIVE_HARMONIC_BASE : natural := 16#220#;
 
   -- CONTROL register bits (shadow and active banks share the layout).
   constant ADC_SIM_CONTROL_SOURCE_BIT         : natural := 0;
@@ -75,7 +84,9 @@ package adc_simulator_pkg is
   constant SIM_WAVE_REQ_PHASE_LSB       : natural := 384;
   constant SIM_WAVE_REQ_DC_LSB          : natural := 640;
   constant SIM_WAVE_REQ_NOISE_LSB       : natural := 896;
-  constant SIM_WAVE_REQ_BITS            : natural := 1152;
+  constant SIM_WAVE_REQ_HARMONIC_LSB    : natural := 1152;
+  constant SIM_WAVE_HARMONIC_WORDS      : natural := 8;
+  constant SIM_WAVE_REQ_BITS            : natural := 1408;
   constant SIM_WAVE_RSP_SAMPLE_LSB      : natural := 0;
   constant SIM_WAVE_RSP_SATURATED_LSB   : natural := 256;
   constant SIM_WAVE_RSP_BITS            : natural := 264;
