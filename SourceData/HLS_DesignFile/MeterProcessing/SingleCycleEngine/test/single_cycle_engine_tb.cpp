@@ -117,7 +117,7 @@ static void take_record(Bench &b, ap_uint<32> (&words)[MREC_WORDS]) {
 
 int main() {
   static_assert(SCYC_IN_BITS == 1152, "input beat width is normative");
-  static_assert(SCYC_BEAT_BITS == 4896, "result beat width is normative");
+  static_assert(SCYC_BEAT_BITS == 5280, "result beat width is normative");
 
   Bench b;
 
@@ -157,7 +157,7 @@ int main() {
   ap_uint<32> words[MREC_WORDS];
   take_record(b, words);
   CHECK(words[MREC_MAGIC_WORD] == MREC_MAGIC, "record magic");
-  CHECK(words[MREC_FORMAT_WORD] == MREC_FORMAT_SCYC_V2, "record format");
+  CHECK(words[MREC_FORMAT_WORD] == MREC_FORMAT_SCYC_V3, "record format");
   CHECK(words[MREC_SEQUENCE_WORD] == 1 && words[MREC_SAMPLE_COUNT_WORD] == 5,
         "record envelope sequence/count");
   CHECK(words[MREC_FIRST_SAMPLE_LOW_WORD] == 1000 &&
@@ -201,6 +201,9 @@ int main() {
     long long g_min[MET_ACTIVE_CHANNELS], g_max[MET_ACTIVE_CHANNELS];
     unsigned __int128 g_vll_square[MET_VLL_PAIRS] = {};
     unsigned long long g_vll_peak[MET_VLL_PAIRS] = {};
+    __int128 g_power[3] = {};
+    const int pv[3] = {MET_LANE_VA, MET_LANE_VB, MET_LANE_VC};
+    const int pi[3] = {MET_LANE_IA, MET_LANE_IB, MET_LANE_IC};
     const int minuend[MET_VLL_PAIRS] = {MET_LANE_VA, MET_LANE_VB, MET_LANE_VC};
     const int subtrahend[MET_VLL_PAIRS] = {MET_LANE_VB, MET_LANE_VC,
                                            MET_LANE_VA};
@@ -228,6 +231,8 @@ int main() {
             (unsigned long long)(diff < 0 ? -diff : diff);
         if (i == 0 || mag > g_vll_peak[pair]) g_vll_peak[pair] = mag;
       }
+      for (int phase = 0; phase < 3; ++phase)
+        g_power[phase] += (__int128)g.q16[pv[phase]] * g.q16[pi[phase]];
       b.send(g);
     }
     const single_cycle_result_t rs =
@@ -258,6 +263,17 @@ int main() {
             "pair %d vll square mismatch", pair);
       CHECK((rs.vll_peak[pair] == ap_uint<64>(g_vll_peak[pair])),
             "pair %d vll peak mismatch", pair);
+    }
+    for (int phase = 0; phase < 3; ++phase) {
+      const bool negative = g_power[phase] < 0;
+      const unsigned __int128 mag =
+          (unsigned __int128)(negative ? -g_power[phase] : g_power[phase]);
+      ap_int<128> expected =
+          (ap_int<128>(ap_uint<64>((unsigned long long)(mag >> 64))) << 64) |
+          ap_int<128>(ap_uint<64>((unsigned long long)mag));
+      if (negative) expected = -expected;
+      CHECK((rs.power_sum[phase] == expected), "phase %d power sum mismatch",
+            phase);
     }
 
     // Record diagnostic RMS vs a double reference (dc_remove active).
@@ -342,6 +358,34 @@ int main() {
           "saturated square must clamp to all-ones");
     CHECK((rs.sum[0] == ap_int<128>(ap_int<64>(0x7FFFFFFFFFFFFFFFll)) * 5),
           "sum stays exact under square saturation");
+  }
+
+  // --- Reverse power: current anti-phase to voltage -> negative P. ------
+  {
+    const long long volts_q16[4] = {65536 * 100, -65536 * 100, 65536 * 50,
+                                    -65536 * 50};
+    __int128 g_power = 0;
+    for (int i = 0; i < 4; ++i) {
+      FrameSpec h = b.leveled(f);
+      h.sample_index = 9000 + i;
+      h.q16[MET_LANE_VA] = volts_q16[i];
+      h.q16[MET_LANE_IA] = -volts_q16[i] / 20;  // export at PF 1
+      g_power += (__int128)h.q16[MET_LANE_VA] * h.q16[MET_LANE_IA];
+      h.closes = (i == 3);
+      b.send(h);
+    }
+    const single_cycle_result_t rs =
+        unpack_single_cycle_result(b.m_result.read());
+    CHECK((rs.power_sum[0] < 0), "export must be negative (sign convention)");
+    take_record(b, words);
+    const long long got =
+        (long long)((unsigned long long)words[SCYC_POWER_BASE_WORD] |
+                    ((unsigned long long)words[SCYC_POWER_BASE_WORD + 1]
+                     << 32));
+    const double expected_pw = (double)g_power / 4.0 / 4294967296.0;
+    CHECK((std::fabs((double)got - expected_pw) <= 1.0),
+          "reverse power record: got %lld expected %.1f pW", got, expected_pw);
+    CHECK(got < 0, "record power word must carry the export sign");
   }
 
   // --- A malformed frame clears the running window. ---------------------

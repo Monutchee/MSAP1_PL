@@ -1,6 +1,7 @@
 #include "single_cycle_engine.hpp"
 
 #include "metrology_stats.hpp"
+#include "power_core.hpp"
 #include "statistics_core.hpp"
 
 // Free-running single-shot process (the CycleAggregator pattern shared by
@@ -32,6 +33,7 @@ void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
   // frame (the seed-in-place idiom), so every clear point resets it.
   static ap_uint<1> window_overflow = 0;
   static cycle_statistics_t stats;
+  static cycle_power_t power;
 
   if (s_sample.empty()) {
     return;
@@ -100,6 +102,7 @@ extract_lanes:
                    SCYC_IN_RAW_LSB + lane * 32)));
   }
   accumulate_statistics(stats, q16, raw, first_frame, window_overflow);
+  accumulate_power(power, q16, first_frame, window_overflow);
 
   if (beat.bit(SCYC_IN_CLOSES_BIT) == 0) {
     sample_count = count_now;
@@ -136,6 +139,18 @@ finalize_pairs:
         stats.vll_square[pair], ap_int<128>(0), count_now, ap_uint<1>(0),
         window_overflow);
   }
+  // Diagnostic active power: signed floor mean of the Q32 product sum
+  // (full width, no truncation), then >> 32 to picowatts. Real values
+  // stay far inside 64 bits; contract-max inputs are already flagged.
+  ap_int<64> phase_power_pw[MET_POWER_PHASES];
+#pragma HLS ARRAY_PARTITION variable=phase_power_pw complete
+finalize_power:
+  for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
+#pragma HLS PIPELINE off
+    const ap_int<128> mean_q32 =
+        met_floor_mean_signed<128, 128>(power.power_sum[phase], count_now);
+    phase_power_pw[phase] = ap_int<64>((mean_q32 >> 32).range(63, 0));
+  }
   const ap_uint<32> status = ap_uint<32>(window_overflow);
 
   single_cycle_result_t result;
@@ -160,6 +175,7 @@ finalize_pairs:
   result.processing_tick =
       beat.range(SCYC_IN_PL_TICK_LSB + 63, SCYC_IN_PL_TICK_LSB);
   export_statistics(stats, result);
+  export_power(power, result);
   m_result.write(pack_single_cycle_result(result));
 
   // SCYC-v1 diagnostic record.
@@ -194,6 +210,14 @@ record_pairs:
     image.word[base] = rms_units.range(31, 0);
     image.word[base + 1] = rms_units.range(63, 32);
   }
+record_power:
+  for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
+#pragma HLS PIPELINE off
+    const ap_uint<64> raw_bits = ap_uint<64>(phase_power_pw[phase]);
+    const int base = SCYC_POWER_BASE_WORD + phase * SCYC_CH_STRIDE_WORDS;
+    image.word[base] = raw_bits.range(31, 0);
+    image.word[base + 1] = raw_bits.range(63, 32);
+  }
 
-  serialize_record<MREC_FORMAT_SCYC_V2>(image, m_axis);
+  serialize_record<MREC_FORMAT_SCYC_V3>(image, m_axis);
 }

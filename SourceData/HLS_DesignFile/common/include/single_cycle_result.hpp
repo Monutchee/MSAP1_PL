@@ -73,7 +73,14 @@ static const int SCYC_STAT_MIN_LSB        = 3424;  // 7 x s64 Q16 minimum
 static const int SCYC_STAT_MAX_LSB        = 3872;  // 7 x s64 Q16 maximum
 static const int SCYC_STAT_VLL_SQUARE_LSB = 4320;  // 3 x u128 diff square sum
 static const int SCYC_STAT_VLL_PEAK_LSB   = 4704;  // 3 x u64 peak |diff|
-static const int SCYC_BEAT_BITS           = 4896;  // 612 bytes on AXIS
+
+// --- M4 power section (phases A/B/C; see the sign conventions and the
+// --- Q32/picowatt unit chain in metering_types.hpp). The 128-bit signed
+// --- saturating sum mirrors the square accumulator's analysis: a single
+// --- contract-max product occupies 126 bits, real products stay below
+// --- 2^80, and the 10/12-cycle merge stays a pure addition. -------------
+static const int SCYC_POWER_SUM_LSB       = 4896;  // 3 x s128 sum(v*i) Q32
+static const int SCYC_BEAT_BITS           = 5280;  // 660 bytes on AXIS
 
 typedef ap_uint<SCYC_BEAT_BITS> single_cycle_beat_t;
 
@@ -102,6 +109,7 @@ struct single_cycle_result_t {
   ap_int<64>         maximum[MET_ACTIVE_CHANNELS];
   ap_uint<128>       vll_square[MET_VLL_PAIRS];
   ap_uint<64>        vll_peak[MET_VLL_PAIRS];
+  ap_int<128>        power_sum[MET_POWER_PHASES];
 };
 
 inline single_cycle_beat_t pack_single_cycle_result(const single_cycle_result_t &r) {
@@ -142,6 +150,11 @@ inline single_cycle_beat_t pack_single_cycle_result(const single_cycle_result_t 
                SCYC_STAT_VLL_SQUARE_LSB + pair * 128) = r.vll_square[pair];
     beat.range(SCYC_STAT_VLL_PEAK_LSB + pair * 64 + 63,
                SCYC_STAT_VLL_PEAK_LSB + pair * 64) = r.vll_peak[pair];
+  }
+  for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
+#pragma HLS UNROLL
+    beat.range(SCYC_POWER_SUM_LSB + phase * 128 + 127,
+               SCYC_POWER_SUM_LSB + phase * 128) = r.power_sum[phase];
   }
   return beat;
 }
@@ -185,6 +198,11 @@ inline single_cycle_result_t unpack_single_cycle_result(const single_cycle_beat_
                    SCYC_STAT_VLL_SQUARE_LSB + pair * 128);
     r.vll_peak[pair] = beat.range(SCYC_STAT_VLL_PEAK_LSB + pair * 64 + 63,
                                   SCYC_STAT_VLL_PEAK_LSB + pair * 64);
+  }
+  for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
+#pragma HLS UNROLL
+    r.power_sum[phase] = beat.range(SCYC_POWER_SUM_LSB + phase * 128 + 127,
+                                    SCYC_POWER_SUM_LSB + phase * 128);
   }
   return r;
 }

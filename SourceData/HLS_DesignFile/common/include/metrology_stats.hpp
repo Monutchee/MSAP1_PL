@@ -49,6 +49,30 @@ ap_uint<ACC_WIDTH> met_add_square_saturating(const ap_uint<ACC_WIDTH> base,
   return extended.range(ACC_WIDTH - 1, 0);
 }
 
+// base + addend, saturating at BOTH signed rails with the sticky flag
+// (the signed sibling of met_add_square_saturating, for accumulators
+// whose terms can be negative — power cross-products). Callers seed with
+// base = 0 on a window's first sample.
+template <int ACC_WIDTH>
+ap_int<ACC_WIDTH> met_add_signed_saturating(const ap_int<ACC_WIDTH> base,
+                                            const ap_int<ACC_WIDTH> addend,
+                                            ap_uint<1> &sticky_overflow) {
+#pragma HLS INLINE
+  const ap_int<ACC_WIDTH + 1> extended =
+      ap_int<ACC_WIDTH + 1>(base) + ap_int<ACC_WIDTH + 1>(addend);
+  const ap_int<ACC_WIDTH + 1> maximum =
+      ap_int<ACC_WIDTH + 1>((ap_uint<ACC_WIDTH>(1) << (ACC_WIDTH - 1)) - 1);
+  if (extended > maximum) {
+    sticky_overflow = 1;
+    return ap_int<ACC_WIDTH>(maximum);
+  }
+  if (extended < -maximum - 1) {
+    sticky_overflow = 1;
+    return ap_int<ACC_WIDTH>(-maximum - 1);
+  }
+  return ap_int<ACC_WIDTH>(extended);
+}
+
 // Signed mean: floor(|sum| / count) truncated to OUT_WIDTH bits, THEN
 // negated when the sum was negative. The truncation-before-negation
 // order is normative (meter_rms CALC_MEAN_* states).

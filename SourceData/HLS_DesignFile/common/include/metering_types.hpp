@@ -54,6 +54,30 @@ static const int MET_LANE_VA = 6;
 // lane: 0 = Vab, 1 = Vbc, 2 = Vca.
 static const int MET_VLL_PAIRS = 3;
 
+// Power phases in A/B/C order; each pairs a voltage lane with its phase
+// current (Va*Ia, Vb*Ib, Vc*Ic).
+static const int MET_POWER_PHASES = 3;
+
+// ---------------------------------------------------------------------------
+// Sign conventions (normative for every power/energy quantity, PL and
+// APU alike — the handover §16 rules, decided here once):
+//
+//   * Active power P:   import / consuming load is POSITIVE,
+//                       export / generation is NEGATIVE.
+//     P follows directly from the signed cross-product sum: with the
+//     wiring convention that positive current flows INTO the load while
+//     the voltage is positive, sum(v*i) > 0 is import.
+//   * Reactive power Q (from M9): lagging / inductive is POSITIVE,
+//                       leading / capacitive is NEGATIVE.
+//   * Leading/lagging classification derives from the SIGN of Q, never
+//     from a power-factor magnitude.
+//
+// Units through the chain: converted samples are Q16 micro-units
+// (micro-volts / micro-amperes), so a v*i product is Q32 in
+// micro-volt-micro-amperes = picowatts; record power words publish
+// picowatts (product >> 32).
+// ---------------------------------------------------------------------------
+
 // ---------------------------------------------------------------------------
 // IEC 61000-4-30 block geometry.
 //
