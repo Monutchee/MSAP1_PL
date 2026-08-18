@@ -1,5 +1,5 @@
-#ifndef MSAP1_MTR_MATH_HPP
-#define MSAP1_MTR_MATH_HPP
+#ifndef MSAP1_METROLOGY_MATH_HPP
+#define MSAP1_METROLOGY_MATH_HPP
 
 // metering_types.hpp first: it raises AP_INT_MAX_W before ap_int.h.
 #include "metering_types.hpp"
@@ -39,6 +39,40 @@ div_bits:
   return quotient;
 }
 
+// Smallest bit count that can represent VALUE (met_bit_width<29>::value
+// is 5). Used to size compile-time-known remainders exactly.
+template <unsigned long long VALUE>
+struct met_bit_width {
+  static const int value = 1 + met_bit_width<(VALUE >> 1)>::value;
+};
+template <>
+struct met_bit_width<0ULL> {
+  static const int value = 0;
+};
+
+// floor(dividend / DIVISOR) for a compile-time divisor, by the same
+// restoring recurrence as floor_div. The remainder before each subtract
+// is at most 2*DIVISOR - 1, so it is sized exactly for the divisor
+// instead of carrying a full-width remainder for nothing (generalized
+// from the aggregation engine's private floor_div_15; DIVISOR = 15 is
+// bit-identical to it).
+template <int WIDTH, int DIVISOR>
+ap_uint<WIDTH> floor_div_const(ap_uint<WIDTH> dividend) {
+  static_assert(DIVISOR >= 2, "a constant divisor below 2 divides nothing");
+  ap_uint<WIDTH> quotient = 0;
+  ap_uint<met_bit_width<2ULL * DIVISOR - 1ULL>::value> remainder = 0;
+div_bits:
+  for (int bit = WIDTH - 1; bit >= 0; --bit) {
+#pragma HLS PIPELINE off
+    remainder = (remainder << 1) | decltype(remainder)(dividend.bit(bit));
+    if (remainder >= DIVISOR) {
+      remainder -= DIVISOR;
+      quotient.bit(bit) = 1;
+    }
+  }
+  return quotient;
+}
+
 // floor(sqrt(radicand)) by binary digit recurrence (restoring): exact for
 // the full 128-bit radicand range, no multiplier. meter_rms.vhd reaches
 // the same floor value through a 64-step binary search with a 64x64
@@ -63,4 +97,4 @@ sqrt_digits:
   return root;
 }
 
-#endif  // MSAP1_MTR_MATH_HPP
+#endif  // MSAP1_METROLOGY_MATH_HPP

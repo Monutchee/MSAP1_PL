@@ -49,8 +49,8 @@ static int failures = 0;
 // Stimulus description.
 // ---------------------------------------------------------------------------
 struct FrameSpec {
-  long long samples[MTR_CHANNEL_LANES];  // converted Q16, signed 64-bit
-  int raw[MTR_CHANNEL_LANES];            // raw ADC, signed 32-bit
+  long long samples[MET_CHANNEL_LANES];  // converted Q16, signed 64-bit
+  int raw[MET_CHANNEL_LANES];            // raw ADC, signed 32-bit
   unsigned frame_mask;
   unsigned frame_generation;
   bool malformed;
@@ -69,7 +69,7 @@ struct FrameSpec {
 
 static mtr1_sample_beat_t pack_frame(const FrameSpec &f) {
   mtr1_sample_beat_t beat = 0;
-  for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+  for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
     beat.range(MTR1_IN_SAMPLES_LSB + lane * 64 + 63,
                MTR1_IN_SAMPLES_LSB + lane * 64) = ap_uint<64>(f.samples[lane]);
     beat.range(MTR1_IN_RAW_LSB + lane * 32 + 31, MTR1_IN_RAW_LSB + lane * 32) =
@@ -93,7 +93,7 @@ static mtr1_sample_beat_t pack_frame(const FrameSpec &f) {
   beat.range(MTR1_IN_CYCLE_COUNT_LSB + 7, MTR1_IN_CYCLE_COUNT_LSB) =
       f.cycle_count;
   beat.range(MTR1_IN_NOMINAL_LSB + 7, MTR1_IN_NOMINAL_LSB) = f.nominal_hz;
-  beat.range(MTR1_IN_BLOCK_FLAGS_LSB + MTR_FLAG_BITS - 1,
+  beat.range(MTR1_IN_BLOCK_FLAGS_LSB + MET_FLAG_BITS - 1,
              MTR1_IN_BLOCK_FLAGS_LSB) = f.block_flags;
   beat.range(MTR1_IN_FREQ_MHZ_LSB + 31, MTR1_IN_FREQ_MHZ_LSB) = f.freq_millihz;
   beat.range(MTR1_IN_FREQ_STATUS_LSB + 31, MTR1_IN_FREQ_STATUS_LSB) =
@@ -150,10 +150,10 @@ struct Golden {
   bool enable = false;
   bool dc_remove = true;
 
-  ap_int<128> sum[MTR_ACTIVE_CHANNELS];
-  ap_uint<128> square[MTR_ACTIVE_CHANNELS];
-  ap_int<64> raw_sum[MTR_ACTIVE_CHANNELS];
-  ap_uint<96> raw_square[MTR_ACTIVE_CHANNELS];
+  ap_int<128> sum[MET_ACTIVE_CHANNELS];
+  ap_uint<128> square[MET_ACTIVE_CHANNELS];
+  ap_int<64> raw_sum[MET_ACTIVE_CHANNELS];
+  ap_uint<96> raw_square[MET_ACTIVE_CHANNELS];
   unsigned count = 0;
   bool acc_overflow = false;   // sticky until APPLY
   bool calc_overflow = false;  // sticky until APPLY (deterministic windows only)
@@ -162,7 +162,7 @@ struct Golden {
   std::vector<GoldenWindow> windows;
 
   Golden() {
-    for (int lane = 0; lane < MTR_ACTIVE_CHANNELS; ++lane) {
+    for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
       sum[lane] = 0;
       square[lane] = 0;
       raw_sum[lane] = 0;
@@ -171,7 +171,7 @@ struct Golden {
   }
 
   void clear_accumulators() {
-    for (int lane = 0; lane < MTR_ACTIVE_CHANNELS; ++lane) {
+    for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
       sum[lane] = 0;
       square[lane] = 0;
       raw_sum[lane] = 0;
@@ -208,7 +208,7 @@ struct Golden {
       return;
     }
 
-    for (int lane = 0; lane < MTR_ACTIVE_CHANNELS; ++lane) {
+    for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
       const ap_int<64> sample = ap_int<64>(f.samples[lane]);
       sum[lane] += sample;
       const ap_uint<129> extended =
@@ -244,10 +244,10 @@ struct Golden {
     const unsigned result_mask = mask & f.frame_mask & 0x7Fu;
     bool overflow = acc_overflow || calc_overflow;
 
-    ap_int<64> mean_q16[MTR_CHANNEL_LANES];
-    ap_uint<64> rms_q16[MTR_CHANNEL_LANES];
-    ap_uint<32> rms_count[MTR_CHANNEL_LANES];
-    for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+    ap_int<64> mean_q16[MET_CHANNEL_LANES];
+    ap_uint<64> rms_q16[MET_CHANNEL_LANES];
+    ap_uint<32> rms_count[MET_CHANNEL_LANES];
+    for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
       mean_q16[lane] = 0;
       rms_q16[lane] = 0;
       rms_count[lane] = 0;
@@ -256,7 +256,7 @@ struct Golden {
     const ap_uint<128> n128 = ap_uint<128>(count);
     const ap_uint<128> denominator =
         ap_uint<128>(ap_uint<64>(ap_uint<64>(count) * count));
-    for (int lane = 0; lane < MTR_ACTIVE_CHANNELS; ++lane) {
+    for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
       const bool negative = (sum[lane] < 0);
       const ap_uint<128> abs_sum =
           negative ? ap_uint<128>(-sum[lane]) : ap_uint<128>(sum[lane]);
@@ -340,7 +340,7 @@ struct Golden {
         (ap_uint<32>(f.nominal_hz) << MTR1_TIMING_NOMINAL_LSB) |
         (ap_uint<32>(f.cycle_count) << MTR1_TIMING_CYCLES_LSB) |
         (ap_uint<32>(f.block_flags) << MTR1_TIMING_FLAGS_LSB);
-    for (int lane = 0; lane < MTR_ACTIVE_CHANNELS; ++lane) {
+    for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
       const ap_int<64> mean_units = mean_q16[lane] >> 16;
       const ap_uint<64> rms_units = rms_q16[lane] >> 16;
       const int base = MTR1_CH_BASE_WORD + lane * MTR1_CH_STRIDE_WORDS;
@@ -376,8 +376,8 @@ struct Golden {
     r.frequency_valid = (f.freq_status >> MTR1_FREQ_STATUS_VALID_BIT) & 1u;
     r.apply_toggle = apply_seen;
     r.first_sample = ap_uint<64>(f.first_sample);
-    for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
-      r.rms_q16[lane] = (lane < MTR_ACTIVE_CHANNELS)
+    for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
+      r.rms_q16[lane] = (lane < MET_ACTIVE_CHANNELS)
                             ? ap_int<64>(rms_q16[lane])
                             : ap_int<64>(0);
     }
@@ -505,7 +505,7 @@ struct Scoreboard {
       CHECK(got->status == exp.status, "result status");
       CHECK(got->frequency_millihz == exp.frequency_millihz, "result freq");
       CHECK(got->frequency_valid == exp.frequency_valid, "result freq_valid");
-      for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+      for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
         CHECK(got->rms_q16[lane] == exp.rms_q16[lane], "result rms lane %d",
               lane);
       }
@@ -573,13 +573,13 @@ struct Bench {
   // window index so every window is unique and content-addressable.
   void run_window(unsigned frames, const long long *samples, const int *raw,
                   unsigned frame_mask, bool must_deliver,
-                  unsigned block_flags = (1u << MTR_FLAG_LOCKED),
+                  unsigned block_flags = (1u << MET_FLAG_LOCKED),
                   unsigned nominal = 50, unsigned cycles = 10) {
     FrameSpec f = base;
     f.frame_mask = frame_mask;
     f.frame_generation = base.cfg_generation;
     f.cycle_mode = true;
-    for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+    for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
       f.samples[lane] = samples[lane];
       f.raw[lane] = raw[lane];
     }
@@ -606,9 +606,9 @@ struct Bench {
   }
 };
 
-static const long long kZeroSamples[MTR_CHANNEL_LANES] = {0, 0, 0, 0,
+static const long long kZeroSamples[MET_CHANNEL_LANES] = {0, 0, 0, 0,
                                                           0, 0, 0, 0};
-static const int kZeroRaw[MTR_CHANNEL_LANES] = {0, 0, 0, 0, 0, 0, 0, 0};
+static const int kZeroRaw[MET_CHANNEL_LANES] = {0, 0, 0, 0, 0, 0, 0, 0};
 
 int main() {
   Bench bench;
@@ -635,9 +635,9 @@ int main() {
   bench.apply(/*gen=*/1, /*rate=*/32000, /*window=*/6400, /*mask=*/0x7F,
               /*enable=*/true, /*dc=*/true);
   {
-    long long samples[MTR_CHANNEL_LANES];
-    int raw[MTR_CHANNEL_LANES];
-    for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+    long long samples[MET_CHANNEL_LANES];
+    int raw[MET_CHANNEL_LANES];
+    for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
       samples[lane] = (long long)(lane + 1) << 16;  // (lane+1).0 in Q16
       raw[lane] = (lane + 1) * 100;
     }
@@ -654,7 +654,7 @@ int main() {
     bench.next_first_sample += 1000;
     f.cycle_count = 10;
     f.nominal_hz = 50;
-    f.block_flags = 1u << MTR_FLAG_LOCKED;
+    f.block_flags = 1u << MET_FLAG_LOCKED;
     f.freq_millihz = 50011;
     f.freq_status = 0x2;
     f.freq_period = 0x00140001;
@@ -664,7 +664,7 @@ int main() {
     f.cap_overflows = 0;
     f.cap_alerts = 0;
     for (unsigned i = 0; i < 520; ++i) {
-      for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+      for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
         const long long amplitude = ((long long)(lane + 3) << 16) / 2;
         const long long offset = (long long)(lane) << 12;
         f.samples[lane] = offset + ((i & 1) ? amplitude : -amplitude);
@@ -678,9 +678,9 @@ int main() {
   // S3: dc_remove OFF (new generation) -> zero-referenced RMS.
   bench.apply(2, 32000, 6400, 0x7F, true, /*dc=*/false);
   {
-    long long samples[MTR_CHANNEL_LANES];
-    int raw[MTR_CHANNEL_LANES];
-    for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+    long long samples[MET_CHANNEL_LANES];
+    int raw[MET_CHANNEL_LANES];
+    for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
       samples[lane] = ((long long)(lane + 2) << 16) + 12345;
       raw[lane] = -(lane + 1) * 4567;
     }
@@ -696,7 +696,7 @@ int main() {
     f.frame_mask = 0x7F;
     f.cycle_mode = false;
     f.closes = false;  // legacy mode ignores the marker
-    for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+    for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
       f.samples[lane] = (long long)(lane * 7 + 1) << 14;
       f.raw[lane] = lane * 11 + 5;
     }
@@ -728,7 +728,7 @@ int main() {
     FrameSpec f = bench.base;
     f.frame_generation = 4;
     f.cycle_mode = true;
-    for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+    for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
       f.samples[lane] = (long long)(lane + 1) * 3 << 15;
       f.raw[lane] = (lane + 1) * 9;
     }
@@ -736,7 +736,7 @@ int main() {
     bench.next_first_sample += 600;
     f.cycle_count = 12;
     f.nominal_hz = 60;
-    f.block_flags = 1u << MTR_FLAG_LOCKED;
+    f.block_flags = 1u << MET_FLAG_LOCKED;
     f.freq_millihz = 59993;
     f.freq_status = 0x2;
     f.freq_period = 2;
@@ -758,7 +758,7 @@ int main() {
     f.frame_generation = 4;
     f.frame_mask = 0x7F;
     f.cycle_mode = true;
-    for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+    for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
       f.samples[lane] = 999999 + lane;
       f.raw[lane] = 100 + lane;
     }
@@ -776,7 +776,7 @@ int main() {
     bench.next_first_sample += 600;
     f.cycle_count = 12;
     f.nominal_hz = 60;
-    f.block_flags = (1u << MTR_FLAG_LOCKED) | (1u << MTR_FLAG_FIRST_BLOCK);
+    f.block_flags = (1u << MET_FLAG_LOCKED) | (1u << MET_FLAG_FIRST_BLOCK);
     f.freq_millihz = 60002;
     f.freq_status = 0x2;
     f.freq_period = 3;
@@ -801,7 +801,7 @@ int main() {
     bench.next_first_sample += 600;
     f.cycle_count = 10;
     f.nominal_hz = 50;
-    f.block_flags = 1u << MTR_FLAG_LOCKED;
+    f.block_flags = 1u << MET_FLAG_LOCKED;
     f.freq_millihz = 50000;
     f.freq_status = 0x2;
     f.freq_period = 4;
@@ -814,14 +814,14 @@ int main() {
     // square ~ 2^126; the fifth addition carries out) and push |sum| past
     // 64 bits (too-wide rule).
     for (int i = 0; i < 8; ++i) {
-      for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+      for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
         f.samples[lane] = 0x7FFFFFFFFFFFFFFFll;
         f.raw[lane] = 1000;
       }
       bench.step(f);
     }
     // Pad with zeros (saturated accumulators stay saturated) and close.
-    for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+    for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
       f.samples[lane] = 0;
       f.raw[lane] = 1000;
     }
@@ -831,9 +831,9 @@ int main() {
 
     // Next window: benign values, but status bit 0 must STILL be set
     // (sticky until APPLY).
-    long long samples[MTR_CHANNEL_LANES];
-    int raw[MTR_CHANNEL_LANES];
-    for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+    long long samples[MET_CHANNEL_LANES];
+    int raw[MET_CHANNEL_LANES];
+    for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
       samples[lane] = 1 << 16;
       raw[lane] = 1;
     }
@@ -852,7 +852,7 @@ int main() {
     bench.next_first_sample += 600;
     f.cycle_count = 10;
     f.nominal_hz = 50;
-    f.block_flags = 1u << MTR_FLAG_LOCKED;
+    f.block_flags = 1u << MET_FLAG_LOCKED;
     f.freq_millihz = 49999;
     f.freq_status = 0x0;  // frequency INVALID this window
     f.freq_period = 5;
@@ -862,13 +862,13 @@ int main() {
     f.cap_overflows = 0;
     f.cap_alerts = 0;
     const long long v = -((7ll << 16) + 3);  // negative, non-round
-    for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+    for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
       f.samples[lane] = v;
       f.raw[lane] = -3;
     }
     for (unsigned i = 0; i < 519; ++i) bench.step(f);
     // Distinct closing frame makes |sum| non-divisible by N.
-    for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+    for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
       f.samples[lane] = v - 1;
     }
     f.closes = true;
@@ -883,7 +883,7 @@ int main() {
     f.frame_generation = 7;
     f.frame_mask = 0x7F;
     f.cycle_mode = false;
-    for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+    for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
       f.samples[lane] = (lane + 1) << 10;
       f.raw[lane] = lane + 1;
     }
@@ -910,7 +910,7 @@ int main() {
     f.frame_generation = 8;
     f.frame_mask = 0x7F;
     f.cycle_mode = false;
-    for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+    for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
       f.samples[lane] = (lane + 1) << 9;
       f.raw[lane] = lane;
     }
@@ -949,9 +949,9 @@ int main() {
   // re-specified to expect the AND of every contributing frame.
   // -------------------------------------------------------------------
   {
-    const long long mask_samples[MTR_CHANNEL_LANES] = {
+    const long long mask_samples[MET_CHANNEL_LANES] = {
         1 << 16, 2 << 16, 3 << 16, 4 << 16, 5 << 16, 6 << 16, 7 << 16, 0};
-    const int mask_raw[MTR_CHANNEL_LANES] = {1, 2, 3, 4, 5, 6, 7, 0};
+    const int mask_raw[MET_CHANNEL_LANES] = {1, 2, 3, 4, 5, 6, 7, 0};
 
     // One cycle-mode window whose frames carry the given per-frame masks;
     // the last entry is the closing frame. A negative entry marks a
@@ -960,7 +960,7 @@ int main() {
       FrameSpec f = bench.base;
       f.frame_generation = bench.base.cfg_generation;
       f.cycle_mode = true;
-      for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+      for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
         f.samples[lane] = mask_samples[lane];
         f.raw[lane] = mask_raw[lane];
       }
@@ -968,7 +968,7 @@ int main() {
       bench.next_first_sample += masks.size() + 7;
       f.cycle_count = 10;
       f.nominal_hz = 50;
-      f.block_flags = 1u << MTR_FLAG_LOCKED;
+      f.block_flags = 1u << MET_FLAG_LOCKED;
       f.freq_millihz = 50000;
       f.freq_status = 0x2;
       f.freq_period = 0x00140000;

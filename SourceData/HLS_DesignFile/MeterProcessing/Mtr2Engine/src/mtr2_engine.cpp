@@ -1,6 +1,6 @@
 #include "mtr2_engine.hpp"
 
-#include "mtr_math.hpp"
+#include "metrology_math.hpp"
 
 // IEC 61000-4-30 150/180-cycle aggregator. Behavioural contract and
 // interface: see mtr2_engine.hpp. The aggregation rules and
@@ -18,34 +18,15 @@
 // 84 DSP in the first trial. The PIPELINE-off loops below keep every
 // serial algorithm rolled onto one hardware copy.
 
-namespace {
-
-// floor(dividend / 15) by restoring long division, one quotient bit per
-// loop iteration. The remainder never exceeds 29, so five bits hold it at
-// every width (a generic-divisor divide would carry a full-width
-// remainder for nothing).
+// Divide-by-15 and the nominal->cycles mapping moved to the shared
+// headers (metrology_math.hpp floor_div_const, metering_types.hpp
+// met_expected_cycles) -- both bit-identical to the private versions
+// they replace.
 template <int WIDTH>
-ap_uint<WIDTH> floor_div_15(ap_uint<WIDTH> dividend) {
-  ap_uint<WIDTH> quotient = 0;
-  ap_uint<5> remainder = 0;
-div_bits:
-  for (int bit = WIDTH - 1; bit >= 0; --bit) {
-#pragma HLS PIPELINE off
-    remainder = (remainder << 1) | ap_uint<5>(dividend.bit(bit));
-    if (remainder >= MTR_BASIC_BLOCKS_PER_AGGREGATE) {
-      remainder -= MTR_BASIC_BLOCKS_PER_AGGREGATE;
-      quotient.bit(bit) = 1;
-    }
-  }
-  return quotient;
+static ap_uint<WIDTH> floor_div_15(ap_uint<WIDTH> dividend) {
+#pragma HLS INLINE
+  return floor_div_const<WIDTH, MET_BASIC_BLOCKS_PER_AGGREGATE>(dividend);
 }
-
-ap_uint<8> expected_cycles(ap_uint<8> nominal_hz) {
-  return (nominal_hz == 50) ? ap_uint<8>(MTR_GRID_CYCLES_50HZ)
-                            : ap_uint<8>(MTR_GRID_CYCLES_60HZ);
-}
-
-}  // namespace
 
 void hls_mtr2_engine(hls::stream<basic_result_beat_t> &s_basic,
                           hls::stream<record_axis_t> &m_axis) {
@@ -79,7 +60,7 @@ void hls_mtr2_engine(hls::stream<basic_result_beat_t> &s_basic,
   // Distributed RAM: seven-deep arrays otherwise cost whole RAMB36 blocks
   // for under two kilobits of state (the RTL engine kept these in
   // registers).
-  static ap_uint<MTR2_ACC_BITS> square_acc[MTR_ACTIVE_CHANNELS];
+  static ap_uint<MTR2_ACC_BITS> square_acc[MET_ACTIVE_CHANNELS];
 #pragma HLS BIND_STORAGE variable=square_acc type=ram_s2p impl=lutram
   static ap_uint<32> out_sequence = 0;
 
@@ -108,10 +89,10 @@ void hls_mtr2_engine(hls::stream<basic_result_beat_t> &s_basic,
   // APU's class_a_aggregation_eligible() rule.
   const bool nominal_known = (in.nominal_hz == 50) || (in.nominal_hz == 60);
   const bool input_eligible =
-      in.flags.bit(MTR_FLAG_LOCKED) == 1 &&
-      in.flags.bit(MTR_FLAG_FALLBACK) == 0 &&
-      in.flags.bit(MTR_FLAG_FIRST_BLOCK) == 0 && nominal_known &&
-      in.cycle_count == expected_cycles(in.nominal_hz);
+      in.flags.bit(MET_FLAG_LOCKED) == 1 &&
+      in.flags.bit(MET_FLAG_FALLBACK) == 0 &&
+      in.flags.bit(MET_FLAG_FIRST_BLOCK) == 0 && nominal_known &&
+      in.cycle_count == met_expected_cycles(in.nominal_hz);
 
   if (!input_eligible) {
     // An ineligible block invalidates the running aggregate and never
@@ -171,7 +152,7 @@ void hls_mtr2_engine(hls::stream<basic_result_beat_t> &s_basic,
   // Square and accumulate this block's RMS lanes. RMS magnitudes are
   // non-negative; the signed lane is normalized defensively (RTL rule).
 square_lanes:
-  for (int channel = 0; channel < MTR_ACTIVE_CHANNELS; ++channel) {
+  for (int channel = 0; channel < MET_ACTIVE_CHANNELS; ++channel) {
 #pragma HLS PIPELINE off
     const ap_int<64> lane = in.rms_q16[channel];
     const ap_uint<64> magnitude =
@@ -181,16 +162,16 @@ square_lanes:
         (seed ? ap_uint<MTR2_ACC_BITS>(0) : square_acc[channel]) + square;
   }
 
-  if (blocks_accumulated != MTR_BASIC_BLOCKS_PER_AGGREGATE) {
+  if (blocks_accumulated != MET_BASIC_BLOCKS_PER_AGGREGATE) {
     return;
   }
 
   // Fifteenth eligible block: finalize and emit one MTR2-v2 record.
   // Registers, not RAM: the record packing below reads all seven results.
-  ap_uint<64> rms_result[MTR_ACTIVE_CHANNELS];
+  ap_uint<64> rms_result[MET_ACTIVE_CHANNELS];
 #pragma HLS ARRAY_PARTITION variable=rms_result complete
 finalize_lanes:
-  for (int channel = 0; channel < MTR_ACTIVE_CHANNELS; ++channel) {
+  for (int channel = 0; channel < MET_ACTIVE_CHANNELS; ++channel) {
 #pragma HLS PIPELINE off
     // 15 squares of 63-bit magnitudes stay below 2**130; the mean stays
     // below 2**127, so the 128-bit radicand cannot truncate (RTL rule).
@@ -206,32 +187,27 @@ finalize_lanes:
 
   record_image_t image;
   clear_record(image);
-  image.word[MREC_SEQUENCE_WORD] = out_sequence;
-  image.word[MREC_GENERATION_WORD] = agg_generation;
-  image.word[MREC_SAMPLE_RATE_WORD] = agg_sample_rate;
-  image.word[MREC_SAMPLE_COUNT_WORD] = agg_total_samples;
-  image.word[MREC_VALID_MASK_WORD] = ap_uint<32>(mask_and);
-  image.word[MREC_STATUS_WORD] =
+  const ap_uint<32> record_status =
       (ap_uint<32>(arithmetic_flag) << MREC_STATUS_ARITHMETIC_BIT) |
       // Only complete 15-block aggregates are ever emitted.
       (ap_uint<32>(1) << MTR2_STATUS_COMPLETE_BIT) |
       (ap_uint<32>(freq_all_valid) << MTR2_STATUS_FREQUENCY_BIT);
-  image.word[MREC_FIRST_SAMPLE_LOW_WORD] = agg_first_sample.range(31, 0);
-  image.word[MREC_FIRST_SAMPLE_HIGH_WORD] = agg_first_sample.range(63, 32);
+  fill_envelope(image, out_sequence, agg_generation, agg_sample_rate,
+                agg_total_samples, mask_and, record_status, agg_first_sample);
   // Words 11/12 (emit/result drops) stay zero: emission is blocking and
   // the engine consumes every input beat.
   image.word[MTR2_SHAPE_WORD] =
-      (ap_uint<32>(MTR_BASIC_BLOCKS_PER_AGGREGATE) << MTR2_SHAPE_BLOCKS_LSB) |
+      (ap_uint<32>(MET_BASIC_BLOCKS_PER_AGGREGATE) << MTR2_SHAPE_BLOCKS_LSB) |
       (ap_uint<32>(agg_nominal) << MTR2_SHAPE_NOMINAL_LSB) |
       (ap_uint<32>(agg_total_cycles) << MTR2_SHAPE_CYCLES_LSB);
   image.word[MTR2_FIRST_BASIC_SEQ_WORD] = agg_first_seq;
   image.word[MTR2_LAST_BASIC_SEQ_WORD] = agg_last_seq;
 pack_lanes:
-  for (int channel = 0; channel < MTR_CHANNEL_LANES; ++channel) {
+  for (int channel = 0; channel < MET_CHANNEL_LANES; ++channel) {
 #pragma HLS PIPELINE off
     // Aggregate RMS leaves the internal Q16 domain here, in the same
     // micro-unit convention as the Basic record; lane 7 stays zero.
-    if (channel < MTR_ACTIVE_CHANNELS) {
+    if (channel < MET_ACTIVE_CHANNELS) {
       const ap_uint<64> rms_units = rms_result[channel] >> 16;
       const int base = MTR2_CH_BASE_WORD + channel * MTR2_CH_STRIDE_WORDS;
       image.word[base + 0] = rms_units.range(31, 0);

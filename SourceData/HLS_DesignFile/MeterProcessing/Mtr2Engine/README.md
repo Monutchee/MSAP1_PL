@@ -22,7 +22,7 @@ git history).
   map come from `../../common/include/` (`basic_result_beat.hpp`,
   `measurement_record.hpp`) so nothing is defined twice across engines.
 - `src/mtr2_engine.cpp` — the engine. Area-shaped: serial divide by 15
-  and the shared multiplier-free restoring root (`mtr_math.hpp`) in
+  and the shared multiplier-free restoring root (`metrology_math.hpp`) in
   PIPELINE-off loops; worst-case finalize ≈ 14 µs against a ~200 ms
   event period.
 - `test/mtr2_engine_tb.cpp` — the twelve golden scenarios (originally

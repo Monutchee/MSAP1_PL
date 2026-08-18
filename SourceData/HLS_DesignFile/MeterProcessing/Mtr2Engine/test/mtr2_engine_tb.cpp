@@ -60,7 +60,7 @@ hls::stream<basic_result_beat_t> s_basic("s_basic");
 hls::stream<record_axis_t> m_axis("m_axis");
 
 // One Basic result event; rms_ch applies to CH0..CH6, CH7 carries junk.
-void send_basic(const ap_uint<64> rms_ch[MTR_ACTIVE_CHANNELS],
+void send_basic(const ap_uint<64> rms_ch[MET_ACTIVE_CHANNELS],
                 ap_uint<32> generation, int nominal, ap_uint<32> sample_count,
                 ap_uint<3> flags, ap_uint<32> freq_millihz, bool freq_valid,
                 bool chain_first = true) {
@@ -71,15 +71,15 @@ void send_basic(const ap_uint<64> rms_ch[MTR_ACTIVE_CHANNELS],
   r.sample_count = sample_count;
   r.valid_mask = 0x7f;
   r.flags = flags;
-  r.cycle_count = (nominal == 50) ? ap_uint<8>(MTR_GRID_CYCLES_50HZ)
-                                  : ap_uint<8>(MTR_GRID_CYCLES_60HZ);
+  r.cycle_count = (nominal == 50) ? ap_uint<8>(MET_GRID_CYCLES_50HZ)
+                                  : ap_uint<8>(MET_GRID_CYCLES_60HZ);
   r.nominal_hz = nominal;
   r.status = 0;
   r.frequency_millihz = freq_millihz;
   r.frequency_valid = freq_valid ? 1 : 0;
   r.apply_toggle = apply_level;
   r.first_sample = next_first;
-  for (int channel = 0; channel < MTR_ACTIVE_CHANNELS; ++channel) {
+  for (int channel = 0; channel < MET_ACTIVE_CHANNELS; ++channel) {
     r.rms_q16[channel] = ap_int<64>(rms_ch[channel]);
   }
   // Junk in the unused CH7 lane: the engine must ignore it.
@@ -95,12 +95,12 @@ void send_basic(const ap_uint<64> rms_ch[MTR_ACTIVE_CHANNELS],
 
 // Golden RMS aggregate: floor(sqrt(floor(sum(v_i^2)/15))) via the SV
 // bench's binary-search root -- independent of the DUT's digit recurrence.
-ap_uint<64> golden_rms(const ap_uint<64> values[MTR_BASIC_BLOCKS_PER_AGGREGATE]) {
+ap_uint<64> golden_rms(const ap_uint<64> values[MET_BASIC_BLOCKS_PER_AGGREGATE]) {
   ap_uint<132> acc = 0;
-  for (int i = 0; i < MTR_BASIC_BLOCKS_PER_AGGREGATE; ++i) {
+  for (int i = 0; i < MET_BASIC_BLOCKS_PER_AGGREGATE; ++i) {
     acc += ap_uint<132>(ap_uint<128>(values[i]) * values[i]);
   }
-  const ap_uint<132> mean = acc / MTR_BASIC_BLOCKS_PER_AGGREGATE;
+  const ap_uint<132> mean = acc / MET_BASIC_BLOCKS_PER_AGGREGATE;
   const ap_uint<128> radicand = mean.range(127, 0);
   ap_uint<64> low = 0;
   ap_uint<64> high = ~ap_uint<64>(0);
@@ -152,13 +152,13 @@ int check_record(const ap_uint<32> word[MREC_WORDS],
   CHECK_WORD("emit_drops", MREC_EMIT_DROPS_WORD, ap_uint<32>(0));
   CHECK_WORD("result_drops", MREC_RESULT_DROPS_WORD, ap_uint<32>(0));
   CHECK_WORD("shape", MTR2_SHAPE_WORD,
-             (ap_uint<32>(MTR_BASIC_BLOCKS_PER_AGGREGATE)
+             (ap_uint<32>(MET_BASIC_BLOCKS_PER_AGGREGATE)
               << MTR2_SHAPE_BLOCKS_LSB) |
                  (ap_uint<32>(expected.nominal) << MTR2_SHAPE_NOMINAL_LSB) |
                  (ap_uint<32>(expected.cycles) << MTR2_SHAPE_CYCLES_LSB));
   CHECK_WORD("first_seq", MTR2_FIRST_BASIC_SEQ_WORD, expected.first_seq);
   CHECK_WORD("last_seq", MTR2_LAST_BASIC_SEQ_WORD, expected.last_seq);
-  for (int channel = 0; channel < MTR_CHANNEL_LANES; ++channel) {
+  for (int channel = 0; channel < MET_CHANNEL_LANES; ++channel) {
     char lane_name[24];
     const ap_uint<64> units = expected.rms[channel] >> 16;
     const int base = MTR2_CH_BASE_WORD + channel * MTR2_CH_STRIDE_WORDS;
@@ -188,8 +188,8 @@ const ap_uint<3> FLAGS_FALLBACK = 0x2;  // free-run fallback: ineligible
 
 int main() {
   std::vector<expected_aggregate_t> expected;
-  ap_uint<64> rms_in[MTR_ACTIVE_CHANNELS];
-  ap_uint<64> series[MTR_BASIC_BLOCKS_PER_AGGREGATE];
+  ap_uint<64> rms_in[MET_ACTIVE_CHANNELS];
+  ap_uint<64> series[MET_BASIC_BLOCKS_PER_AGGREGATE];
 
   // Fills every non-counter expectation with this scenario's constants;
   // per-test code overrides the fields under test afterwards.
@@ -210,7 +210,7 @@ int main() {
     e.last_seq = next_seq + 14;
     e.freq_millihz = freq_millihz;
     e.first_sample = next_first;
-    for (int channel = 0; channel < MTR_ACTIVE_CHANNELS; ++channel) {
+    for (int channel = 0; channel < MET_ACTIVE_CHANNELS; ++channel) {
       e.rms[channel] = rms_in[channel];
     }
     e.rms[7] = 0;
@@ -224,7 +224,7 @@ int main() {
   };
 
   // ---- T1: constant 60 Hz inputs -> aggregate equals the input ----------
-  for (int c = 0; c < MTR_ACTIVE_CHANNELS; ++c) {
+  for (int c = 0; c < MET_ACTIVE_CHANNELS; ++c) {
     rms_in[c] = ap_uint<64>((c + 1) * 1000) << 16;
   }
   expected.push_back(base_expectation("T1", 7, 60, 60000));
@@ -247,13 +247,13 @@ int main() {
       series[b] = ap_uint<64>((b + 1) * 1000) << 16;
     }
     e.rms[0] = golden_rms(series);
-    for (int c = 1; c < MTR_ACTIVE_CHANNELS; ++c) {
+    for (int c = 1; c < MET_ACTIVE_CHANNELS; ++c) {
       e.rms[c] = ap_uint<64>(5000) << 16;
     }
     expected.push_back(e);
   }
   for (int b = 0; b < 15; ++b) {
-    for (int c = 0; c < MTR_ACTIVE_CHANNELS; ++c) {
+    for (int c = 0; c < MET_ACTIVE_CHANNELS; ++c) {
       rms_in[c] = ap_uint<64>(5000) << 16;
     }
     rms_in[0] = ap_uint<64>((b + 1) * 1000) << 16;
@@ -261,7 +261,7 @@ int main() {
   }
 
   // ---- T3: fallback input invalidates the running set -------------------
-  for (int c = 0; c < MTR_ACTIVE_CHANNELS; ++c) {
+  for (int c = 0; c < MET_ACTIVE_CHANNELS; ++c) {
     rms_in[c] = ap_uint<64>(2000) << 16;
   }
   for (int b = 0; b < 7; ++b) {
@@ -335,7 +335,7 @@ int main() {
   }
 
   // ---- T8: maximum-magnitude inputs cannot overflow -----------------------
-  for (int c = 0; c < MTR_ACTIVE_CHANNELS; ++c) {
+  for (int c = 0; c < MET_ACTIVE_CHANNELS; ++c) {
     rms_in[c] = ap_uint<64>(0x7fffffffffffffffULL);
   }
   expected.push_back(base_expectation("T8", 15, 60, 60000));
@@ -344,7 +344,7 @@ int main() {
   }
 
   // ---- T9: one invalid frequency input invalidates the mean --------------
-  for (int c = 0; c < MTR_ACTIVE_CHANNELS; ++c) {
+  for (int c = 0; c < MET_ACTIVE_CHANNELS; ++c) {
     rms_in[c] = ap_uint<64>(3000) << 16;
   }
   {
@@ -357,7 +357,7 @@ int main() {
   }
 
   // ---- T10: Basic sequence gap resets, gapped block reseeds --------------
-  for (int c = 0; c < MTR_ACTIVE_CHANNELS; ++c) {
+  for (int c = 0; c < MET_ACTIVE_CHANNELS; ++c) {
     rms_in[c] = ap_uint<64>(4000) << 16;
   }
   for (int b = 0; b < 8; ++b) {

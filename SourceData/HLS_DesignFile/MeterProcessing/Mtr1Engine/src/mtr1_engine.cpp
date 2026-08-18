@@ -1,6 +1,7 @@
 #include "mtr1_engine.hpp"
 
-#include "mtr_math.hpp"
+#include "metrology_math.hpp"
+#include "metrology_stats.hpp"
 
 // MTR1 basic measurement engine. Contract, beat layout, and accepted
 // divergences: see mtr1_engine.hpp.
@@ -54,72 +55,16 @@ lane_result_t finalize_lane(const ap_int<128> sum, const ap_uint<128> square,
 
   // Mean: floor(|sum|/N), truncate to 64 bits, then restore the sign
   // (truncation toward zero; the 64-bit truncation precedes negation).
-  const bool sum_negative = (sum < 0);
-  const ap_uint<128> abs_sum =
-      sum_negative ? ap_uint<128>(-sum) : ap_uint<128>(sum);
-  const ap_uint<128> mean_q = floor_div<128>(abs_sum, ap_uint<128>(count));
-  const ap_uint<64> mean_mag = mean_q.range(63, 0);
-  r.mean_q16 =
-      sum_negative ? ap_int<64>(-ap_int<64>(mean_mag)) : ap_int<64>(mean_mag);
+  r.mean_q16 = met_floor_mean_signed<128, 64>(sum, count);
 
-  // Converted-domain variance and root.
-  {
-    const ap_uint<160> product = ap_uint<160>(square) * count;
-    ap_uint<128> numerator;
-    if (product.range(159, 128) != 0) {
-      r.overflow = 1;
-      numerator = ~ap_uint<128>(0);
-    } else {
-      numerator = product.range(127, 0);
-    }
-    if (dc_remove == 1) {
-      if (abs_sum.range(127, 64) != 0) {
-        // |sum| exceeds 64 bits: the sum-square would truncate (RTL
-        // variance_sum_too_wide rule).
-        r.overflow = 1;
-        numerator = 0;
-      } else {
-        const ap_uint<128> sum_square =
-            ap_uint<128>(abs_sum.range(63, 0)) * abs_sum.range(63, 0);
-        if (numerator >= sum_square) {
-          numerator -= sum_square;
-        } else {
-          numerator = 0;
-          r.overflow = 1;
-        }
-      }
-    }
-    const ap_uint<128> denominator = ap_uint<128>(ap_uint<64>(count) * count);
-    r.rms_q16 = floor_sqrt_128(floor_div<128>(numerator, denominator));
-  }
-
-  // Raw-count variance and root (same recurrence on the raw accumulators;
-  // the 64-bit raw sum can never trip the too-wide rule).
-  {
-    const ap_uint<160> product = ap_uint<160>(raw_square) * count;
-    ap_uint<128> numerator;
-    if (product.range(159, 128) != 0) {
-      r.overflow = 1;
-      numerator = ~ap_uint<128>(0);
-    } else {
-      numerator = product.range(127, 0);
-    }
-    if (dc_remove == 1) {
-      const ap_uint<64> abs_raw =
-          (raw_sum < 0) ? ap_uint<64>(-raw_sum) : ap_uint<64>(raw_sum);
-      const ap_uint<128> sum_square = ap_uint<128>(abs_raw) * abs_raw;
-      if (numerator >= sum_square) {
-        numerator -= sum_square;
-      } else {
-        numerator = 0;
-        r.overflow = 1;
-      }
-    }
-    const ap_uint<128> denominator = ap_uint<128>(ap_uint<64>(count) * count);
-    const ap_uint<64> root =
-        floor_sqrt_128(floor_div<128>(numerator, denominator));
-    r.rms_count = root.range(31, 0);
-  }
+  // Converted-domain and raw-count variance and root share the one
+  // normative recurrence (metrology_stats.hpp); the raw path's 64-bit sum
+  // can never trip the |sum|-too-wide rule, exactly as before.
+  r.rms_q16 = met_rms_from_accumulators<128, 128>(square, sum, count,
+                                                  dc_remove, r.overflow);
+  const ap_uint<64> raw_root = met_rms_from_accumulators<96, 64>(
+      raw_square, raw_sum, count, dc_remove, r.overflow);
+  r.rms_count = raw_root.range(31, 0);
   return r;
 }
 
@@ -158,13 +103,13 @@ void hls_mtr1_engine(hls::stream<mtr1_sample_beat_t> &s_sample,
   static ap_uint<32> result_drops = 0;        // reserved: every close finalizes
 
   // One R/W per lane per beat: distributed RAM, not block RAM.
-  static ap_int<128> acc_sum[MTR_ACTIVE_CHANNELS];
+  static ap_int<128> acc_sum[MET_ACTIVE_CHANNELS];
 #pragma HLS BIND_STORAGE variable=acc_sum type=ram_s2p impl=lutram
-  static ap_uint<128> acc_square[MTR_ACTIVE_CHANNELS];
+  static ap_uint<128> acc_square[MET_ACTIVE_CHANNELS];
 #pragma HLS BIND_STORAGE variable=acc_square type=ram_s2p impl=lutram
-  static ap_int<64> acc_raw_sum[MTR_ACTIVE_CHANNELS];
+  static ap_int<64> acc_raw_sum[MET_ACTIVE_CHANNELS];
 #pragma HLS BIND_STORAGE variable=acc_raw_sum type=ram_s2p impl=lutram
-  static ap_uint<96> acc_raw_square[MTR_ACTIVE_CHANNELS];
+  static ap_uint<96> acc_raw_square[MET_ACTIVE_CHANNELS];
 #pragma HLS BIND_STORAGE variable=acc_raw_square type=ram_s2p impl=lutram
 
   if (s_sample.empty()) {
@@ -215,7 +160,7 @@ void hls_mtr1_engine(hls::stream<mtr1_sample_beat_t> &s_sample,
 
   const bool first_frame = (sample_count == 0);
 accumulate_lanes:
-  for (int lane = 0; lane < MTR_ACTIVE_CHANNELS; ++lane) {
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
 #pragma HLS PIPELINE off
     const ap_int<64> sample = ap_int<64>(ap_uint<64>(
         beat.range(MTR1_IN_SAMPLES_LSB + lane * 64 + 63,
@@ -231,14 +176,8 @@ accumulate_lanes:
     const ap_uint<128> square = ap_uint<128>(sample * sample);
     const ap_uint<128> square_base =
         first_frame ? ap_uint<128>(0) : acc_square[lane];
-    const ap_uint<129> square_extended =
-        ap_uint<129>(square_base) + ap_uint<129>(square);
-    if (square_extended.bit(128) == 1) {
-      acc_square[lane] = ~ap_uint<128>(0);
-      arithmetic_overflow = 1;
-    } else {
-      acc_square[lane] = square_extended.range(127, 0);
-    }
+    acc_square[lane] = met_add_square_saturating<128>(square_base, square,
+                                                      arithmetic_overflow);
 
     const ap_int<64> raw_sum_base =
         first_frame ? ap_int<64>(0) : acc_raw_sum[lane];
@@ -270,15 +209,15 @@ accumulate_lanes:
       ap_uint<8>(0x7F);
 
   // Registers, not RAM: the record/beat packing below reads all lanes.
-  ap_int<64> mean_q16[MTR_ACTIVE_CHANNELS];
+  ap_int<64> mean_q16[MET_ACTIVE_CHANNELS];
 #pragma HLS ARRAY_PARTITION variable=mean_q16 complete
-  ap_uint<64> rms_q16[MTR_ACTIVE_CHANNELS];
+  ap_uint<64> rms_q16[MET_ACTIVE_CHANNELS];
 #pragma HLS ARRAY_PARTITION variable=rms_q16 complete
-  ap_uint<32> rms_count[MTR_ACTIVE_CHANNELS];
+  ap_uint<32> rms_count[MET_ACTIVE_CHANNELS];
 #pragma HLS ARRAY_PARTITION variable=rms_count complete
 
 finalize_lanes:
-  for (int lane = 0; lane < MTR_ACTIVE_CHANNELS; ++lane) {
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
 #pragma HLS PIPELINE off
     const lane_result_t lr =
         finalize_lane(acc_sum[lane], acc_square[lane], acc_raw_sum[lane],
@@ -299,7 +238,7 @@ finalize_lanes:
   result.sample_rate_hz = active_sample_rate;
   result.sample_count = count_now;
   result.valid_mask = result_mask;
-  result.flags = beat.range(MTR1_IN_BLOCK_FLAGS_LSB + MTR_FLAG_BITS - 1,
+  result.flags = beat.range(MTR1_IN_BLOCK_FLAGS_LSB + MET_FLAG_BITS - 1,
                             MTR1_IN_BLOCK_FLAGS_LSB);
   result.cycle_count =
       beat.range(MTR1_IN_CYCLE_COUNT_LSB + 7, MTR1_IN_CYCLE_COUNT_LSB);
@@ -313,9 +252,9 @@ finalize_lanes:
   result.first_sample =
       beat.range(MTR1_IN_FIRST_SAMPLE_LSB + 63, MTR1_IN_FIRST_SAMPLE_LSB);
 result_lanes:
-  for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+  for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
 #pragma HLS UNROLL
-    result.rms_q16[lane] = (lane < MTR_ACTIVE_CHANNELS)
+    result.rms_q16[lane] = (lane < MET_ACTIVE_CHANNELS)
                                ? ap_int<64>(rms_q16[lane])
                                : ap_int<64>(0);
   }
@@ -324,16 +263,10 @@ result_lanes:
   // MTR1-v3 record.
   record_image_t image;
   clear_record(image);
-  image.word[MREC_SEQUENCE_WORD] = sequence;
-  image.word[MREC_GENERATION_WORD] = active_generation;
-  image.word[MREC_SAMPLE_RATE_WORD] = active_sample_rate;
-  image.word[MREC_SAMPLE_COUNT_WORD] = count_now;
-  image.word[MREC_VALID_MASK_WORD] = ap_uint<32>(result_mask);
-  image.word[MREC_STATUS_WORD] = status;
-  image.word[MREC_FIRST_SAMPLE_LOW_WORD] =
-      beat.range(MTR1_IN_FIRST_SAMPLE_LSB + 31, MTR1_IN_FIRST_SAMPLE_LSB);
-  image.word[MREC_FIRST_SAMPLE_HIGH_WORD] =
-      beat.range(MTR1_IN_FIRST_SAMPLE_LSB + 63, MTR1_IN_FIRST_SAMPLE_LSB + 32);
+  fill_envelope(image, sequence, active_generation, active_sample_rate,
+                count_now, result_mask, status,
+                beat.range(MTR1_IN_FIRST_SAMPLE_LSB + 63,
+                           MTR1_IN_FIRST_SAMPLE_LSB));
   image.word[MREC_EMIT_DROPS_WORD] = emit_drops;
   image.word[MREC_RESULT_DROPS_WORD] = result_drops;
   image.word[MTR1_TIMING_WORD] =
@@ -341,10 +274,10 @@ result_lanes:
       (ap_uint<32>(result.cycle_count) << MTR1_TIMING_CYCLES_LSB) |
       (ap_uint<32>(result.flags) << MTR1_TIMING_FLAGS_LSB);
 record_lanes:
-  for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane) {
+  for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
 #pragma HLS PIPELINE off
     // Lanes beyond the active channels stay zero (clear_record).
-    if (lane < MTR_ACTIVE_CHANNELS) {
+    if (lane < MET_ACTIVE_CHANNELS) {
       const ap_int<64> mean_units = mean_q16[lane] >> 16;  // arithmetic
       const ap_uint<64> rms_units = rms_q16[lane] >> 16;
       const int base = MTR1_CH_BASE_WORD + lane * MTR1_CH_STRIDE_WORDS;

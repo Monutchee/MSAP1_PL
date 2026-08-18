@@ -19,7 +19,7 @@ MTR2 aggregation engine consumes.
   `../../common/include/` so nothing is defined twice across engines.
 - `src/mtr1_engine.cpp` — the engine: single-shot free-running process
   (the proven cosim-safe pattern); serial per-lane arithmetic
-  (PIPELINE-off loops, shared divider/root from `mtr_math.hpp`);
+  (PIPELINE-off loops, shared divider/root from `metrology_math.hpp`);
   finalize ≈ 15 µs inline against the ~200 ms block cadence, absorbed by
   the shim's 8-deep beat FIFO. Both AXIS masters keep their boundary
   registers — a raw HLS axis master gates TVALID on TREADY (AXI-illegal)

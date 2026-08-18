@@ -16,6 +16,8 @@
 #include "basic_result_beat.hpp"
 #include "measurement_record.hpp"
 #include "metering_types.hpp"
+#include "metrology_math.hpp"
+#include "metrology_stats.hpp"
 
 // ---------------------------------------------------------------------------
 // 1. Compile-time pins.
@@ -40,7 +42,7 @@ static_assert(BASIC_BEAT_APPLY_TOGGLE_BIT == 225, "layout pin");
 static_assert(BASIC_BEAT_FIRST_SAMPLE_LSB == 232, "layout pin");
 static_assert(BASIC_BEAT_RMS_LSB == 296, "layout pin");
 static_assert(BASIC_BEAT_BITS == 808, "layout pin");
-static_assert(BASIC_BEAT_RMS_LSB + MTR_RMS_LANES_BITS == BASIC_BEAT_BITS,
+static_assert(BASIC_BEAT_RMS_LSB + MET_RMS_LANES_BITS == BASIC_BEAT_BITS,
               "RMS lanes must end exactly at the beat MSB");
 
 // Record geometry is fixed by the kernel DMA contract.
@@ -48,11 +50,11 @@ static_assert(MREC_WORDS == 64 && MREC_BYTES == 256, "DMA framing contract");
 static_assert(MREC_WORDS * 4 == MREC_BYTES, "words/bytes coherence");
 
 // Interior maps must stay inside the record and clear of each other.
-static_assert(MTR1_CH_BASE_WORD + MTR_CHANNEL_LANES * MTR1_CH_STRIDE_WORDS ==
+static_assert(MTR1_CH_BASE_WORD + MET_CHANNEL_LANES * MTR1_CH_STRIDE_WORDS ==
                   MTR1_FREQUENCY_VALUE_WORD,
               "MTR1 channel block must abut the frequency block");
 static_assert(MTR1_ADC_ALERTS_WORD == MREC_WORDS - 1, "MTR1 map fills the record");
-static_assert(MTR2_CH_BASE_WORD + MTR_CHANNEL_LANES * MTR2_CH_STRIDE_WORDS ==
+static_assert(MTR2_CH_BASE_WORD + MET_CHANNEL_LANES * MTR2_CH_STRIDE_WORDS ==
                   MTR2_FREQUENCY_WORD,
               "MTR2 channel block must abut the frequency word");
 static_assert(MTR2_CONTINUITY_COUNT_WORD < MREC_WORDS, "MTR2 map in bounds");
@@ -80,17 +82,17 @@ static void test_basic_result_round_trip() {
   in.sample_rate_hz = 32000;
   in.sample_count = 6379;             // cycle mode: not the configured window
   in.valid_mask = 0x7F;               // CH0..CH6
-  in.flags = (1u << MTR_FLAG_LOCKED); // locked, no fallback, not first
-  in.cycle_count = MTR_GRID_CYCLES_60HZ;
+  in.flags = (1u << MET_FLAG_LOCKED); // locked, no fallback, not first
+  in.cycle_count = MET_GRID_CYCLES_60HZ;
   in.nominal_hz = 60;
   in.status = 0;
   in.frequency_millihz = 59987;
   in.frequency_valid = 1;
   in.apply_toggle = 1;
   in.first_sample = ap_uint<64>(0x123456789ABCDEF0ULL);
-  for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane)
-    in.rms_q16[lane] = (lane == 3) ? mtr_q16_t(-1234567891234LL)
-                                   : mtr_q16_t(0x0123456700000000LL + lane);
+  for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane)
+    in.rms_q16[lane] = (lane == 3) ? met_q16_t(-1234567891234LL)
+                                   : met_q16_t(0x0123456700000000LL + lane);
 
   const basic_result_t out = unpack_basic_result(pack_basic_result(in));
 
@@ -107,7 +109,7 @@ static void test_basic_result_round_trip() {
   CHECK(out.frequency_valid == in.frequency_valid, "frequency_valid");
   CHECK(out.apply_toggle == in.apply_toggle, "apply_toggle");
   CHECK(out.first_sample == in.first_sample, "first_sample");
-  for (int lane = 0; lane < MTR_CHANNEL_LANES; ++lane)
+  for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane)
     CHECK(out.rms_q16[lane] == in.rms_q16[lane], "rms lane");
 
   // Field independence: a beat with exactly one field set must read back
@@ -138,7 +140,7 @@ static void test_serialize_record_framing() {
   image.word[MREC_SEQUENCE_WORD] = 1053;
   image.word[MTR1_TIMING_WORD] =
       (50u << MTR1_TIMING_NOMINAL_LSB) | (10u << MTR1_TIMING_CYCLES_LSB) |
-      (1u << (MTR1_TIMING_FLAGS_LSB + MTR_FLAG_LOCKED));
+      (1u << (MTR1_TIMING_FLAGS_LSB + MET_FLAG_LOCKED));
   for (int w = MREC_PAYLOAD_WORD; w < MREC_WORDS; ++w)
     image.word[w] = 0xA0000000u + w;
 
@@ -163,9 +165,62 @@ static void test_serialize_record_framing() {
   CHECK(beats == MREC_WORDS, "exactly 64 beats per record");
 }
 
+// The shared math/stat primitives against plain integer references:
+// floor semantics, the divide-by-15 specialization, saturation, and the
+// truncate-before-negate mean order (all normative, see the headers).
+static void test_metrology_primitives() {
+  static_assert(met_bit_width<29ULL>::value == 5,
+                "bit width helper must size the div-15 remainder at 5");
+
+  const unsigned long long vectors[] = {0ULL, 1ULL, 14ULL, 15ULL, 16ULL,
+                                        1000ULL, 0xFFFFFFFFFFFFULL};
+  for (const auto value : vectors) {
+    const ap_uint<64> divided = floor_div_const<64, 15>(ap_uint<64>(value));
+    CHECK((divided == ap_uint<64>(value / 15ULL)),
+          "floor_div_const<15> must floor-divide exactly");
+    const ap_uint<64> generic =
+        floor_div<64>(ap_uint<64>(value), ap_uint<64>(15));
+    CHECK((divided == generic),
+          "constant and generic dividers must agree bit for bit");
+  }
+
+  // Saturating square accumulation: carry-out clamps and sets the flag.
+  ap_uint<1> sticky = 0;
+  const ap_uint<128> near_full = ~ap_uint<128>(0) - 10;
+  CHECK((met_add_square_saturating<128>(near_full, ap_uint<128>(5), sticky) ==
+             near_full + 5 && sticky == 0),
+        "in-range square accumulation must not saturate");
+  CHECK((met_add_square_saturating<128>(near_full, ap_uint<128>(50), sticky) ==
+             ~ap_uint<128>(0) && sticky == 1),
+        "carry-out must clamp to all-ones with the sticky flag");
+
+  // Mean: truncate to the output width BEFORE negation (normative order).
+  CHECK((met_floor_mean_signed<128, 64>(ap_int<128>(-7), 2) == ap_int<64>(-3)),
+        "negative mean must truncate toward zero");
+  CHECK((met_floor_mean_signed<128, 64>(ap_int<128>(7), 2) == ap_int<64>(3)),
+        "positive mean must floor");
+
+  // RMS recurrence: a pure-DC window with dc_remove yields zero; without
+  // it, the RMS of a constant c over N samples is |c|.
+  ap_uint<1> overflow = 0;
+  const ap_uint<32> count = 4;
+  const ap_int<128> sum = ap_int<128>(4) * 1000;      // four samples of 1000
+  const ap_uint<128> square = ap_uint<128>(4) * (1000ULL * 1000ULL);
+  CHECK((met_rms_from_accumulators<128, 128>(square, sum, count, 1, overflow) ==
+             ap_uint<64>(0) && overflow == 0),
+        "constant signal with dc_remove must have zero AC RMS");
+  CHECK((met_rms_from_accumulators<128, 128>(square, sum, count, 0, overflow) ==
+             ap_uint<64>(1000)),
+        "constant signal without dc_remove must report its magnitude");
+  CHECK((met_expected_cycles(50) == MET_GRID_CYCLES_50HZ &&
+             met_expected_cycles(60) == MET_GRID_CYCLES_60HZ),
+        "nominal-to-cycles mapping");
+}
+
 int main() {
   test_basic_result_round_trip();
   test_serialize_record_framing();
+  test_metrology_primitives();
   if (failures) {
     std::printf("common_headers_test: %d FAILURE(S)\n", failures);
     return EXIT_FAILURE;

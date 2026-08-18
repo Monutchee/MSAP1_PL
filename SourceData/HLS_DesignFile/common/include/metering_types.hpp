@@ -34,8 +34,8 @@
 // reads zero/invalid in the default configuration (CH7 exists in capture
 // but is not a metering channel today).
 // ---------------------------------------------------------------------------
-static const int MTR_CHANNEL_LANES   = 8;
-static const int MTR_ACTIVE_CHANNELS = 7;   // CH0..CH6
+static const int MET_CHANNEL_LANES   = 8;
+static const int MET_ACTIVE_CHANNELS = 7;   // CH0..CH6
 
 // ---------------------------------------------------------------------------
 // IEC 61000-4-30 block geometry.
@@ -46,16 +46,24 @@ static const int MTR_ACTIVE_CHANNELS = 7;   // CH0..CH6
 // aggregate is formed from exactly 15 consecutive eligible basic results —
 // never a wall-clock timer, never a second RMS pass over raw samples.
 // ---------------------------------------------------------------------------
-static const int MTR_GRID_CYCLES_50HZ           = 10;
-static const int MTR_GRID_CYCLES_60HZ           = 12;
-static const int MTR_BASIC_BLOCKS_PER_AGGREGATE = 15;
+static const int MET_GRID_CYCLES_50HZ           = 10;
+static const int MET_GRID_CYCLES_60HZ           = 12;
+static const int MET_BASIC_BLOCKS_PER_AGGREGATE = 15;
+
+// Complete grid cycles in one IEC 61000-4-30 basic measurement block for
+// a declared nominal frequency. Callers guarantee nominal is 50 or 60
+// (the eligibility predicates reject everything else).
+inline ap_uint<8> met_expected_cycles(const ap_uint<8> nominal_hz) {
+  return (nominal_hz == 50) ? ap_uint<8>(MET_GRID_CYCLES_50HZ)
+                            : ap_uint<8>(MET_GRID_CYCLES_60HZ);
+}
 
 // Block provenance flags (grid_timing_pkg.vhd bit positions, carried in
 // basic result beats and in the MTR1 timing word).
-static const int MTR_FLAG_LOCKED      = 0;  // block closed on a counted crossing
-static const int MTR_FLAG_FALLBACK    = 1;  // block closed on the fallback window
-static const int MTR_FLAG_FIRST_BLOCK = 2;  // first block after APPLY
-static const int MTR_FLAG_BITS        = 3;
+static const int MET_FLAG_LOCKED      = 0;  // block closed on a counted crossing
+static const int MET_FLAG_FALLBACK    = 1;  // block closed on the fallback window
+static const int MET_FLAG_FIRST_BLOCK = 2;  // first block after APPLY
+static const int MET_FLAG_BITS        = 3;
 
 // ---------------------------------------------------------------------------
 // Scalar types.
@@ -63,26 +71,26 @@ static const int MTR_FLAG_BITS        = 3;
 
 // One converted sample: 24-bit ADC value sign-extended into 32 bits by the
 // conversion stage.
-typedef ap_int<32> mtr_sample_t;
+typedef ap_int<32> met_sample_t;
 
 // One RMS lane in the internal Q16 domain: signed 64-bit, magnitude < 2^63.
 // The aggregation arithmetic contract (squares, 132-bit accumulators,
 // floor mean, floor root) is stated where it is implemented; the lane type
 // is fixed here.
-typedef ap_int<64> mtr_q16_t;
-static const int MTR_RMS_LANE_BITS  = 64;
-static const int MTR_RMS_LANES_BITS = MTR_CHANNEL_LANES * MTR_RMS_LANE_BITS;  // 512
+typedef ap_int<64> met_q16_t;
+static const int MET_RMS_LANE_BITS  = 64;
+static const int MET_RMS_LANES_BITS = MET_CHANNEL_LANES * MET_RMS_LANE_BITS;  // 512
 
 // Signed micro-unit quantities as published in records (mean, RMS).
-typedef ap_int<64> mtr_micro_units_t;
+typedef ap_int<64> met_micro_units_t;
 
 // The 64-bit free-running conversion sample index. It is the measurement
 // timebase: never reset on configuration apply, never stepped for time
 // synchronization (AGENTS.md). Records reference it as the first-sample
 // timestamp; the APU maps it to UTC via the waveform correlation block.
-typedef ap_uint<64> mtr_sample_index_t;
+typedef ap_uint<64> met_sample_index_t;
 
 // Plain 32-bit register/word quantity (word32_t in metering_pkg.vhd).
-typedef ap_uint<32> mtr_word32_t;
+typedef ap_uint<32> met_word32_t;
 
 #endif  // MSAP1_METERING_TYPES_HPP

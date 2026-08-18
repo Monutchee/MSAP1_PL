@@ -12,7 +12,7 @@
 // meter_cycle_aggregator.vhd in git history).
 //
 // Functional contract: the aggregate is formed from exactly
-// MTR_BASIC_BLOCKS_PER_AGGREGATE (15) consecutive eligible Basic
+// MET_BASIC_BLOCKS_PER_AGGREGATE (15) consecutive eligible Basic
 // measurement results -- never a wall-clock timer, never a second RMS
 // engine over raw samples. Aggregation arithmetic is pinned:
 //   RMS lanes:  agg = floor(sqrt(floor(sum(x_i^2) / 15))), Q16 domain

@@ -65,7 +65,7 @@ static const int MREC_SAMPLE_COUNT_WORD      = 6;   // actual samples this recor
 static const int MREC_VALID_MASK_WORD        = 7;   // [7:0] channel valid mask
 static const int MREC_STATUS_WORD            = 8;   // bit 0 common, rest format-defined
 static const int MREC_FIRST_SAMPLE_LOW_WORD  = 9;   // 64-bit first-sample timestamp,
-static const int MREC_FIRST_SAMPLE_HIGH_WORD = 10;  //   conversion-domain (mtr_sample_index_t)
+static const int MREC_FIRST_SAMPLE_HIGH_WORD = 10;  //   conversion-domain (met_sample_index_t)
 static const int MREC_EMIT_DROPS_WORD        = 11;  // records lost between engine and transport
 static const int MREC_RESULT_DROPS_WORD      = 12;  // windows the engine missed (must stay 0)
 
@@ -86,9 +86,9 @@ static const int MREC_STATUS_ARITHMETIC_BIT = 0;  // any arithmetic overflow
 static const int MTR1_TIMING_WORD        = 13;
 static const int MTR1_TIMING_NOMINAL_LSB = 0;   // [7:0]  declared nominal Hz
 static const int MTR1_TIMING_CYCLES_LSB  = 8;   // [15:8] complete cycles in block
-static const int MTR1_TIMING_FLAGS_LSB   = 16;  // [18:16] MTR_FLAG_* (locked/fallback/first)
+static const int MTR1_TIMING_FLAGS_LSB   = 16;  // [18:16] MET_FLAG_* (locked/fallback/first)
 
-// Words 16..55: MTR_CHANNEL_LANES x 5 words per channel.
+// Words 16..55: MET_CHANNEL_LANES x 5 words per channel.
 static const int MTR1_CH_BASE_WORD    = MREC_PAYLOAD_WORD;
 static const int MTR1_CH_STRIDE_WORDS = 5;
 static const int MTR1_CH_MEAN_LOW     = 0;  // signed mean micro-units, low word
@@ -126,7 +126,7 @@ static const int MTR2_SHAPE_CYCLES_LSB  = 16;  // [31:16] total cycles (150/180)
 static const int MTR2_FIRST_BASIC_SEQ_WORD = 14;
 static const int MTR2_LAST_BASIC_SEQ_WORD  = 15;
 
-// Words 16..31: MTR_CHANNEL_LANES x 2 words of aggregate RMS in signed
+// Words 16..31: MET_CHANNEL_LANES x 2 words of aggregate RMS in signed
 // 64-bit micro-units.
 static const int MTR2_CH_BASE_WORD    = MREC_PAYLOAD_WORD;
 static const int MTR2_CH_STRIDE_WORDS = 2;
@@ -137,10 +137,10 @@ static const int MTR2_CH_STRIDE_WORDS = 2;
 static const int MTR2_FREQUENCY_WORD = 32;
 
 // Both channel blocks span exactly the eight record lanes.
-static_assert(MTR1_CH_BASE_WORD + MTR_CHANNEL_LANES * MTR1_CH_STRIDE_WORDS ==
+static_assert(MTR1_CH_BASE_WORD + MET_CHANNEL_LANES * MTR1_CH_STRIDE_WORDS ==
                   MTR1_FREQUENCY_VALUE_WORD,
               "MTR1 channel block must abut the frequency block");
-static_assert(MTR2_CH_BASE_WORD + MTR_CHANNEL_LANES * MTR2_CH_STRIDE_WORDS ==
+static_assert(MTR2_CH_BASE_WORD + MET_CHANNEL_LANES * MTR2_CH_STRIDE_WORDS ==
                   MTR2_FREQUENCY_WORD,
               "MTR2 channel block must abut the frequency word");
 
@@ -178,6 +178,30 @@ typedef hls::stream<record_axis_t> record_axis_stream_t;
 
 // Zero every word. Call before filling so reserved words are zero by
 // construction rather than by author discipline.
+// Fill the format-independent envelope words (3..10) every producer
+// writes identically: sequence, generation, sample rate, sample count,
+// valid mask, status, and the 64-bit first-sample timestamp. Words 0..2
+// (magic/format/size) are stamped by serialize_record; words 11/12
+// (emit/result drops) stay with the producer -- their semantics are
+// per-engine even when the value is constant zero.
+inline void fill_envelope(record_image_t &image, const ap_uint<32> sequence,
+                          const ap_uint<32> generation,
+                          const ap_uint<32> sample_rate_hz,
+                          const ap_uint<32> sample_count,
+                          const ap_uint<8> valid_mask,
+                          const ap_uint<32> status,
+                          const ap_uint<64> first_sample) {
+#pragma HLS INLINE
+  image.word[MREC_SEQUENCE_WORD] = sequence;
+  image.word[MREC_GENERATION_WORD] = generation;
+  image.word[MREC_SAMPLE_RATE_WORD] = sample_rate_hz;
+  image.word[MREC_SAMPLE_COUNT_WORD] = sample_count;
+  image.word[MREC_VALID_MASK_WORD] = ap_uint<32>(valid_mask);
+  image.word[MREC_STATUS_WORD] = status;
+  image.word[MREC_FIRST_SAMPLE_LOW_WORD] = first_sample.range(31, 0);
+  image.word[MREC_FIRST_SAMPLE_HIGH_WORD] = first_sample.range(63, 32);
+}
+
 inline void clear_record(record_image_t &image) {
 #pragma HLS INLINE
 mrec_clear:
