@@ -6,8 +6,7 @@
       "name": "TopDesign",
       "rev_ctrl_bd_flag": "RevCtrlBdOff",
       "synth_flow_mode": "Hierarchical",
-      "tool_version": "2025.2",
-      "validated": "true"
+      "tool_version": "2025.2"
     },
     "design_tree": {
       "System_Native_Peripherals": {
@@ -135,13 +134,7 @@
       "KR260_Fan_PWM": {
         "direction": "O",
         "left": "0",
-        "right": "0",
-        "parameters": {
-          "PortWidth": {
-            "value": "1",
-            "value_src": "user_prop"
-          }
-        }
+        "right": "0"
       },
       "UF1_LED": {
         "direction": "O"
@@ -150,24 +143,8 @@
         "type": "clk",
         "direction": "I",
         "parameters": {
-          "CLK_DOMAIN": {
-            "value": "TopDesign_ADC_DCLK",
-            "value_src": "default"
-          },
           "FREQ_HZ": {
             "value": "8192000"
-          },
-          "FREQ_TOLERANCE_HZ": {
-            "value": "0",
-            "value_src": "default"
-          },
-          "INSERT_VIP": {
-            "value": "0",
-            "value_src": "default"
-          },
-          "PHASE": {
-            "value": "0.0",
-            "value_src": "default"
           }
         }
       },
@@ -362,10 +339,6 @@
                       "FREQ_HZ": {
                         "value": "99999001",
                         "value_src": "constant"
-                      },
-                      "CLK_DOMAIN": {
-                        "value": "TopDesign_zynq_ultra_ps_e_0_0_pl_clk0",
-                        "value_src": "default_prop"
                       }
                     }
                   },
@@ -1684,10 +1657,6 @@
                     "value": "READ_WRITE",
                     "value_src": "constant"
                   },
-                  "FREQ_HZ": {
-                    "value": "99999001",
-                    "value_src": "constant"
-                  },
                   "AWUSER_WIDTH": {
                     "value": "0",
                     "value_src": "constant"
@@ -1759,26 +1728,6 @@
                   "MAX_BURST_LENGTH": {
                     "value": "1",
                     "value_src": "auto"
-                  },
-                  "CLK_DOMAIN": {
-                    "value": "TopDesign_zynq_ultra_ps_e_0_0_pl_clk0",
-                    "value_src": "default_prop"
-                  },
-                  "NUM_READ_THREADS": {
-                    "value": "1",
-                    "value_src": "user_prop"
-                  },
-                  "NUM_WRITE_THREADS": {
-                    "value": "1",
-                    "value_src": "user_prop"
-                  },
-                  "RUSER_BITS_PER_BYTE": {
-                    "value": "0",
-                    "value_src": "user_prop"
-                  },
-                  "WUSER_BITS_PER_BYTE": {
-                    "value": "0",
-                    "value_src": "user_prop"
                   }
                 },
                 "memory_map_ref": "S_AXI_CAPTURE",
@@ -1892,10 +1841,6 @@
                     "value": "READ_WRITE",
                     "value_src": "constant"
                   },
-                  "FREQ_HZ": {
-                    "value": "99999001",
-                    "value_src": "constant"
-                  },
                   "AWUSER_WIDTH": {
                     "value": "0",
                     "value_src": "constant"
@@ -1967,26 +1912,6 @@
                   "MAX_BURST_LENGTH": {
                     "value": "1",
                     "value_src": "auto"
-                  },
-                  "CLK_DOMAIN": {
-                    "value": "TopDesign_zynq_ultra_ps_e_0_0_pl_clk0",
-                    "value_src": "default_prop"
-                  },
-                  "NUM_READ_THREADS": {
-                    "value": "1",
-                    "value_src": "user_prop"
-                  },
-                  "NUM_WRITE_THREADS": {
-                    "value": "1",
-                    "value_src": "user_prop"
-                  },
-                  "RUSER_BITS_PER_BYTE": {
-                    "value": "0",
-                    "value_src": "user_prop"
-                  },
-                  "WUSER_BITS_PER_BYTE": {
-                    "value": "0",
-                    "value_src": "user_prop"
                   }
                 },
                 "memory_map_ref": "S_AXI_CONVERSION",
@@ -2100,10 +2025,6 @@
                     "value": "READ_WRITE",
                     "value_src": "constant"
                   },
-                  "FREQ_HZ": {
-                    "value": "99999001",
-                    "value_src": "constant"
-                  },
                   "AWUSER_WIDTH": {
                     "value": "0",
                     "value_src": "constant"
@@ -2175,26 +2096,6 @@
                   "MAX_BURST_LENGTH": {
                     "value": "1",
                     "value_src": "auto"
-                  },
-                  "CLK_DOMAIN": {
-                    "value": "TopDesign_zynq_ultra_ps_e_0_0_pl_clk0",
-                    "value_src": "default_prop"
-                  },
-                  "NUM_READ_THREADS": {
-                    "value": "1",
-                    "value_src": "user_prop"
-                  },
-                  "NUM_WRITE_THREADS": {
-                    "value": "1",
-                    "value_src": "user_prop"
-                  },
-                  "RUSER_BITS_PER_BYTE": {
-                    "value": "0",
-                    "value_src": "user_prop"
-                  },
-                  "WUSER_BITS_PER_BYTE": {
-                    "value": "0",
-                    "value_src": "user_prop"
                   }
                 },
                 "memory_map_ref": "S_AXI_PROCESSING",
@@ -2308,10 +2209,6 @@
                     "value": "READ_WRITE",
                     "value_src": "constant"
                   },
-                  "FREQ_HZ": {
-                    "value": "99999001",
-                    "value_src": "constant"
-                  },
                   "AWUSER_WIDTH": {
                     "value": "0",
                     "value_src": "constant"
@@ -2383,26 +2280,6 @@
                   "MAX_BURST_LENGTH": {
                     "value": "1",
                     "value_src": "auto"
-                  },
-                  "CLK_DOMAIN": {
-                    "value": "TopDesign_zynq_ultra_ps_e_0_0_pl_clk0",
-                    "value_src": "default_prop"
-                  },
-                  "NUM_READ_THREADS": {
-                    "value": "1",
-                    "value_src": "user_prop"
-                  },
-                  "NUM_WRITE_THREADS": {
-                    "value": "1",
-                    "value_src": "user_prop"
-                  },
-                  "RUSER_BITS_PER_BYTE": {
-                    "value": "0",
-                    "value_src": "user_prop"
-                  },
-                  "WUSER_BITS_PER_BYTE": {
-                    "value": "0",
-                    "value_src": "user_prop"
                   }
                 },
                 "memory_map_ref": "S_AXI_WAVEFORM",
@@ -2505,7 +2382,7 @@
                     "value_src": "constant"
                   },
                   "ADDR_WIDTH": {
-                    "value": "8",
+                    "value": "12",
                     "value_src": "constant"
                   },
                   "ID_WIDTH": {
@@ -2514,10 +2391,6 @@
                   },
                   "READ_WRITE_MODE": {
                     "value": "READ_WRITE",
-                    "value_src": "constant"
-                  },
-                  "FREQ_HZ": {
-                    "value": "99999001",
                     "value_src": "constant"
                   },
                   "AWUSER_WIDTH": {
@@ -2591,26 +2464,6 @@
                   "MAX_BURST_LENGTH": {
                     "value": "1",
                     "value_src": "auto"
-                  },
-                  "CLK_DOMAIN": {
-                    "value": "TopDesign_zynq_ultra_ps_e_0_0_pl_clk0",
-                    "value_src": "default_prop"
-                  },
-                  "NUM_READ_THREADS": {
-                    "value": "1",
-                    "value_src": "user_prop"
-                  },
-                  "NUM_WRITE_THREADS": {
-                    "value": "1",
-                    "value_src": "user_prop"
-                  },
-                  "RUSER_BITS_PER_BYTE": {
-                    "value": "0",
-                    "value_src": "user_prop"
-                  },
-                  "WUSER_BITS_PER_BYTE": {
-                    "value": "0",
-                    "value_src": "user_prop"
                   }
                 },
                 "memory_map_ref": "S_AXI_SIMULATOR",
@@ -2618,7 +2471,7 @@
                   "AWADDR": {
                     "physical_name": "s_axi_simulator_awaddr",
                     "direction": "I",
-                    "left": "7",
+                    "left": "11",
                     "right": "0"
                   },
                   "AWVALID": {
@@ -2666,7 +2519,7 @@
                   "ARADDR": {
                     "physical_name": "s_axi_simulator_araddr",
                     "direction": "I",
-                    "left": "7",
+                    "left": "11",
                     "right": "0"
                   },
                   "ARVALID": {
@@ -2735,14 +2588,6 @@
                   "HAS_TSTRB": {
                     "value": "0",
                     "value_src": "constant"
-                  },
-                  "FREQ_HZ": {
-                    "value": "99999001",
-                    "value_src": "constant"
-                  },
-                  "CLK_DOMAIN": {
-                    "value": "TopDesign_zynq_ultra_ps_e_0_0_pl_clk0",
-                    "value_src": "default_prop"
                   }
                 },
                 "port_maps": {
@@ -2808,14 +2653,6 @@
                   "HAS_TSTRB": {
                     "value": "0",
                     "value_src": "constant"
-                  },
-                  "FREQ_HZ": {
-                    "value": "99999001",
-                    "value_src": "constant"
-                  },
-                  "CLK_DOMAIN": {
-                    "value": "TopDesign_zynq_ultra_ps_e_0_0_pl_clk0",
-                    "value_src": "default_prop"
                   }
                 },
                 "port_maps": {
@@ -2881,14 +2718,6 @@
                   "HAS_TSTRB": {
                     "value": "0",
                     "value_src": "constant"
-                  },
-                  "FREQ_HZ": {
-                    "value": "99999001",
-                    "value_src": "constant"
-                  },
-                  "CLK_DOMAIN": {
-                    "value": "TopDesign_zynq_ultra_ps_e_0_0_pl_clk0",
-                    "value_src": "default_prop"
                   }
                 },
                 "port_maps": {
@@ -2935,10 +2764,6 @@
                   "ASSOCIATED_RESET": {
                     "value": "aresetn",
                     "value_src": "constant"
-                  },
-                  "CLK_DOMAIN": {
-                    "value": "TopDesign_zynq_ultra_ps_e_0_0_pl_clk0",
-                    "value_src": "default_prop"
                   }
                 }
               },
@@ -2959,10 +2784,6 @@
                   "FREQ_HZ": {
                     "value": "8192000",
                     "value_src": "constant"
-                  },
-                  "CLK_DOMAIN": {
-                    "value": "TopDesign_ADC_DCLK",
-                    "value_src": "default_prop"
                   }
                 }
               },

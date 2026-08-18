@@ -62,10 +62,20 @@ if {!$bd_was_open} {
 # checkpoint and ships yesterday's logic (2026-08-18: a MeterCore interface
 # change left the built bitstream on the prior ADC-simulator core). The
 # refresh is idempotent and costs seconds when nothing changed.
-set module_cells [get_bd_cells -quiet -filter {VLNV =~ "*:module_ref:*"}]
-if {[llength $module_cells] > 0} {
-    puts "PL_BUILD_MODULE_REFS=$module_cells"
-    update_module_reference $module_cells
+# update_module_reference takes get_ips-style module names (e.g.
+# TopDesign_MeterCore_Wrapper_0), NOT bd_cell paths -- a bd_cell object makes
+# it fail with an empty error. Module references are the get_ips entries
+# whose IPDEF carries the module_ref library.
+set module_refs [list]
+foreach candidate_ip [get_ips -quiet] {
+    if {[string match "*:module_ref:*" \
+             [get_property -quiet IPDEF $candidate_ip]]} {
+        lappend module_refs $candidate_ip
+    }
+}
+if {[llength $module_refs] > 0} {
+    puts "PL_BUILD_MODULE_REFS=$module_refs"
+    update_module_reference $module_refs
     save_bd_design
 }
 
