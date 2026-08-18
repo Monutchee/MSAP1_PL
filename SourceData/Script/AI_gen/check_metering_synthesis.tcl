@@ -27,6 +27,16 @@ set hls_mtr1_hdl [file join $project_root SourceData HLS_DesignFile \
 if {![file isdirectory $hls_mtr1_hdl]} {
   error "missing $hls_mtr1_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
 }
+set hls_scyc_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo SingleCycleEngine hdl verilog]
+if {![file isdirectory $hls_scyc_hdl]} {
+  error "missing $hls_scyc_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+}
+set hls_sim_wave_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo SimWaveEngine hdl verilog]
+if {![file isdirectory $hls_sim_wave_hdl]} {
+  error "missing $hls_sim_wave_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+}
 
 # Keep focused checks predictable on developer workstations where the GUI or
 # other Vivado jobs may already be consuming memory.
@@ -51,12 +61,17 @@ read_vhdl -vhdl2008 [file join $design_root MeterProcessing grid_cycle_timing.vh
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing record_word_tap.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_mtr1_hls_shim.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_mtr2_hls_shim.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd]
 read_verilog [lsort [glob -directory $hls_mtr2_hdl *.v]]
 read_verilog [lsort [glob -directory $hls_mtr1_hdl *.v]]
+read_verilog [lsort [glob -directory $hls_scyc_hdl *.v]]
+read_verilog [lsort [glob -directory $hls_sim_wave_hdl *.v]]
 # Bind the IP-customization module names over the packaged RTL for this
 # non-project flow (the project gets the same modules from the XCIs).
 read_verilog [file join $design_root MeterProcessing tb hls_mtr2_engine_ip.v]
 read_verilog [file join $design_root MeterProcessing tb hls_mtr1_engine_ip.v]
+read_verilog [file join $design_root MeterProcessing tb hls_single_cycle_engine_ip.v]
+read_verilog [file join $design_root MeterCore tb hls_sim_wave_engine_ip.v]
 read_vhdl -vhdl2008 [file join $design_root MeterCore adc_simulator_pkg.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore adc_simulator.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore adc_source_mux.vhd]

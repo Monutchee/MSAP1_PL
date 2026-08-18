@@ -1,10 +1,14 @@
 #include "single_cycle_engine.hpp"
 
+#include "metrology_stats.hpp"
+#include "statistics_core.hpp"
+
 // Free-running single-shot process (the CycleAggregator pattern shared by
 // every packaged engine): one invocation consumes at most one sample
 // beat; the invocation carrying a cycle close runs the finalize and both
-// emissions inline. Finalization is a provenance copy in M2 — the
-// statistics merge arrives with M3 and reuses metrology_stats.hpp.
+// emissions inline. StatisticsCore (statistics_core.hpp) accumulates on
+// every accepted frame; the finalize computes the diagnostic RMS words
+// with the shared met_rms_from_accumulators recurrence.
 void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
                              hls::stream<record_axis_t> &m_axis,
                              hls::stream<single_cycle_beat_t> &m_result) {
@@ -20,9 +24,14 @@ void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
   static ap_uint<32> active_sample_rate = 32000;
   static ap_uint<8> active_valid_mask = 0;
   static ap_uint<1> active_enable = 0;
+  static ap_uint<1> active_dc_remove = 1;
   static ap_uint<32> sample_count = 0;
   static ap_uint<64> window_first_sample = 0;
   static ap_uint<32> sequence = 0;  // first emitted result carries 1
+  // Per-cycle arithmetic flag: seeded clear with each window's first
+  // frame (the seed-in-place idiom), so every clear point resets it.
+  static ap_uint<1> window_overflow = 0;
+  static cycle_statistics_t stats;
 
   if (s_sample.empty()) {
     return;
@@ -42,6 +51,7 @@ void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
     active_valid_mask =
         beat.range(SCYC_IN_CFG_MASK_LSB + 7, SCYC_IN_CFG_MASK_LSB);
     active_enable = beat.bit(SCYC_IN_ENABLE_BIT);
+    active_dc_remove = beat.bit(SCYC_IN_DC_REMOVE_BIT);
     sample_count = 0;
   }
 
@@ -67,10 +77,29 @@ void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
 
   const ap_uint<64> sample_index =
       beat.range(SCYC_IN_SAMPLE_IDX_LSB + 63, SCYC_IN_SAMPLE_IDX_LSB);
-  if (sample_count == 0) {
+  const bool first_frame = (sample_count == 0);
+  if (first_frame) {
     window_first_sample = sample_index;
+    window_overflow = 0;
   }
   const ap_uint<32> count_now = sample_count + 1;
+
+  // StatisticsCore accumulation on every accepted frame, closer included.
+  ap_int<64> q16[MET_ACTIVE_CHANNELS];
+#pragma HLS ARRAY_PARTITION variable=q16 complete
+  ap_int<32> raw[MET_ACTIVE_CHANNELS];
+#pragma HLS ARRAY_PARTITION variable=raw complete
+extract_lanes:
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+#pragma HLS UNROLL
+    q16[lane] = ap_int<64>(ap_uint<64>(
+        beat.range(SCYC_IN_SAMPLES_LSB + lane * 64 + 63,
+                   SCYC_IN_SAMPLES_LSB + lane * 64)));
+    raw[lane] = ap_int<32>(ap_uint<32>(
+        beat.range(SCYC_IN_RAW_LSB + lane * 32 + 31,
+                   SCYC_IN_RAW_LSB + lane * 32)));
+  }
+  accumulate_statistics(stats, q16, raw, first_frame, window_overflow);
 
   if (beat.bit(SCYC_IN_CLOSES_BIT) == 0) {
     sample_count = count_now;
@@ -83,8 +112,31 @@ void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
       (active_valid_mask &
        beat.range(SCYC_IN_FRAME_MASK_LSB + 7, SCYC_IN_FRAME_MASK_LSB)) &
       ap_uint<8>(0x7F);
-  const ap_uint<32> status = 0;  // arithmetic arrives with M3
   sequence += 1;
+
+  // Diagnostic one-cycle RMS (record words): the shared mean-corrected
+  // recurrence per lane under the committed dc_remove, and the plain
+  // difference RMS per line-line pair (its own DC belongs to the
+  // difference; sum = 0 disables the correction term).
+  ap_uint<64> lane_rms[MET_ACTIVE_CHANNELS];
+#pragma HLS ARRAY_PARTITION variable=lane_rms complete
+  ap_uint<64> vll_rms[MET_VLL_PAIRS];
+#pragma HLS ARRAY_PARTITION variable=vll_rms complete
+finalize_lanes:
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+#pragma HLS PIPELINE off
+    lane_rms[lane] = met_rms_from_accumulators<128, 128>(
+        stats.square[lane], stats.sum[lane], count_now, active_dc_remove,
+        window_overflow);
+  }
+finalize_pairs:
+  for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
+#pragma HLS PIPELINE off
+    vll_rms[pair] = met_rms_from_accumulators<128, 128>(
+        stats.vll_square[pair], ap_int<128>(0), count_now, ap_uint<1>(0),
+        window_overflow);
+  }
+  const ap_uint<32> status = ap_uint<32>(window_overflow);
 
   single_cycle_result_t result;
   result.sequence = sequence;
@@ -107,6 +159,7 @@ void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
   result.apply_toggle = apply_seen;
   result.processing_tick =
       beat.range(SCYC_IN_PL_TICK_LSB + 63, SCYC_IN_PL_TICK_LSB);
+  export_statistics(stats, result);
   m_result.write(pack_single_cycle_result(result));
 
   // SCYC-v1 diagnostic record.
@@ -125,6 +178,22 @@ void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
   image.word[SCYC_FREQ_VALUE_WORD] = result.frequency_millihz;
   image.word[SCYC_FREQ_STATUS_WORD] =
       beat.range(SCYC_IN_FREQ_STATUS_LSB + 31, SCYC_IN_FREQ_STATUS_LSB);
+record_lanes:
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+#pragma HLS PIPELINE off
+    const ap_uint<64> rms_units = lane_rms[lane] >> 16;  // micro-units
+    const int base = SCYC_CH_BASE_WORD + lane * SCYC_CH_STRIDE_WORDS;
+    image.word[base] = rms_units.range(31, 0);
+    image.word[base + 1] = rms_units.range(63, 32);
+  }
+record_pairs:
+  for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
+#pragma HLS PIPELINE off
+    const ap_uint<64> rms_units = vll_rms[pair] >> 16;
+    const int base = SCYC_VLL_BASE_WORD + pair * SCYC_CH_STRIDE_WORDS;
+    image.word[base] = rms_units.range(31, 0);
+    image.word[base + 1] = rms_units.range(63, 32);
+  }
 
-  serialize_record<MREC_FORMAT_SCYC_V1>(image, m_axis);
+  serialize_record<MREC_FORMAT_SCYC_V2>(image, m_axis);
 }

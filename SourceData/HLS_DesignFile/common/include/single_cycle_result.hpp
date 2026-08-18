@@ -6,18 +6,36 @@
 
 #include <ap_int.h>
 
+#if AP_INT_MAX_W < 8192
+#error "single_cycle_result.hpp needs AP_INT_MAX_W >= 8192 (4896-bit beat)"
+#endif
+
 // The single-cycle measurement result — one beat per complete,
 // non-overlapping grid cycle, produced by the single-cycle engine and
 // consumed by the 10/12-cycle tier (Agg10_12MeasurementEngine, roadmap
 // M7). This is the reusable-primitive contract of the metrology
 // redesign: higher tiers merge these, they never re-derive from samples.
 //
-// M2 defines the timing/provenance section only. The statistics (M3),
-// power (M4), and phasor (M5) sufficient-statistic sections APPEND after
-// SCYC_BEAT_BITS with their own normative constants once their
-// accumulator widths are derived (never guessed) — the beat has exactly
-// one producer and one consumer inside this repository, so growing it is
-// a lock-step header+shim change, not a wire-compatibility event.
+// M2 defined the timing/provenance section (bits 0..511); M3 appends the
+// statistics sections below. Power (M4) and phasor (M5) sections APPEND
+// after SCYC_BEAT_BITS in the same way — the beat has exactly one
+// producer and one consumer inside this repository, so growing it is a
+// lock-step header change, not a wire-compatibility event.
+//
+// STATISTICS WIDTH ANALYSIS (normative — the M3 "do not guess" rule).
+// The per-lane accumulators use the LEGACY BLOCK widths on purpose:
+// sum ap_int<128>, square ap_uint<128> (saturating, sticky flag),
+// raw_sum ap_int<64>, raw_square ap_uint<96>. The 10/12-cycle tier (M7)
+// merges cycles by plain addition, and integer addition of per-cycle
+// accumulators reconstructs the legacy mtr1 BLOCK accumulators exactly:
+// that bit-identity is the acceptance proof for retiring Mtr1Engine.
+// A per-cycle square CAN saturate only in configurations where the block
+// accumulator would saturate too; both paths raise the sticky arithmetic
+// flag, so any divergence is confined to already-flagged results.
+// Line-line differences: Va-Vb of two 64-bit Q16 samples needs 65 bits;
+// the difference is defensively clamped to the 64-bit rails (flagging),
+// unreachable with real 24-bit-derived samples, keeping the square in
+// the same 128-bit saturating domain as the phase lanes.
 //
 // Timestamps (handover §3): first/last_sample anchor the measurement to
 // the conversion-domain sample index (the measurement timebase — never
@@ -44,7 +62,18 @@ static const int SCYC_FREQ_VALID_BIT   = 352;  // frequency_valid
 static const int SCYC_APPLY_TOGGLE_BIT = 353;  // config APPLY toggle level
 static const int SCYC_PROC_TICK_LSB    = 384;  // [447:384] PL tick at emission
                                                // [511:448] reserved zero
-static const int SCYC_BEAT_BITS        = 512;  // 64 bytes on AXIS (M2 extent)
+
+// --- M3 statistics sections (per-lane arrays over MET_ACTIVE_CHANNELS,
+// --- stride = the field width; VLL arrays over MET_VLL_PAIRS) ----------
+static const int SCYC_STAT_SUM_LSB        = 512;   // 7 x s128 Q16 sum
+static const int SCYC_STAT_SQUARE_LSB     = 1408;  // 7 x u128 Q32 square sum
+static const int SCYC_STAT_RAW_SUM_LSB    = 2304;  // 7 x s64 raw sum
+static const int SCYC_STAT_RAW_SQUARE_LSB = 2752;  // 7 x u96 raw square sum
+static const int SCYC_STAT_MIN_LSB        = 3424;  // 7 x s64 Q16 minimum
+static const int SCYC_STAT_MAX_LSB        = 3872;  // 7 x s64 Q16 maximum
+static const int SCYC_STAT_VLL_SQUARE_LSB = 4320;  // 3 x u128 diff square sum
+static const int SCYC_STAT_VLL_PEAK_LSB   = 4704;  // 3 x u64 peak |diff|
+static const int SCYC_BEAT_BITS           = 4896;  // 612 bytes on AXIS
 
 typedef ap_uint<SCYC_BEAT_BITS> single_cycle_beat_t;
 
@@ -65,6 +94,14 @@ struct single_cycle_result_t {
   ap_uint<1>         frequency_valid;
   ap_uint<1>         apply_toggle;
   ap_uint<64>        processing_tick;
+  ap_int<128>        sum[MET_ACTIVE_CHANNELS];
+  ap_uint<128>       square[MET_ACTIVE_CHANNELS];
+  ap_int<64>         raw_sum[MET_ACTIVE_CHANNELS];
+  ap_uint<96>        raw_square[MET_ACTIVE_CHANNELS];
+  ap_int<64>         minimum[MET_ACTIVE_CHANNELS];
+  ap_int<64>         maximum[MET_ACTIVE_CHANNELS];
+  ap_uint<128>       vll_square[MET_VLL_PAIRS];
+  ap_uint<64>        vll_peak[MET_VLL_PAIRS];
 };
 
 inline single_cycle_beat_t pack_single_cycle_result(const single_cycle_result_t &r) {
@@ -84,6 +121,28 @@ inline single_cycle_beat_t pack_single_cycle_result(const single_cycle_result_t 
   beat[SCYC_FREQ_VALID_BIT]                                     = r.frequency_valid;
   beat[SCYC_APPLY_TOGGLE_BIT]                                   = r.apply_toggle;
   beat.range(SCYC_PROC_TICK_LSB + 63, SCYC_PROC_TICK_LSB)       = r.processing_tick;
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+#pragma HLS UNROLL
+    beat.range(SCYC_STAT_SUM_LSB + lane * 128 + 127,
+               SCYC_STAT_SUM_LSB + lane * 128) = r.sum[lane];
+    beat.range(SCYC_STAT_SQUARE_LSB + lane * 128 + 127,
+               SCYC_STAT_SQUARE_LSB + lane * 128) = r.square[lane];
+    beat.range(SCYC_STAT_RAW_SUM_LSB + lane * 64 + 63,
+               SCYC_STAT_RAW_SUM_LSB + lane * 64) = r.raw_sum[lane];
+    beat.range(SCYC_STAT_RAW_SQUARE_LSB + lane * 96 + 95,
+               SCYC_STAT_RAW_SQUARE_LSB + lane * 96) = r.raw_square[lane];
+    beat.range(SCYC_STAT_MIN_LSB + lane * 64 + 63,
+               SCYC_STAT_MIN_LSB + lane * 64) = r.minimum[lane];
+    beat.range(SCYC_STAT_MAX_LSB + lane * 64 + 63,
+               SCYC_STAT_MAX_LSB + lane * 64) = r.maximum[lane];
+  }
+  for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
+#pragma HLS UNROLL
+    beat.range(SCYC_STAT_VLL_SQUARE_LSB + pair * 128 + 127,
+               SCYC_STAT_VLL_SQUARE_LSB + pair * 128) = r.vll_square[pair];
+    beat.range(SCYC_STAT_VLL_PEAK_LSB + pair * 64 + 63,
+               SCYC_STAT_VLL_PEAK_LSB + pair * 64) = r.vll_peak[pair];
+  }
   return beat;
 }
 
@@ -104,6 +163,29 @@ inline single_cycle_result_t unpack_single_cycle_result(const single_cycle_beat_
   r.frequency_valid   = beat[SCYC_FREQ_VALID_BIT];
   r.apply_toggle      = beat[SCYC_APPLY_TOGGLE_BIT];
   r.processing_tick   = beat.range(SCYC_PROC_TICK_LSB + 63, SCYC_PROC_TICK_LSB);
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+#pragma HLS UNROLL
+    r.sum[lane] = beat.range(SCYC_STAT_SUM_LSB + lane * 128 + 127,
+                             SCYC_STAT_SUM_LSB + lane * 128);
+    r.square[lane] = beat.range(SCYC_STAT_SQUARE_LSB + lane * 128 + 127,
+                                SCYC_STAT_SQUARE_LSB + lane * 128);
+    r.raw_sum[lane] = beat.range(SCYC_STAT_RAW_SUM_LSB + lane * 64 + 63,
+                                 SCYC_STAT_RAW_SUM_LSB + lane * 64);
+    r.raw_square[lane] = beat.range(SCYC_STAT_RAW_SQUARE_LSB + lane * 96 + 95,
+                                    SCYC_STAT_RAW_SQUARE_LSB + lane * 96);
+    r.minimum[lane] = beat.range(SCYC_STAT_MIN_LSB + lane * 64 + 63,
+                                 SCYC_STAT_MIN_LSB + lane * 64);
+    r.maximum[lane] = beat.range(SCYC_STAT_MAX_LSB + lane * 64 + 63,
+                                 SCYC_STAT_MAX_LSB + lane * 64);
+  }
+  for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
+#pragma HLS UNROLL
+    r.vll_square[pair] =
+        beat.range(SCYC_STAT_VLL_SQUARE_LSB + pair * 128 + 127,
+                   SCYC_STAT_VLL_SQUARE_LSB + pair * 128);
+    r.vll_peak[pair] = beat.range(SCYC_STAT_VLL_PEAK_LSB + pair * 64 + 63,
+                                  SCYC_STAT_VLL_PEAK_LSB + pair * 64);
+  }
   return r;
 }
 

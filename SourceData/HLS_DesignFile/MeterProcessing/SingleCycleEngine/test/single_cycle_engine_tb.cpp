@@ -6,6 +6,7 @@
 // window-clearing rules (APPLY, stale generation, malformed frames,
 // unlocked cycle timing). The same source runs as csim and cosim.
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 
@@ -23,6 +24,9 @@ static int failures = 0;
   } while (0)
 
 struct FrameSpec {
+  long long q16[MET_ACTIVE_CHANNELS] = {0, 0, 0, 0, 0, 0, 0};
+  int raw[MET_ACTIVE_CHANNELS] = {0, 0, 0, 0, 0, 0, 0};
+  bool dc_remove = true;
   unsigned long long sample_index = 0;
   unsigned long long pl_tick = 0;
   unsigned generation = 1;
@@ -51,6 +55,14 @@ static single_cycle_sample_beat_t pack_frame(const FrameSpec &f) {
   beat[SCYC_IN_CYCLE_MODE_BIT] = f.cycle_mode ? 1 : 0;
   beat[SCYC_IN_APPLY_BIT] = f.apply ? 1 : 0;
   beat[SCYC_IN_ENABLE_BIT] = f.enable ? 1 : 0;
+  beat[SCYC_IN_DC_REMOVE_BIT] = f.dc_remove ? 1 : 0;
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+    beat.range(SCYC_IN_SAMPLES_LSB + lane * 64 + 63,
+               SCYC_IN_SAMPLES_LSB + lane * 64) =
+        ap_uint<64>(ap_int<64>(f.q16[lane]));
+    beat.range(SCYC_IN_RAW_LSB + lane * 32 + 31, SCYC_IN_RAW_LSB + lane * 32) =
+        ap_uint<32>(ap_int<32>(f.raw[lane]));
+  }
   beat.range(SCYC_IN_CFG_GEN_LSB + 31, SCYC_IN_CFG_GEN_LSB) = f.cfg_generation;
   beat.range(SCYC_IN_CFG_RATE_LSB + 31, SCYC_IN_CFG_RATE_LSB) = f.cfg_rate;
   beat.range(SCYC_IN_CFG_MASK_LSB + 7, SCYC_IN_CFG_MASK_LSB) = f.cfg_mask;
@@ -105,7 +117,7 @@ static void take_record(Bench &b, ap_uint<32> (&words)[MREC_WORDS]) {
 
 int main() {
   static_assert(SCYC_IN_BITS == 1152, "input beat width is normative");
-  static_assert(SCYC_BEAT_BITS == 512, "result beat width is normative");
+  static_assert(SCYC_BEAT_BITS == 4896, "result beat width is normative");
 
   Bench b;
 
@@ -145,7 +157,7 @@ int main() {
   ap_uint<32> words[MREC_WORDS];
   take_record(b, words);
   CHECK(words[MREC_MAGIC_WORD] == MREC_MAGIC, "record magic");
-  CHECK(words[MREC_FORMAT_WORD] == MREC_FORMAT_SCYC_V1, "record format");
+  CHECK(words[MREC_FORMAT_WORD] == MREC_FORMAT_SCYC_V2, "record format");
   CHECK(words[MREC_SEQUENCE_WORD] == 1 && words[MREC_SAMPLE_COUNT_WORD] == 5,
         "record envelope sequence/count");
   CHECK(words[MREC_FIRST_SAMPLE_LOW_WORD] == 1000 &&
@@ -175,6 +187,162 @@ int main() {
   CHECK(r2.sequence == 2 && r2.first_sample == 1005 && r2.last_sample == 1007,
         "cycles must chain gaplessly");
   take_record(b, words);
+
+  // --- StatisticsCore: exact integer golden model over one cycle. -------
+  {
+    // Distinct deterministic samples: lane value = (i+1)*(lane+1) with
+    // alternating sign; raw = lane value / 3. Small enough for exact
+    // __int128 reference arithmetic.
+    const int frames = 6;
+    __int128 g_sum[MET_ACTIVE_CHANNELS] = {};
+    unsigned __int128 g_square[MET_ACTIVE_CHANNELS] = {};
+    long long g_raw_sum[MET_ACTIVE_CHANNELS] = {};
+    unsigned __int128 g_raw_square[MET_ACTIVE_CHANNELS] = {};
+    long long g_min[MET_ACTIVE_CHANNELS], g_max[MET_ACTIVE_CHANNELS];
+    unsigned __int128 g_vll_square[MET_VLL_PAIRS] = {};
+    unsigned long long g_vll_peak[MET_VLL_PAIRS] = {};
+    const int minuend[MET_VLL_PAIRS] = {MET_LANE_VA, MET_LANE_VB, MET_LANE_VC};
+    const int subtrahend[MET_VLL_PAIRS] = {MET_LANE_VB, MET_LANE_VC,
+                                           MET_LANE_VA};
+    for (int i = 0; i < frames; ++i) {
+      FrameSpec g = b.leveled(f);
+      g.sample_index = 6000 + i;
+      g.closes = (i == frames - 1);
+      for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+        const long long value =
+            ((i % 2 == 0) ? 1 : -1) * (long long)((i + 1) * (lane + 1) * 1000);
+        g.q16[lane] = value;
+        g.raw[lane] = (int)(value / 3);
+        g_sum[lane] += value;
+        g_square[lane] += (unsigned __int128)((__int128)value * value);
+        g_raw_sum[lane] += value / 3;
+        g_raw_square[lane] +=
+            (unsigned __int128)((__int128)(value / 3) * (value / 3));
+        if (i == 0 || value < g_min[lane]) g_min[lane] = value;
+        if (i == 0 || value > g_max[lane]) g_max[lane] = value;
+      }
+      for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
+        const long long diff = g.q16[minuend[pair]] - g.q16[subtrahend[pair]];
+        g_vll_square[pair] += (unsigned __int128)((__int128)diff * diff);
+        const unsigned long long mag =
+            (unsigned long long)(diff < 0 ? -diff : diff);
+        if (i == 0 || mag > g_vll_peak[pair]) g_vll_peak[pair] = mag;
+      }
+      b.send(g);
+    }
+    const single_cycle_result_t rs =
+        unpack_single_cycle_result(b.m_result.read());
+    CHECK(rs.sample_count == (unsigned)frames && rs.status == 0,
+          "statistics cycle count/status");
+    for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+      CHECK((rs.sum[lane] == ap_int<128>((long long)g_sum[lane])),
+            "lane %d sum mismatch", lane);
+      CHECK((rs.square[lane] ==
+             (ap_uint<128>(ap_uint<64>(
+                  (unsigned long long)(g_square[lane] >> 64)))
+                  << 64) +
+                 ap_uint<64>((unsigned long long)g_square[lane])),
+            "lane %d square mismatch", lane);
+      CHECK((rs.raw_sum[lane] == ap_int<64>(g_raw_sum[lane])),
+            "lane %d raw sum mismatch", lane);
+      CHECK((rs.raw_square[lane] ==
+             ap_uint<96>(ap_uint<64>((unsigned long long)g_raw_square[lane]))),
+            "lane %d raw square mismatch", lane);
+      CHECK((rs.minimum[lane] == ap_int<64>(g_min[lane]) &&
+             rs.maximum[lane] == ap_int<64>(g_max[lane])),
+            "lane %d min/max mismatch", lane);
+    }
+    for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
+      CHECK((rs.vll_square[pair] ==
+             ap_uint<128>(ap_uint<64>((unsigned long long)g_vll_square[pair]))),
+            "pair %d vll square mismatch", pair);
+      CHECK((rs.vll_peak[pair] == ap_uint<64>(g_vll_peak[pair])),
+            "pair %d vll peak mismatch", pair);
+    }
+
+    // Record diagnostic RMS vs a double reference (dc_remove active).
+    take_record(b, words);
+    for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+      const double mean = (double)(long long)g_sum[lane] / frames;
+      const double mean_square = (double)g_square[lane] / frames;
+      const double rms_q16 = std::sqrt(mean_square - mean * mean);
+      const int base = SCYC_CH_BASE_WORD + lane * SCYC_CH_STRIDE_WORDS;
+      const unsigned long long got =
+          (unsigned long long)words[base] |
+          ((unsigned long long)words[base + 1] << 32);
+      const double expected_units = rms_q16 / 65536.0;
+      CHECK((std::fabs((double)got - expected_units) <= 2.0),
+            "lane %d record RMS: got %llu expected %.2f", lane, got,
+            expected_units);
+    }
+    for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
+      const double mean_square = (double)g_vll_square[pair] / frames;
+      const double rms_units = std::sqrt(mean_square) / 65536.0;
+      const int base = SCYC_VLL_BASE_WORD + pair * SCYC_CH_STRIDE_WORDS;
+      const unsigned long long got =
+          (unsigned long long)words[base] |
+          ((unsigned long long)words[base + 1] << 32);
+      CHECK((std::fabs((double)got - rms_units) <= 2.0),
+            "pair %d record VLL RMS: got %llu expected %.2f", pair, got,
+            rms_units);
+    }
+  }
+
+  // --- dc_remove semantics on a constant-DC lane. ------------------------
+  {
+    for (int pass = 0; pass < 2; ++pass) {
+      const bool remove_dc = (pass == 0);
+      FrameSpec g = f;
+      g.dc_remove = remove_dc;
+      g.sample_index = 7000 + pass * 10;
+      b.send(b.applied(g));  // commit dc_remove; carrier rejected (stale? no:
+                             // generation unchanged, so it accumulates)
+      for (int i = 1; i < 4; ++i) {
+        FrameSpec h = b.leveled(g);
+        h.sample_index = 7000 + pass * 10 + i;
+        for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane)
+          h.q16[lane] = 65536 * 5;  // constant 5.0 in Q16
+        h.closes = (i == 3);
+        b.send(h);
+      }
+      (void)b.m_result.read();
+      take_record(b, words);
+      const unsigned long long got =
+          (unsigned long long)words[SCYC_CH_BASE_WORD] |
+          ((unsigned long long)words[SCYC_CH_BASE_WORD + 1] << 32);
+      // First frame carries zeros, three frames carry 5.0: with dc_remove
+      // the AC RMS is nonzero (a step is AC); without it total RMS is
+      // sqrt(3/4)*5 ~ 4.33 units. Pin both against the double model.
+      const double mean = (3.0 * 5.0) / 4.0;
+      const double mean_square = (3.0 * 25.0) / 4.0;
+      const double expected =
+          remove_dc ? std::sqrt(mean_square - mean * mean) : std::sqrt(mean_square);
+      CHECK((std::fabs((double)got - expected) <= 1.0),
+            "dc_remove=%d RMS: got %llu expected %.3f", remove_dc ? 1 : 0, got,
+            expected);
+    }
+  }
+
+  // --- Square saturation sets the per-cycle flag and clamps. -------------
+  {
+    FrameSpec g = b.leveled(f);
+    g.sample_index = 8000;
+    for (int i = 0; i < 5; ++i) {
+      FrameSpec h = b.leveled(g);
+      h.sample_index = 8000 + i;
+      h.q16[0] = 0x7FFFFFFFFFFFFFFFll;  // ~2^63: square ~2^126, x5 > 2^128
+      h.closes = (i == 4);
+      b.send(h);
+    }
+    const single_cycle_result_t rs =
+        unpack_single_cycle_result(b.m_result.read());
+    take_record(b, words);
+    CHECK((rs.status & 1) == 1, "saturation must set the per-cycle flag");
+    CHECK((rs.square[0] == ~ap_uint<128>(0)),
+          "saturated square must clamp to all-ones");
+    CHECK((rs.sum[0] == ap_int<128>(ap_int<64>(0x7FFFFFFFFFFFFFFFll)) * 5),
+          "sum stays exact under square saturation");
+  }
 
   // --- A malformed frame clears the running window. ---------------------
   {

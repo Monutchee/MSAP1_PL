@@ -1,12 +1,14 @@
 #ifndef MSAP1_METERING_TYPES_HPP
 #define MSAP1_METERING_TYPES_HPP
 
-// The MTR1 sample-event beat is 1264 bits, past ap_int's 1024-bit default
-// ceiling. This must precede the first ap_int.h inclusion in every
-// translation unit; the component cflags also pass -DAP_INT_MAX_W=2048 so
-// an unlucky include order cannot regress it.
+// The widest shared beat is the 4896-bit SingleCycleResult (provenance +
+// the M3 statistics sections), past ap_int's 1024-bit default ceiling.
+// This must precede the first ap_int.h inclusion in every translation
+// unit; each component's cflags also pass -DAP_INT_MAX_W sized for the
+// beats it actually touches, so an unlucky include order cannot regress
+// it (single_cycle_result.hpp additionally #errors below 8192).
 #ifndef AP_INT_MAX_W
-#define AP_INT_MAX_W 2048
+#define AP_INT_MAX_W 8192
 #endif
 
 #include <ap_int.h>
@@ -36,6 +38,21 @@
 // ---------------------------------------------------------------------------
 static const int MET_CHANNEL_LANES   = 8;
 static const int MET_ACTIVE_CHANNELS = 7;   // CH0..CH6
+
+// Semantic lane roles (the sensor-board channel order; note the REVERSED
+// voltage order — Va is lane 6). Arithmetic must reference these, never
+// bare indices, so the mapping stays centralized (handover §6).
+static const int MET_LANE_IA = 0;
+static const int MET_LANE_IB = 1;
+static const int MET_LANE_IC = 2;
+static const int MET_LANE_IN = 3;
+static const int MET_LANE_VC = 4;
+static const int MET_LANE_VB = 5;
+static const int MET_LANE_VA = 6;
+
+// Line-line voltage pair order used by every VLL statistic and record
+// lane: 0 = Vab, 1 = Vbc, 2 = Vca.
+static const int MET_VLL_PAIRS = 3;
 
 // ---------------------------------------------------------------------------
 // IEC 61000-4-30 block geometry.

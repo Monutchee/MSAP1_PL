@@ -9,17 +9,24 @@
 
 // The single-cycle measurement engine (normative source): the foundation
 // tier of the metrology redesign. It reduces the accepted converted-frame
-// stream to one result per complete, non-overlapping grid cycle —
-// timing/provenance in this milestone (M2), mergeable sufficient
-// statistics from M3 on. grid_cycle_timing remains the one timing
+// stream to one result per complete, non-overlapping grid cycle:
+// timing/provenance (M2) plus the StatisticsCore sufficient statistics
+// (M3, statistics_core.hpp — sums, saturating square sums, raw-count
+// accumulators, min/max, and instantaneous line-line difference
+// statistics). Status word bit 0 is the PER-CYCLE arithmetic flag
+// (square saturation, defensive clamps, finalize overflow); unlike the
+// legacy block engine's sticky-until-APPLY flag it clears with each
+// window, and the 10/12-cycle tier reconstructs stickiness by ORing. grid_cycle_timing remains the one timing
 // authority: the engine never re-derives cycle boundaries, it registers
 // the per-cycle close marker travelling with each frame.
 //
 //   s_sample : one beat per accepted converted frame (layout below),
 //              assembled by meter_single_cycle_hls_shim.vhd in lock step.
-//   m_axis   : SCYC-v1 diagnostic records (measurement_record.hpp), one
+//   m_axis   : SCYC-v2 diagnostic records (measurement_record.hpp), one
 //              per completed cycle — the observability path until the
-//              10/12-cycle tier consumes the result stream (M7).
+//              10/12-cycle tier consumes the result stream (M7). The
+//              per-lane and line-line RMS words are diagnostics; the
+//              mergeable statistics on m_result stay authoritative.
 //   m_result : one single_cycle_beat_t per completed cycle — the input
 //              contract of Agg10_12MeasurementEngine.
 //
@@ -53,6 +60,7 @@ static const int SCYC_IN_CLOSES_BIT       = 809;   // frame completes a cycle
 static const int SCYC_IN_CYCLE_MODE_BIT   = 810;   // cycle timing locked (level)
 static const int SCYC_IN_APPLY_BIT        = 811;   // config APPLY toggle (level)
 static const int SCYC_IN_ENABLE_BIT       = 812;   // shadow enable
+static const int SCYC_IN_DC_REMOVE_BIT    = 813;   // shadow dc_remove (M3)
 static const int SCYC_IN_CFG_GEN_LSB      = 816;   // [847:816]  shadow generation
 static const int SCYC_IN_CFG_RATE_LSB     = 848;   // [879:848]  shadow sample rate
 static const int SCYC_IN_CFG_MASK_LSB     = 880;   // [887:880]  shadow valid mask

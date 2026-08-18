@@ -228,7 +228,7 @@ architecture structural of meter_core is
   signal grid_cycle_sequence  : std_logic_vector(31 downto 0);
   -- Single-cycle result beats: consumed by the 10/12-cycle tier from M7;
   -- drained unconditionally until then so the engine can never stall.
-  signal scyc_result_tdata  : std_logic_vector(511 downto 0);
+  signal scyc_result_tdata  : std_logic_vector(4895 downto 0);
   signal scyc_result_tvalid : std_logic;
   signal mtr1_result_tdata    : std_logic_vector(807 downto 0);
   signal mtr1_result_tvalid   : std_logic;
@@ -789,6 +789,7 @@ begin
       shadow_sample_rate_i => shadow_sample_rate,
       shadow_valid_mask_i => shadow_valid_mask,
       shadow_enable_i => shadow_enable,
+      shadow_dc_remove_i => shadow_dc_remove,
       config_apply_toggle_i => apply_toggle,
       pl_tick_i => waveform_tick,
       frequency_millihz_i => frequency_millihz,

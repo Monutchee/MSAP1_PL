@@ -40,6 +40,7 @@ entity meter_single_cycle_hls_shim is
     shadow_sample_rate_i  : in std_logic_vector(31 downto 0);
     shadow_valid_mask_i   : in std_logic_vector(7 downto 0);
     shadow_enable_i       : in std_logic;
+    shadow_dc_remove_i    : in std_logic;
     config_apply_toggle_i : in std_logic;
 
     -- Free-running PL tick (waveform correlation counter) for the
@@ -48,7 +49,7 @@ entity meter_single_cycle_hls_shim is
     frequency_millihz_i  : in std_logic_vector(31 downto 0);
     frequency_status_i   : in std_logic_vector(31 downto 0);
 
-    -- SCYC-v1 diagnostic record stream (to the exported M_AXIS_SCYC).
+    -- SCYC-v2 diagnostic record stream (to the exported M_AXIS_SCYC).
     m_axis_scyc_tdata  : out std_logic_vector(31 downto 0);
     m_axis_scyc_tkeep  : out std_logic_vector(3 downto 0);
     m_axis_scyc_tvalid : out std_logic;
@@ -56,7 +57,7 @@ entity meter_single_cycle_hls_shim is
     m_axis_scyc_tlast  : out std_logic;
 
     -- Single-cycle result beats (the 10/12-cycle tier's input, M7).
-    m_result_tdata  : out std_logic_vector(511 downto 0);
+    m_result_tdata  : out std_logic_vector(4895 downto 0);
     m_result_tvalid : out std_logic;
     m_result_tready : in  std_logic;
 
@@ -77,6 +78,7 @@ architecture rtl of meter_single_cycle_hls_shim is
   constant IN_CYCLE_MODE_BIT  : natural := 810;
   constant IN_APPLY_BIT       : natural := 811;
   constant IN_ENABLE_BIT      : natural := 812;
+  constant IN_DC_REMOVE_BIT   : natural := 813;
   constant IN_CFG_GEN_LSB     : natural := 816;
   constant IN_CFG_RATE_LSB    : natural := 848;
   constant IN_CFG_MASK_LSB    : natural := 880;
@@ -101,7 +103,7 @@ architecture rtl of meter_single_cycle_hls_shim is
       m_axis_TKEEP    : out std_logic_vector(3 downto 0);
       m_axis_TSTRB    : out std_logic_vector(3 downto 0);
       m_axis_TLAST    : out std_logic_vector(0 downto 0);
-      m_result_TDATA  : out std_logic_vector(511 downto 0);
+      m_result_TDATA  : out std_logic_vector(4895 downto 0);
       m_result_TVALID : out std_logic;
       m_result_TREADY : in  std_logic
     );
@@ -192,6 +194,7 @@ begin
             beat(IN_CYCLE_MODE_BIT) := cycle_mode_i;
             beat(IN_APPLY_BIT) := config_apply_toggle_i;
             beat(IN_ENABLE_BIT) := shadow_enable_i;
+            beat(IN_DC_REMOVE_BIT) := shadow_dc_remove_i;
             beat(IN_CFG_GEN_LSB + 31 downto IN_CFG_GEN_LSB) :=
               shadow_generation_i;
             beat(IN_CFG_RATE_LSB + 31 downto IN_CFG_RATE_LSB) :=
