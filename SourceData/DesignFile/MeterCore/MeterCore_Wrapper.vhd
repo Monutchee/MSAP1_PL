@@ -110,6 +110,12 @@ entity MeterCore_Wrapper is
     m_axis_mtr2_tready : in  std_logic;
     m_axis_mtr2_tlast  : out std_logic;
 
+    m_axis_scyc_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_scyc_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_scyc_tvalid : out std_logic;
+    m_axis_scyc_tready : in  std_logic;
+    m_axis_scyc_tlast  : out std_logic;
+
     m_axis_waveform_tdata  : out std_logic_vector(31 downto 0);
     m_axis_waveform_tkeep  : out std_logic_vector(3 downto 0);
     m_axis_waveform_tvalid : out std_logic;
@@ -132,7 +138,7 @@ architecture structural of MeterCore_Wrapper is
   attribute X_INTERFACE_INFO of aclk : signal is
     "xilinx.com:signal:clock:1.0 aclk CLK";
   attribute X_INTERFACE_PARAMETER of aclk : signal is
-    "XIL_INTERFACENAME aclk, FREQ_HZ 99999001, ASSOCIATED_RESET aresetn, ASSOCIATED_BUSIF S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:S_AXI_WAVEFORM:S_AXI_SIMULATOR:M_AXIS_MTR1:M_AXIS_MTR2:M_AXIS_WAVEFORM";
+    "XIL_INTERFACENAME aclk, FREQ_HZ 99999001, ASSOCIATED_RESET aresetn, ASSOCIATED_BUSIF S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:S_AXI_WAVEFORM:S_AXI_SIMULATOR:M_AXIS_MTR1:M_AXIS_MTR2:M_AXIS_SCYC:M_AXIS_WAVEFORM";
   attribute X_INTERFACE_INFO of aresetn : signal is
     "xilinx.com:signal:reset:1.0 aresetn RST";
   attribute X_INTERFACE_PARAMETER of aresetn : signal is
@@ -258,6 +264,11 @@ architecture structural of MeterCore_Wrapper is
   attribute X_INTERFACE_INFO of m_axis_mtr2_tvalid : signal is "xilinx.com:interface:axis:1.0 M_AXIS_MTR2 TVALID";
   attribute X_INTERFACE_INFO of m_axis_mtr2_tready : signal is "xilinx.com:interface:axis:1.0 M_AXIS_MTR2 TREADY";
   attribute X_INTERFACE_INFO of m_axis_mtr2_tlast : signal is "xilinx.com:interface:axis:1.0 M_AXIS_MTR2 TLAST";
+  attribute X_INTERFACE_INFO of m_axis_scyc_tdata : signal is "xilinx.com:interface:axis:1.0 M_AXIS_SCYC TDATA";
+  attribute X_INTERFACE_INFO of m_axis_scyc_tkeep : signal is "xilinx.com:interface:axis:1.0 M_AXIS_SCYC TKEEP";
+  attribute X_INTERFACE_INFO of m_axis_scyc_tvalid : signal is "xilinx.com:interface:axis:1.0 M_AXIS_SCYC TVALID";
+  attribute X_INTERFACE_INFO of m_axis_scyc_tready : signal is "xilinx.com:interface:axis:1.0 M_AXIS_SCYC TREADY";
+  attribute X_INTERFACE_INFO of m_axis_scyc_tlast : signal is "xilinx.com:interface:axis:1.0 M_AXIS_SCYC TLAST";
 
   attribute X_INTERFACE_INFO of m_axis_waveform_tdata : signal is "xilinx.com:interface:axis:1.0 M_AXIS_WAVEFORM TDATA";
   attribute X_INTERFACE_PARAMETER of m_axis_waveform_tdata : signal is
@@ -366,6 +377,11 @@ begin
       m_axis_mtr2_tvalid => m_axis_mtr2_tvalid,
       m_axis_mtr2_tready => m_axis_mtr2_tready,
       m_axis_mtr2_tlast => m_axis_mtr2_tlast,
+      m_axis_scyc_tdata => m_axis_scyc_tdata,
+      m_axis_scyc_tkeep => m_axis_scyc_tkeep,
+      m_axis_scyc_tvalid => m_axis_scyc_tvalid,
+      m_axis_scyc_tready => m_axis_scyc_tready,
+      m_axis_scyc_tlast => m_axis_scyc_tlast,
       m_axis_waveform_tdata => m_axis_waveform_tdata,
       m_axis_waveform_tkeep => m_axis_waveform_tkeep,
       m_axis_waveform_tvalid => m_axis_waveform_tvalid,

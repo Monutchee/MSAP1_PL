@@ -108,6 +108,16 @@ module meter_core_tb;
   logic mtr2_tready = 1'b0;
   wire mtr2_tlast;
 
+  // Single-cycle diagnostic stream: drained continuously; a passive
+  // monitor checks framing and format, and the final block requires at
+  // least one complete SCYC record (the MTR2 scenario spans 180 cycles).
+  wire [31:0] scyc_tdata;
+  wire [3:0] scyc_tkeep;
+  wire scyc_tvalid;
+  wire scyc_tlast;
+  int scyc_beats = 0;
+  int scyc_records = 0;
+
   wire [31:0] waveform_tdata;
   wire [3:0] waveform_tkeep;
   wire waveform_tvalid;
@@ -230,6 +240,11 @@ module meter_core_tb;
     .m_axis_mtr2_tvalid(mtr2_tvalid),
     .m_axis_mtr2_tready(mtr2_tready),
     .m_axis_mtr2_tlast(mtr2_tlast),
+    .m_axis_scyc_tdata(scyc_tdata),
+    .m_axis_scyc_tkeep(scyc_tkeep),
+    .m_axis_scyc_tvalid(scyc_tvalid),
+    .m_axis_scyc_tready(1'b1),
+    .m_axis_scyc_tlast(scyc_tlast),
     .m_axis_waveform_tdata(waveform_tdata),
     .m_axis_waveform_tkeep(waveform_tkeep),
     .m_axis_waveform_tvalid(waveform_tvalid),
@@ -949,4 +964,31 @@ module meter_core_tb;
     $display("PASS: meter_core_tb");
     $finish;
   end
+
+  // Passive SCYC monitor: 64-beat framing, magic and format on word 0/1.
+  always @(posedge clock) begin
+    if (scyc_tvalid) begin
+      assert (scyc_tkeep == 4'hf) else $fatal(1, "SCYC TKEEP");
+      if (scyc_beats == 0)
+        assert (scyc_tdata == 32'h3152544d)
+          else $fatal(1, "SCYC record magic mismatch: %08x", scyc_tdata);
+      if (scyc_beats == 1)
+        assert (scyc_tdata == 32'h000A0001)
+          else $fatal(1, "SCYC record format mismatch: %08x", scyc_tdata);
+      assert (scyc_tlast == (scyc_beats == 63))
+        else $fatal(1, "SCYC TLAST misplaced at beat %0d", scyc_beats);
+      if (scyc_beats == 63) begin
+        scyc_beats <= 0;
+        scyc_records <= scyc_records + 1;
+      end else begin
+        scyc_beats <= scyc_beats + 1;
+      end
+    end
+  end
+
+  final begin
+    assert (scyc_records > 0)
+      else $fatal(1, "no single-cycle diagnostic record was produced");
+  end
+
 endmodule

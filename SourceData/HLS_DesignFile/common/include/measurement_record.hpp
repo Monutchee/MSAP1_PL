@@ -43,12 +43,16 @@ static const int MREC_BYTES = 256;
 //   0x0001 basic (MTR1)      0x0004 demand
 //   0x0002 aggregate (MTR2)  0x0005 harmonics
 //   0x0003 energy            0x0006 PQ event
+//   0x0007 power             0x000A single-cycle diagnostic
+//   0x0008 phasor            0x000B sliding RMS / PQ trigger
+//   0x0009 unbalance         0x000C..0x000F 10-min/2-h/flicker/mains
 // ---------------------------------------------------------------------------
 // Plain integer constants so they can parameterize serialize_record<>.
 static const uint32_t MREC_MAGIC = 0x3152544Du;  // ASCII "MTR1", little-endian
 
 static const uint32_t MREC_FORMAT_MTR1_V3 = 0x00010003u;  // proposed (deployed: v2 0x00010002)
 static const uint32_t MREC_FORMAT_MTR2_V2 = 0x00020002u;  // proposed (deployed: v1 0x00020001)
+static const uint32_t MREC_FORMAT_SCYC_V1 = 0x000A0001u;  // single-cycle diagnostic
 
 // ---------------------------------------------------------------------------
 // Common envelope — words 0..12 mean the same thing in EVERY format, so
@@ -148,7 +152,24 @@ static_assert(MTR2_CH_BASE_WORD + MET_CHANNEL_LANES * MTR2_CH_STRIDE_WORDS ==
 // also back the AGG_* AXI-Lite registers).
 static const int MTR2_RESET_COUNT_WORD      = 33;  // partial aggregates discarded
 static const int MTR2_INELIGIBLE_COUNT_WORD = 34;  // basic inputs rejected
-static const int MTR2_CONTINUITY_COUNT_WORD = 35;  // sequence/sample-range breaks
+static const int MTR2_CONTINUITY_COUNT_WORD = 35;
+
+// ---------------------------------------------------------------------------
+// SCYC-v1 interior: the single-cycle diagnostic record (metrology roadmap
+// M2). One record per complete grid cycle while cycle timing is locked;
+// observability for the single-cycle foundation before the 10/12-cycle
+// tier consumes its result beats. Envelope words 0..12 as always
+// (first-sample timestamp in 9/10); the interior carries the rest of the
+// cycle's provenance. Statistics/power/phasor lanes join in M3..M5.
+// ---------------------------------------------------------------------------
+static const int SCYC_TIMING_WORD = 13;  // nominal[7:0] | cycles[15:8]=1 | flags[18:16]
+static const int SCYC_CYCLE_SEQ_WORD = 14;       // grid cycle sequence
+static const int SCYC_LAST_SAMPLE_LOW_WORD = 16;  // cycle's last conversion index
+static const int SCYC_LAST_SAMPLE_HIGH_WORD = 17;
+static const int SCYC_PROC_TICK_LOW_WORD = 18;   // PL tick at record emission
+static const int SCYC_PROC_TICK_HIGH_WORD = 19;
+static const int SCYC_FREQ_VALUE_WORD = 20;      // frequency, millihertz
+static const int SCYC_FREQ_STATUS_WORD = 21;     // frequency engine status  // sequence/sample-range breaks
 
 // MTR2 status bits (word 8), beyond the common arithmetic bit.
 static const int MTR2_STATUS_COMPLETE_BIT  = 1;  // always set — only complete aggregates emit

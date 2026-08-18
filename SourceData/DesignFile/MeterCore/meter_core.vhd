@@ -118,6 +118,14 @@ entity meter_core is
     m_axis_mtr2_tready : in  std_logic;
     m_axis_mtr2_tlast  : out std_logic;
 
+    -- Single-cycle diagnostic record stream (SCYC-v1, one per grid cycle
+    -- while cycle timing is locked; metrology roadmap M2).
+    m_axis_scyc_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_scyc_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_scyc_tvalid : out std_logic;
+    m_axis_scyc_tready : in  std_logic;
+    m_axis_scyc_tlast  : out std_logic;
+
     m_axis_waveform_tdata  : out std_logic_vector(31 downto 0);
     m_axis_waveform_tkeep  : out std_logic_vector(3 downto 0);
     m_axis_waveform_tvalid : out std_logic;
@@ -215,6 +223,13 @@ architecture structural of meter_core is
   -- records; record_word_tap republishes them to the register file, "as
   -- of the last emitted record".
   signal mtr1_shim_drop_count : std_logic_vector(31 downto 0);
+  signal scyc_shim_drop_count : std_logic_vector(31 downto 0);
+  signal grid_cycle_boundary  : std_logic;
+  signal grid_cycle_sequence  : std_logic_vector(31 downto 0);
+  -- Single-cycle result beats: consumed by the 10/12-cycle tier from M7;
+  -- drained unconditionally until then so the engine can never stall.
+  signal scyc_result_tdata  : std_logic_vector(511 downto 0);
+  signal scyc_result_tvalid : std_logic;
   signal mtr1_result_tdata    : std_logic_vector(807 downto 0);
   signal mtr1_result_tvalid   : std_logic;
   signal mtr1_result_tready   : std_logic;
@@ -663,9 +678,9 @@ begin
       status_o => grid_status,
       frame_closes_block_o => grid_frame_closes_block,
       cycle_mode_o => grid_cycle_mode,
-      cycle_boundary_o => open,
+      cycle_boundary_o => grid_cycle_boundary,
       half_cycle_boundary_o => open,
-      cycle_sequence_o => open,
+      cycle_sequence_o => grid_cycle_sequence,
       block_first_sample_o => block_first_sample,
       block_cycle_count_o => block_cycle_count,
       block_nominal_hz_o => block_nominal_hz,
@@ -753,6 +768,42 @@ begin
 
   -- Register-file taps on both record streams ("as of the last emitted
   -- record"); strictly observational.
+  -- Single-cycle producer: sample-beat shim + HLS engine (per-cycle
+  -- provenance in M2; statistics/power/phasor accumulate here from M3).
+  -- Its result stream feeds the 10/12-cycle tier from M7 and is drained
+  -- until then.
+  scyc_producer : entity work.meter_single_cycle_hls_shim
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      frame_accept_i => engine_valid,
+      frame_data_i => converted_fifo.data,
+      frame_keep_i => converted_fifo.keep,
+      frame_user_i => converted_fifo.user,
+      cycle_boundary_i => grid_cycle_boundary,
+      cycle_sequence_i => grid_cycle_sequence,
+      cycle_mode_i => grid_cycle_mode,
+      block_nominal_hz_i => block_nominal_hz,
+      block_flags_i => block_flags,
+      shadow_generation_i => shadow_generation,
+      shadow_sample_rate_i => shadow_sample_rate,
+      shadow_valid_mask_i => shadow_valid_mask,
+      shadow_enable_i => shadow_enable,
+      config_apply_toggle_i => apply_toggle,
+      pl_tick_i => waveform_tick,
+      frequency_millihz_i => frequency_millihz,
+      frequency_status_i => frequency_status,
+      m_axis_scyc_tdata => m_axis_scyc_tdata,
+      m_axis_scyc_tkeep => m_axis_scyc_tkeep,
+      m_axis_scyc_tvalid => m_axis_scyc_tvalid,
+      m_axis_scyc_tready => m_axis_scyc_tready,
+      m_axis_scyc_tlast => m_axis_scyc_tlast,
+      m_result_tdata => scyc_result_tdata,
+      m_result_tvalid => scyc_result_tvalid,
+      m_result_tready => '1',
+      drop_count_o => scyc_shim_drop_count
+    );
+
   mtr1_tap : entity work.record_word_tap
     port map (
       aclk => aclk,

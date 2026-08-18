@@ -35,7 +35,8 @@
         "MTR_Buffer": {
           "MTR1_FIFO": "",
           "MTR2_FIFO": "",
-          "MTR_AXI_Switch": ""
+          "MTR_AXI_Switch": "",
+          "SCYC_record_fifo": ""
         },
         "MeterCore_Wrapper": ""
       },
@@ -1420,6 +1421,17 @@
                     "value_src": "default"
                   }
                 }
+              },
+              "S_AXIS_SCYC": {
+                "mode": "Slave",
+                "vlnv_bus_definition": "xilinx.com:interface:axis:1.0",
+                "vlnv": "xilinx.com:interface:axis_rtl:1.0",
+                "hdl_attributes": {
+                  "LOCKED": {
+                    "value": "FALSE",
+                    "value_src": "default"
+                  }
+                }
               }
             },
             "ports": {
@@ -1547,6 +1559,9 @@
                   },
                   "HAS_ACLKEN": {
                     "value": "0"
+                  },
+                  "NUM_SI": {
+                    "value": "3"
                   }
                 },
                 "interface_ports": {
@@ -1591,6 +1606,105 @@
                     "bridges": [
                       "M00_AXIS"
                     ]
+                  },
+                  "S02_AXIS": {
+                    "bd_attributes": {
+                      "BRIDGES": {
+                        "value": "M00_AXIS",
+                        "value_src": "auto"
+                      },
+                      "TYPE": {
+                        "value": "interior",
+                        "value_src": "default"
+                      }
+                    },
+                    "vlnv": "xilinx.com:interface:axis_rtl:1.0",
+                    "mode": "Slave",
+                    "bridges": [
+                      "M00_AXIS"
+                    ]
+                  }
+                }
+              },
+              "SCYC_record_fifo": {
+                "vlnv": "xilinx.com:ip:axis_data_fifo:2.0",
+                "ip_revision": "17",
+                "xci_name": "TopDesign_SCYC_record_fifo_0",
+                "xci_path": "ip/TopDesign_SCYC_record_fifo_0/TopDesign_SCYC_record_fifo_0.xci",
+                "inst_hier_path": "MeterLogic/MTR_Buffer/SCYC_record_fifo",
+                "has_run_ip_tcl": "true",
+                "parameters": {
+                  "ACLKEN_CONV_MODE": {
+                    "value": "0"
+                  },
+                  "FIFO_DEPTH": {
+                    "value": "256"
+                  },
+                  "FIFO_MEMORY_TYPE": {
+                    "value": "auto"
+                  },
+                  "FIFO_MODE": {
+                    "value": "2"
+                  },
+                  "HAS_PROG_EMPTY": {
+                    "value": "0"
+                  },
+                  "HAS_PROG_FULL": {
+                    "value": "0"
+                  },
+                  "HAS_RD_DATA_COUNT": {
+                    "value": "0"
+                  },
+                  "HAS_TKEEP": {
+                    "value": "1"
+                  },
+                  "HAS_TSTRB": {
+                    "value": "0"
+                  },
+                  "HAS_WR_DATA_COUNT": {
+                    "value": "0"
+                  },
+                  "IS_ACLK_ASYNC": {
+                    "value": "0"
+                  },
+                  "TDATA_NUM_BYTES": {
+                    "value": "4"
+                  },
+                  "TDEST_WIDTH": {
+                    "value": "0"
+                  },
+                  "TID_WIDTH": {
+                    "value": "0"
+                  },
+                  "TUSER_WIDTH": {
+                    "value": "0"
+                  }
+                },
+                "interface_ports": {
+                  "S_AXIS": {
+                    "bd_attributes": {
+                      "BRIDGES": {
+                        "value": "M_AXIS",
+                        "value_src": "auto"
+                      },
+                      "TYPE": {
+                        "value": "INTERIOR",
+                        "value_src": "auto"
+                      }
+                    },
+                    "vlnv": "xilinx.com:interface:axis_rtl:1.0",
+                    "mode": "Slave",
+                    "bridges": [
+                      "M_AXIS"
+                    ]
+                  },
+                  "M_AXIS": {
+                    "bd_attributes": {
+                      "TYPE": {
+                        "value": "INTERIOR",
+                        "value_src": "auto"
+                      }
+                    }
                   }
                 }
               }
@@ -1606,6 +1720,18 @@
                 "interface_ports": [
                   "S_AXIS1",
                   "MTR2_FIFO/S_AXIS"
+                ]
+              },
+              "SCYC_record_fifo_M_AXIS": {
+                "interface_ports": [
+                  "SCYC_record_fifo/M_AXIS",
+                  "MTR_AXI_Switch/S02_AXIS"
+                ]
+              },
+              "S_AXIS_SCYC_1": {
+                "interface_ports": [
+                  "S_AXIS_SCYC",
+                  "SCYC_record_fifo/S_AXIS"
                 ]
               },
               "axis_data_fifo_0_M_AXIS": {
@@ -1633,7 +1759,8 @@
                   "aresetn",
                   "MTR2_FIFO/s_axis_aresetn",
                   "MTR_AXI_Switch/aresetn",
-                  "MTR1_FIFO/s_axis_aresetn"
+                  "MTR1_FIFO/s_axis_aresetn",
+                  "SCYC_record_fifo/s_axis_aresetn"
                 ]
               },
               "zynq_ultra_ps_e_0_pl_clk0": {
@@ -1641,7 +1768,8 @@
                   "aclk",
                   "MTR2_FIFO/s_axis_aclk",
                   "MTR_AXI_Switch/aclk",
-                  "MTR1_FIFO/s_axis_aclk"
+                  "MTR1_FIFO/s_axis_aclk",
+                  "SCYC_record_fifo/s_axis_aclk"
                 ]
               }
             }
@@ -2845,6 +2973,79 @@
                   }
                 }
               },
+              "M_AXIS_SCYC": {
+                "mode": "Master",
+                "vlnv_bus_definition": "xilinx.com:interface:axis:1.0",
+                "vlnv": "xilinx.com:interface:axis_rtl:1.0",
+                "parameters": {
+                  "TDATA_NUM_BYTES": {
+                    "value": "4",
+                    "value_src": "constant"
+                  },
+                  "TDEST_WIDTH": {
+                    "value": "0",
+                    "value_src": "constant"
+                  },
+                  "TID_WIDTH": {
+                    "value": "0",
+                    "value_src": "constant"
+                  },
+                  "TUSER_WIDTH": {
+                    "value": "0",
+                    "value_src": "constant"
+                  },
+                  "HAS_TREADY": {
+                    "value": "1",
+                    "value_src": "constant"
+                  },
+                  "HAS_TSTRB": {
+                    "value": "0",
+                    "value_src": "constant"
+                  },
+                  "HAS_TKEEP": {
+                    "value": "1",
+                    "value_src": "constant"
+                  },
+                  "HAS_TLAST": {
+                    "value": "1",
+                    "value_src": "constant"
+                  },
+                  "FREQ_HZ": {
+                    "value": "99999001",
+                    "value_src": "constant"
+                  },
+                  "CLK_DOMAIN": {
+                    "value": "TopDesign_zynq_ultra_ps_e_0_0_pl_clk0",
+                    "value_src": "default_prop"
+                  }
+                },
+                "port_maps": {
+                  "TDATA": {
+                    "physical_name": "m_axis_scyc_tdata",
+                    "direction": "O",
+                    "left": "31",
+                    "right": "0"
+                  },
+                  "TKEEP": {
+                    "physical_name": "m_axis_scyc_tkeep",
+                    "direction": "O",
+                    "left": "3",
+                    "right": "0"
+                  },
+                  "TLAST": {
+                    "physical_name": "m_axis_scyc_tlast",
+                    "direction": "O"
+                  },
+                  "TVALID": {
+                    "physical_name": "m_axis_scyc_tvalid",
+                    "direction": "O"
+                  },
+                  "TREADY": {
+                    "physical_name": "m_axis_scyc_tready",
+                    "direction": "I"
+                  }
+                }
+              },
               "M_AXIS_WAVEFORM": {
                 "mode": "Master",
                 "vlnv_bus_definition": "xilinx.com:interface:axis:1.0",
@@ -2925,7 +3126,7 @@
                 "direction": "I",
                 "parameters": {
                   "ASSOCIATED_BUSIF": {
-                    "value": "S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:S_AXI_WAVEFORM:S_AXI_SIMULATOR:M_AXIS_MTR1:M_AXIS_MTR2:M_AXIS_WAVEFORM",
+                    "value": "S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:S_AXI_WAVEFORM:S_AXI_SIMULATOR:M_AXIS_MTR1:M_AXIS_MTR2:M_AXIS_SCYC:M_AXIS_WAVEFORM",
                     "value_src": "constant"
                   },
                   "FREQ_HZ": {
@@ -3015,6 +3216,12 @@
             "interface_ports": [
               "MTR_Buffer/S_AXIS1",
               "MeterCore_Wrapper/M_AXIS_MTR2"
+            ]
+          },
+          "MeterCore_Wrapper_M_AXIS_SCYC": {
+            "interface_ports": [
+              "MeterCore_Wrapper/M_AXIS_SCYC",
+              "MTR_Buffer/S_AXIS_SCYC"
             ]
           },
           "MeterCore_Wrapper_M_AXIS_WAVEFORM": {

@@ -31,6 +31,14 @@ if {![file isdirectory $hls_sim_wave_hdl]} {
 set hls_sim_wave_verilog [concat \
   [lsort [glob -directory $hls_sim_wave_hdl *.v]] \
   [list [file join $design_root MeterCore tb hls_sim_wave_engine_ip.v]]]
+set hls_scyc_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo SingleCycleEngine hdl verilog]
+if {![file isdirectory $hls_scyc_hdl]} {
+  error "missing $hls_scyc_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+}
+set hls_scyc_verilog [concat \
+  [lsort [glob -directory $hls_scyc_hdl *.v]] \
+  [list [file join $design_root MeterProcessing tb hls_single_cycle_engine_ip.v]]]
 
 set xvlog [lindex [auto_execok xvlog] 0]
 set xvhdl [lindex [auto_execok xvhdl] 0]
@@ -64,6 +72,7 @@ set vhdl2008_sources [list \
   [file join $design_root MeterProcessing grid_cycle_timing.vhd] \
   [file join $design_root MeterProcessing record_word_tap.vhd] \
   [file join $design_root MeterProcessing meter_mtr1_hls_shim.vhd] \
+  [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_mtr2_hls_shim.vhd] \
   [file join $design_root MeterCore adc_simulator_pkg.vhd] \
   [file join $design_root MeterCore adc_simulator.vhd] \
@@ -91,6 +100,7 @@ puts [exec $xvhdl --2008 {*}$vhdl2008_sources 2>@1]
 puts [exec $xvlog -i $hls_mtr2_hdl {*}$hls_mtr2_verilog 2>@1]
 puts [exec $xvlog -i $hls_mtr1_hdl {*}$hls_mtr1_verilog 2>@1]
 puts [exec $xvlog -i $hls_sim_wave_hdl {*}$hls_sim_wave_verilog 2>@1]
+puts [exec $xvlog -i $hls_scyc_hdl {*}$hls_scyc_verilog 2>@1]
 puts [exec $xvhdl --2008 {*}$core_vhdl2008_sources 2>@1]
 puts [exec $xvhdl $boundary_wrapper 2>@1]
 puts [exec $xvlog --sv $testbench 2>@1]
