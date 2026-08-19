@@ -220,6 +220,18 @@ proc pl_build_runs {} {
 proc pl_build_block_design {} {
     set designs {}
     foreach design [get_files -quiet *.bd] {
+        # IP containers (SmartConnect and friends) generate CHILD block
+        # designs under <bd>/ip/<instance>/bd_0/. A project regenerating
+        # its output products from a fresh checkout registers those
+        # children as project files, so the top-level design must be
+        # selected, not assumed: children carry PARENT_COMPOSITE_FILE
+        # and/or live under an ip/ container directory.
+        if {[get_property -quiet PARENT_COMPOSITE_FILE $design] ne ""} {
+            continue
+        }
+        if {[string match "*/ip/*/bd_0/*" $design]} {
+            continue
+        }
         lappend designs "$design"
     }
     if {[llength $designs] == 0} {
