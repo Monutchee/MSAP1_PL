@@ -13,10 +13,10 @@
 //
 // Checks, per the verification plan:
 //   INV-1  exactly-once conservation: 160 whole cycles -> 16 BASIC, 16
-//          POWER, and 16 PHASOR records with sequences 1..16 (the block
-//          siblings share the BASIC sequence by design); 15 eligible
-//          blocks -> exactly one MTR2 record with sequence 1; nothing
-//          extra.
+//          POWER, 16 PHASOR, and 16 UNBAL records with sequences 1..16
+//          (the block siblings share the BASIC sequence by design); 15
+//          eligible blocks -> exactly one MTR2 record with sequence 1;
+//          nothing extra.
 //   INV-2  framing: every record is exactly 64 beats, TLAST only on beat
 //          63, TKEEP full — checked beat-by-beat here and independently
 //          by the record_word_tap framing watchdogs.
@@ -223,6 +223,7 @@ module meter_record_stream_tb;
   int basic_records = 0;
   int power_records = 0;
   int phasor_records = 0;
+  int unbal_records = 0;
   int basic_beat = 0;
   logic [31:0] basic_word [0:63];
   // Completed-record snapshot: BASIC and POWER stream back-to-back, so
@@ -390,6 +391,38 @@ module meter_record_stream_tb;
         else $fatal(1, "PHASOR record %0d reserved word %0d nonzero", w, i);
   endtask
 
+  // UNBAL-v1 companion (M10): structural pins like the PHASOR checker —
+  // envelope/anchors exact, value words pinned by the engine's golden
+  // bench (constant-DC fundamentals make the components floor-sensitive
+  // noise). The flags word must show the reference valid; the per-set
+  // validity bits follow the near-zero fundamentals and are not pinned.
+  task automatic check_unbal_record();
+    int w = unbal_records;  // shares the basic sibling's sequence
+    logic [63:0] fs = block_first_sample(w);
+    logic [63:0] ls = block_first_sample(w + 1) - 1;
+    assert (done_word[0] == 32'h3152_544D && done_word[1] == 32'h0009_0001 &&
+            done_word[2] == 32'd256)
+      else $fatal(1, "UNBAL record %0d envelope identity", w);
+    assert (done_word[3] == 32'(w) && done_word[4] == GENERATION &&
+            done_word[5] == SAMPLE_RATE &&
+            done_word[6] == 32'(FRAMES_PER_CYCLE * CYCLES_PER_BLOCK) &&
+            done_word[7] == {24'h0, VALID_MASK})
+      else $fatal(1, "UNBAL record %0d correlation fields", w);
+    assert (done_word[8] == ((w == 1) ? 32'h4 : 32'h0))
+      else $fatal(1, "UNBAL record %0d status: got %08h", w, done_word[8]);
+    assert (done_word[9] == fs[31:0] && done_word[10] == fs[63:32] &&
+            done_word[14] == ls[31:0] && done_word[15] == ls[63:32])
+      else $fatal(1, "UNBAL record %0d sample anchors", w);
+    assert (done_word[13] == ((w == 1) ? (TIMING_WORD_BASE | (32'h1 << 18))
+                                       : TIMING_WORD_BASE))
+      else $fatal(1, "UNBAL record %0d timing word", w);
+    assert (done_word[32][8])
+      else $fatal(1, "UNBAL record %0d: angle reference must be valid", w);
+    for (int i = 33; i < 64; ++i)
+      assert (done_word[i] == 32'h0)
+        else $fatal(1, "UNBAL record %0d reserved word %0d nonzero", w, i);
+  endtask
+
   task automatic check_mtr2_record();
     // One aggregate over eligible blocks 2..16 (block 1 carries the
     // first-block flag and must be rejected as ineligible).
@@ -445,13 +478,15 @@ module meter_record_stream_tb;
           for (int i = 0; i < 63; ++i)
             done_word[i] <= basic_word[i];
           done_word[63] <= basic_tdata;
-          // The stream interleaves BASIC-v4, POWER-v1, and PHASOR-v1:
-          // word 1 (written 62 beats ago) routes the completed record to
-          // its checker.
+          // The stream interleaves BASIC-v4, POWER-v1, PHASOR-v1, and
+          // UNBAL-v1: word 1 (written 62 beats ago) routes the completed
+          // record to its checker.
           if (basic_word[1] == 32'h0007_0001)
             power_records <= power_records + 1;
           else if (basic_word[1] == 32'h0008_0001)
             phasor_records <= phasor_records + 1;
+          else if (basic_word[1] == 32'h0009_0001)
+            unbal_records <= unbal_records + 1;
           else
             basic_records <= basic_records + 1;
         end else begin
@@ -481,6 +516,7 @@ module meter_record_stream_tb;
   int basic_checked = 0;
   int power_checked = 0;
   int phasor_checked = 0;
+  int unbal_checked = 0;
   int mtr2_checked = 0;
   always @(posedge clock) begin
     if (basic_records > basic_checked) begin
@@ -494,6 +530,10 @@ module meter_record_stream_tb;
     if (phasor_records > phasor_checked) begin
       check_phasor_record();
       phasor_checked <= phasor_records;
+    end
+    if (unbal_records > unbal_checked) begin
+      check_unbal_record();
+      unbal_checked <= unbal_records;
     end
     if (mtr2_records > mtr2_checked) begin
       check_mtr2_record();
@@ -572,10 +612,14 @@ module meter_record_stream_tb;
     assert (phasor_records == BLOCKS)
       else $fatal(1, "PHASOR records %0d, expected %0d", phasor_records,
                   BLOCKS);
+    assert (unbal_records == BLOCKS)
+      else $fatal(1, "UNBAL records %0d, expected %0d", unbal_records,
+                  BLOCKS);
     assert (mtr2_records == 1)
       else $fatal(1, "MTR2 records %0d, expected 1", mtr2_records);
     assert (basic_checked == BLOCKS && power_checked == BLOCKS &&
-            phasor_checked == BLOCKS && mtr2_checked == 1)
+            phasor_checked == BLOCKS && unbal_checked == BLOCKS &&
+            mtr2_checked == 1)
       else $fatal(1, "content checks incomplete");
     assert (scyc_drop_count == 0)
       else $fatal(1, "single-cycle shim dropped %0d beats", scyc_drop_count);

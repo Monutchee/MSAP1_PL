@@ -632,4 +632,73 @@ phasor_record_phases:
   phasor_image.word[PHASOR_P1_TOTAL_LOW_WORD] = p1_total_bits.range(31, 0);
   phasor_image.word[PHASOR_P1_TOTAL_HIGH_WORD] = p1_total_bits.range(63, 32);
   serialize_record<MREC_FORMAT_PHASOR_V1>(phasor_image, m_axis);
+
+  // UNBALANCE-v1 record, fourth on the stream (M10): symmetrical
+  // components of the same finalized mean phasors, so it shares the
+  // PHASOR record's status semantics (bit 1 = frequency-reference loss).
+  ap_int<64> set_re[3];
+#pragma HLS ARRAY_PARTITION variable=set_re complete
+  ap_int<64> set_im[3];
+#pragma HLS ARRAY_PARTITION variable=set_im complete
+  ap_int<64> seq_re[3];
+#pragma HLS ARRAY_PARTITION variable=seq_re complete
+  ap_int<64> seq_im[3];
+#pragma HLS ARRAY_PARTITION variable=seq_im complete
+  record_image_t unbal_image;
+  clear_record(unbal_image);
+  fill_envelope(unbal_image, sequence, active_generation, active_sample_rate,
+                count_now, result_mask, phasor_status, block_first_sample);
+  unbal_image.word[MTR1_TIMING_WORD] = image.word[MTR1_TIMING_WORD];
+  unbal_image.word[BASIC_LAST_SAMPLE_LOW_WORD] =
+      image.word[BASIC_LAST_SAMPLE_LOW_WORD];
+  unbal_image.word[BASIC_LAST_SAMPLE_HIGH_WORD] =
+      image.word[BASIC_LAST_SAMPLE_HIGH_WORD];
+  ap_uint<32> unbal_flags =
+      ap_uint<32>(angle_ref_valid) << UNBAL_FLAGS_REF_VALID_BIT;
+finalize_sequence_sets:
+  for (int set = 0; set < 2; ++set) {
+#pragma HLS PIPELINE off
+    // A/B/C order per set: voltages first (the reversed lane order is
+    // centralized in the MET_LANE_* map), then phase currents.
+    const int lane_a = (set == 0) ? MET_LANE_VA : MET_LANE_IA;
+    const int lane_b = (set == 0) ? MET_LANE_VB : MET_LANE_IB;
+    const int lane_c = (set == 0) ? MET_LANE_VC : MET_LANE_IC;
+    set_re[0] = ph_re[lane_a];
+    set_im[0] = ph_im[lane_a];
+    set_re[1] = ph_re[lane_b];
+    set_im[1] = ph_im[lane_b];
+    set_re[2] = ph_re[lane_c];
+    set_im[2] = ph_im[lane_c];
+    met_sequence_components(set_re, set_im, seq_re, seq_im);
+    ap_uint<64> seq_rms_q16[3];
+  sequence_terms:
+    for (int component = 0; component < 3; ++component) {
+#pragma HLS PIPELINE off
+      seq_rms_q16[component] =
+          met_phasor_rms_q16(seq_re[component], seq_im[component]);
+      const ap_int<32> rel_turns =
+          met_atan2_turns(seq_im[component], seq_re[component]) -
+          angle_turns[MET_LANE_VA];
+      const int base = ((set == 0) ? UNBAL_V_BASE_WORD : UNBAL_I_BASE_WORD) +
+                       component * UNBAL_SEQ_STRIDE;
+      unbal_image.word[base + UNBAL_SEQ_RMS] =
+          ap_uint<64>(seq_rms_q16[component] >> 16).range(31, 0);
+      unbal_image.word[base + UNBAL_SEQ_ANGLE] =
+          ap_uint<32>(met_turns_to_millidegrees(rel_turns));
+    }
+    // Ratios gate on the positive-sequence magnitude (undefined at 0).
+    const int zero_word =
+        (set == 0) ? UNBAL_V_ZERO_RATIO_WORD : UNBAL_I_ZERO_RATIO_WORD;
+    const int unbal_word =
+        (set == 0) ? UNBAL_V_UNBALANCE_WORD : UNBAL_I_UNBALANCE_WORD;
+    unbal_image.word[zero_word] = met_ratio_e6(seq_rms_q16[0], seq_rms_q16[1]);
+    unbal_image.word[unbal_word] = met_ratio_e6(seq_rms_q16[2], seq_rms_q16[1]);
+    if (seq_rms_q16[1] != 0) {
+      unbal_flags |= ap_uint<32>(1)
+                     << ((set == 0) ? UNBAL_FLAGS_V_VALID_BIT
+                                    : UNBAL_FLAGS_I_VALID_BIT);
+    }
+  }
+  unbal_image.word[UNBAL_FLAGS_WORD] = unbal_flags;
+  serialize_record<MREC_FORMAT_UNBAL_V1>(unbal_image, m_axis);
 }

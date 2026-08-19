@@ -267,11 +267,71 @@ static void test_cordic_atan2() {
         "phasor magnitude times sqrt(2)");
 }
 
+// Symmetrical-component primitives against libm (independent golden) and
+// the documented gating/clamping rules.
+static void test_sequence_components() {
+  // Rotation accuracy: a and a^2 against long-double rotation at a
+  // realistic magnitude; floor quantization allows +/-1 LSB per output.
+  const long long re = 549755813888LL / 2;  // 2^39 / ... arbitrary large
+  const long long im = -123456789012LL;
+  ap_int<64> ar, ai, a2r, a2i;
+  met_rotate_a(ap_int<64>(re), ap_int<64>(im), ar, ai);
+  met_rotate_a2(ap_int<64>(re), ap_int<64>(im), a2r, a2i);
+  // Tolerance: the Q30 sqrt(3)/2 constant sits ~0.31 LSB above the real
+  // value, which scales to ~0.31*|p|/2^30 output LSBs (plus the floor)
+  // — about 3e-10 relative, invisible at the micro-unit grain. 512
+  // covers every contract-legal magnitude.
+  const long double c = -0.5L, s = 0.86602540378443864676L;
+  CHECK(llabs((long long)ar - llroundl(re * c - im * s)) <= 512 &&
+            llabs((long long)ai - llroundl(re * s + im * c)) <= 512,
+        "a-operator rotates by +120 degrees");
+  CHECK(llabs((long long)a2r - llroundl(re * c + im * s)) <= 512 &&
+            llabs((long long)a2i - llroundl(-re * s + im * c)) <= 512,
+        "a^2 operator rotates by +240 degrees");
+
+  // Balanced ABC triple: everything lands in the positive sequence.
+  // Construct b = a^2 * a_phasor, c = a * a_phasor exactly through the
+  // same fixed-point operators so the residuals stay at the LSB level.
+  ap_int<64> pre[3], pim[3], sre[3], sim[3];
+  pre[0] = 400000000000LL;
+  pim[0] = -250000000000LL;
+  met_rotate_a2(pre[0], pim[0], pre[1], pim[1]);  // B lags A by 120
+  met_rotate_a(pre[0], pim[0], pre[2], pim[2]);   // C leads A by 120
+  met_sequence_components(pre, pim, sre, sim);
+  CHECK(llabs((long long)sre[0]) <= 512 && llabs((long long)sim[0]) <= 512 &&
+            llabs((long long)sre[2]) <= 512 && llabs((long long)sim[2]) <= 512,
+        "balanced ABC: zero and negative sequences vanish");
+  CHECK(llabs((long long)sre[1] - (long long)pre[0]) <= 512 &&
+            llabs((long long)sim[1] - (long long)pim[0]) <= 512,
+        "balanced ABC: positive sequence equals phase A");
+
+  // Reversed rotation (swap B and C): everything moves to the negative
+  // sequence — the M10 acceptance property.
+  ap_int<64> rre[3] = {pre[0], pre[2], pre[1]};
+  ap_int<64> rim[3] = {pim[0], pim[2], pim[1]};
+  met_sequence_components(rre, rim, sre, sim);
+  CHECK(llabs((long long)sre[1]) <= 512 && llabs((long long)sim[1]) <= 512,
+        "ACB: positive sequence vanishes");
+  CHECK(llabs((long long)sre[2] - (long long)pre[0]) <= 512 &&
+            llabs((long long)sim[2] - (long long)pim[0]) <= 512,
+        "ACB: negative sequence equals phase A");
+
+  CHECK((met_ratio_e6(ap_uint<64>(20000), ap_uint<64>(1000000)) ==
+         ap_uint<32>(20000)),
+        "ratio: 2 percent reads 20000 millionths");
+  CHECK((met_ratio_e6(ap_uint<64>(123), ap_uint<64>(0)) == ap_uint<32>(0)),
+        "ratio: zero denominator is undefined-as-0");
+  CHECK((met_ratio_e6(ap_uint<64>(1) << 60, ap_uint<64>(1)) ==
+         ap_uint<32>(0xFFFFFFFFu)),
+        "ratio: clamps at the u32 rail");
+}
+
 int main() {
   test_basic_result_round_trip();
   test_serialize_record_framing();
   test_metrology_primitives();
   test_cordic_atan2();
+  test_sequence_components();
   if (failures) {
     std::printf("common_headers_test: %d FAILURE(S)\n", failures);
     return EXIT_FAILURE;

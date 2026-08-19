@@ -22,7 +22,7 @@
 //
 //   s_result : one beat per whole grid cycle plus the config/context the
 //              hosting shim appends (layout below).
-//   m_axis   : three complete records per finalized block, back to back
+//   m_axis   : four complete records per finalized block, back to back
 //              on the one stream, each MREC_WORDS x 32 beats with TLAST
 //              on the last and the same correlation fields (sequence,
 //              generation, anchors, block status):
@@ -31,9 +31,11 @@
 //                          line-line RMS (words 51..53);
 //                POWER-v1  (0x00070001) — P/S/true-PF/crest (M8);
 //                PHASOR-v1 (0x00080001) — fundamental magnitudes/angles,
-//                          Q1, displacement PF, load nature (M9); only
-//                          this record carries the phasor-invalid status
-//                          bit (bit 1).
+//                          Q1, displacement PF, load nature (M9);
+//                UNBAL-v1  (0x00090001) — symmetrical components and
+//                          unbalance ratios (M10).
+//              The PHASOR and UNBAL records carry the phasor-invalid
+//              status bit (bit 1); BASIC/POWER never do.
 //   m_result : one basic_result_beat_t per finalized block — the 150/180
 //              tier's input contract, emitted here UNCHANGED so
 //              Mtr2Engine keeps producing until M11 replaces it.

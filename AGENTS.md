@@ -41,9 +41,9 @@
   SCYC-v5 `0x000A0005`), the 10/12-cycle merge tier
   (`.../Agg10_12CycleEngine`, `agg10_12_cycle_engine.hpp`/`.cpp`
   normative — it consumes SingleCycleResult beats, never raw samples,
-  retired the sample-domain Mtr1Engine in M7, and emits three records
+  retired the sample-domain Mtr1Engine in M7, and emits four records
   per block on one stream: BASIC-v4 `0x00010004`, POWER-v1 `0x00070001`,
-  PHASOR-v1 `0x00080001`) and
+  PHASOR-v1 `0x00080001`, UNBAL-v1 `0x00090001`) and
   the 150/180-cycle aggregation engine (`.../Mtr2Engine`,
   `mtr2_engine.hpp`/`.cpp` normative, MTR2-v2 `0x00020002`; the
   hand-written RTL engines live in git history). Shared contracts -- the

@@ -174,6 +174,91 @@ inline ap_uint<64> met_phasor_rms_q16(const ap_int<64> re_counts,
   return ap_uint<64>((ap_uint<81>(magnitude) * 92682) >> 16);
 }
 
+// ---------------------------------------------------------------------------
+// Symmetrical components (M10) — the a-operator on mean phasors, and the
+// unbalance ratio. Conventions are normative in metering_types.hpp.
+// ---------------------------------------------------------------------------
+
+// round(sqrt(3)/2 * 2^30): the only irrational the a-operator needs.
+// Q30 keeps the constant's relative error ~5e-10, far below the
+// micro-unit publication grain at every contract-legal magnitude.
+static const ap_int<31> MET_SQRT3_HALF_Q30 = 929887697;
+
+// Rotate a mean-phasor vector by +120 degrees (the 'a' operator):
+// re' = -re/2 - im*sqrt(3)/2, im' = re*sqrt(3)/2 - im/2, floor semantics
+// via one arithmetic >> 30. Components stay below 2^41 for contract-max
+// inputs (<= 2^40), so the 64-bit outputs cannot wrap outside
+// already-flagged results.
+inline void met_rotate_a(const ap_int<64> re, const ap_int<64> im,
+                         ap_int<64> &out_re, ap_int<64> &out_im) {
+#pragma HLS INLINE off
+  const ap_int<96> re_half = ap_int<96>(re) << 29;
+  const ap_int<96> im_half = ap_int<96>(im) << 29;
+  const ap_int<96> re_s3 = ap_int<96>(ap_int<96>(re) * MET_SQRT3_HALF_Q30);
+  const ap_int<96> im_s3 = ap_int<96>(ap_int<96>(im) * MET_SQRT3_HALF_Q30);
+  out_re = ap_int<64>(((-re_half - im_s3) >> 30).range(63, 0));
+  out_im = ap_int<64>(((re_s3 - im_half) >> 30).range(63, 0));
+}
+
+// Rotate by +240 degrees (the 'a squared' operator):
+// re' = -re/2 + im*sqrt(3)/2, im' = -re*sqrt(3)/2 - im/2.
+inline void met_rotate_a2(const ap_int<64> re, const ap_int<64> im,
+                          ap_int<64> &out_re, ap_int<64> &out_im) {
+#pragma HLS INLINE off
+  const ap_int<96> re_half = ap_int<96>(re) << 29;
+  const ap_int<96> im_half = ap_int<96>(im) << 29;
+  const ap_int<96> re_s3 = ap_int<96>(ap_int<96>(re) * MET_SQRT3_HALF_Q30);
+  const ap_int<96> im_s3 = ap_int<96>(ap_int<96>(im) * MET_SQRT3_HALF_Q30);
+  out_re = ap_int<64>(((-re_half + im_s3) >> 30).range(63, 0));
+  out_im = ap_int<64>(((-re_s3 - im_half) >> 30).range(63, 0));
+}
+
+// Symmetrical components of three mean phasors given in A/B/C order:
+// out index 0 = zero sequence, 1 = positive, 2 = negative. Each division
+// by 3 uses the house trunc-toward-zero mean.
+inline void met_sequence_components(const ap_int<64> re[3],
+                                    const ap_int<64> im[3],
+                                    ap_int<64> seq_re[3],
+                                    ap_int<64> seq_im[3]) {
+#pragma HLS INLINE off
+  ap_int<64> b_a_re, b_a_im, b_a2_re, b_a2_im;
+  ap_int<64> c_a_re, c_a_im, c_a2_re, c_a2_im;
+  met_rotate_a(re[1], im[1], b_a_re, b_a_im);
+  met_rotate_a2(re[1], im[1], b_a2_re, b_a2_im);
+  met_rotate_a(re[2], im[2], c_a_re, c_a_im);
+  met_rotate_a2(re[2], im[2], c_a2_re, c_a2_im);
+  const ap_uint<32> three = 3;
+  seq_re[0] = met_floor_mean_signed<66, 64>(
+      ap_int<66>(re[0]) + re[1] + re[2], three);
+  seq_im[0] = met_floor_mean_signed<66, 64>(
+      ap_int<66>(im[0]) + im[1] + im[2], three);
+  seq_re[1] = met_floor_mean_signed<66, 64>(
+      ap_int<66>(re[0]) + b_a_re + c_a2_re, three);
+  seq_im[1] = met_floor_mean_signed<66, 64>(
+      ap_int<66>(im[0]) + b_a_im + c_a2_im, three);
+  seq_re[2] = met_floor_mean_signed<66, 64>(
+      ap_int<66>(re[0]) + b_a2_re + c_a_re, three);
+  seq_im[2] = met_floor_mean_signed<66, 64>(
+      ap_int<66>(im[0]) + b_a2_im + c_a_im, three);
+}
+
+// Unsigned ratio in millionths: floor(numerator * 1e6 / denominator),
+// clamped to the 32-bit rail (a reversed-rotation feed makes |X2|/|X1|
+// astronomically large). Returns 0 when the denominator is 0: the ratio
+// is UNDEFINED there and consumers must gate on the validity flag.
+inline ap_uint<32> met_ratio_e6(const ap_uint<64> numerator,
+                                const ap_uint<64> denominator) {
+#pragma HLS INLINE off
+  if (denominator == 0) {
+    return 0;
+  }
+  const ap_uint<128> scaled =
+      ap_uint<128>(numerator) * ap_uint<128>(1000000);
+  const ap_uint<128> ratio = floor_div<128>(scaled, ap_uint<128>(denominator));
+  return ratio > ap_uint<128>(0xFFFFFFFFu) ? ap_uint<32>(0xFFFFFFFFu)
+                                           : ap_uint<32>(ratio.range(31, 0));
+}
+
 // True power factor in millionths (M8, shared with the later displacement
 // and energy tiers): floor(|P| * 1e6 / S) carrying P's sign. Clamped to
 // +/-1e6 -- Cauchy-Schwarz bounds |P| <= S mathematically, but the two

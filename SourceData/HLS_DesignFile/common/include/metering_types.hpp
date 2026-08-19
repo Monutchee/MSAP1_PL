@@ -100,6 +100,22 @@ static const int MET_POWER_PHASES = 3;
 //     specified quantity; only angle differences are. Records carry an
 //     angle-reference-valid flag that clears when VA's fundamental is
 //     absent (masked out or zero magnitude).
+//   * Symmetrical components (M10): from the fundamental phasors ONLY,
+//     with the a-operator a = 1 at +120 degrees and the standard
+//     ABC-rotation convention:
+//       X0 = (Xa + Xb + Xc) / 3          (zero sequence)
+//       X1 = (Xa + a.Xb + a^2.Xc) / 3    (positive sequence)
+//       X2 = (Xa + a^2.Xb + a.Xc) / 3    (negative sequence)
+//     A balanced ABC feed puts everything in X1; an ACB (reversed) feed
+//     puts everything in X2 — that swap is the acceptance check.
+//     Magnitudes publish as RMS micro-units like the fundamentals;
+//     angles follow the M9 relative-to-VA convention.
+//   * Unbalance ratios (M10): UNBL = |X2| / |X1| and the zero-sequence
+//     ratio |X0| / |X1|, both in MILLIONTHS of the positive-sequence
+//     magnitude (20000 = 2%). UNDEFINED (published 0 with the validity
+//     flag clear) when |X1| = 0 — consumers gate on the flag, never on
+//     the value. Voltage ratios use VA/VB/VC, current ratios IA/IB/IC
+//     (never IN).
 //
 // Units through the chain: converted samples are Q16 micro-units
 // (micro-volts / micro-amperes), so a v*i product is Q32 in

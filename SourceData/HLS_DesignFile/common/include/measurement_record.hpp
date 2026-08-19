@@ -99,6 +99,18 @@ static const uint32_t MREC_FORMAT_POWER_V1 = 0x00070001u;  // 10/12-cycle power
 // Status bit 1: at least one merged cycle had no usable frequency
 // reference (SCYC phasor-invalid) — every phasor word is then suspect.
 static const uint32_t MREC_FORMAT_PHASOR_V1 = 0x00080001u;  // 10/12-cycle phasor
+// UNBALANCE v1 (M10): fourth record of each block, same stream, same
+// correlation fields. Symmetrical components of the fundamental phasors
+// (a-operator conventions in metering_types.hpp): zero/positive/negative
+// sequence RMS (u32 micro-units) and angle (s32 millidegrees relative to
+// VA) for voltage (VA/VB/VC) and current (IA/IB/IC, never IN), plus the
+// zero-sequence ratios |X0|/|X1| and unbalance ratios UNBL = |X2|/|X1|
+// in millionths (0 + flag clear = undefined when |X1| = 0, clamped at
+// the u32 rail — an ACB feed drives them off scale by design). Flags
+// word: per-set ratio validity + the M9 angle-reference flag. Status
+// bit 1 mirrors the PHASOR record (frequency-reference loss poisons the
+// same correlation these components come from).
+static const uint32_t MREC_FORMAT_UNBAL_V1 = 0x00090001u;  // 10/12-cycle unbalance
 
 // ---------------------------------------------------------------------------
 // Common envelope — words 0..12 mean the same thing in EVERY format, so
@@ -206,6 +218,27 @@ static const int PHASOR_P1_TOTAL_HIGH_WORD = 59;
 // PHASOR-v1 status bit (word 8), beyond the common arithmetic bit.
 static const int PHASOR_STATUS_INVALID_BIT = 1;  // a merged cycle lacked a
                                                  //   frequency reference
+
+// UNBALANCE-v1 interior (envelope words 0..12 shared; timing word 13 and
+// the last-sample anchor 14/15 mirror BASIC-v4). Sequence order within
+// each set: zero, positive, negative.
+static const int UNBAL_V_BASE_WORD   = 16;  // 3 x {rms u32, angle s32}
+static const int UNBAL_I_BASE_WORD   = 22;  // 3 x {rms u32, angle s32}
+static const int UNBAL_SEQ_STRIDE    = 2;
+static const int UNBAL_SEQ_RMS       = 0;   // u32 micro-units
+static const int UNBAL_SEQ_ANGLE     = 1;   // s32 millidegrees (rel. VA)
+static const int UNBAL_V_ZERO_RATIO_WORD = 28;  // |V0|/|V1|, millionths
+static const int UNBAL_V_UNBALANCE_WORD  = 29;  // |V2|/|V1|, millionths
+static const int UNBAL_I_ZERO_RATIO_WORD = 30;  // |I0|/|I1|, millionths
+static const int UNBAL_I_UNBALANCE_WORD  = 31;  // |I2|/|I1|, millionths
+static const int UNBAL_FLAGS_WORD        = 32;
+static const int UNBAL_FLAGS_V_VALID_BIT   = 0;  // |V1| != 0: V ratios usable
+static const int UNBAL_FLAGS_I_VALID_BIT   = 1;  // |I1| != 0: I ratios usable
+static const int UNBAL_FLAGS_REF_VALID_BIT = 8;  // VA angle reference usable
+// Words 33..63 reserved zero.
+
+// UNBALANCE-v1 status bit (word 8), mirroring the PHASOR record.
+static const int UNBAL_STATUS_INVALID_BIT = 1;
 
 static const int MTR1_CAPTURE_FRAMES_WORD  = 60;
 static const int MTR1_HEADER_ERRORS_WORD   = 61;

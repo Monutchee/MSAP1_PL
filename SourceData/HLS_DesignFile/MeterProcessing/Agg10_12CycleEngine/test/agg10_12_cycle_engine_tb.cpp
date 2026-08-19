@@ -169,6 +169,49 @@ static unsigned golden_nature(long long q1, unsigned long long s1) {
   return q1 > 0 ? (unsigned)MET_NATURE_LAGGING : (unsigned)MET_NATURE_LEADING;
 }
 
+// ---- M10 symmetrical-component goldens (exact integer replicas of the
+// ---- Q30 a-operator, trunc-toward-zero /3, and the e6 ratio).
+static void golden_rotate(bool a_squared, long long re, long long im,
+                          long long &out_re, long long &out_im) {
+  const __int128 sq3h = 929887697;  // round(sqrt(3)/2 * 2^30)
+  const __int128 re_half = ((__int128)re) << 29;
+  const __int128 im_half = ((__int128)im) << 29;
+  const __int128 re_s3 = (__int128)re * sq3h;
+  const __int128 im_s3 = (__int128)im * sq3h;
+  if (!a_squared) {
+    out_re = (long long)((-re_half - im_s3) >> 30);
+    out_im = (long long)((re_s3 - im_half) >> 30);
+  } else {
+    out_re = (long long)((-re_half + im_s3) >> 30);
+    out_im = (long long)((-re_s3 - im_half) >> 30);
+  }
+}
+static long long golden_div3(long long value) {  // trunc toward zero
+  return value < 0 ? -(long long)((-(__int128)value) / 3)
+                   : (long long)((__int128)value / 3);
+}
+static void golden_sequence(const long long re[3], const long long im[3],
+                            long long seq_re[3], long long seq_im[3]) {
+  long long ba_r, ba_i, ba2_r, ba2_i, ca_r, ca_i, ca2_r, ca2_i;
+  golden_rotate(false, re[1], im[1], ba_r, ba_i);
+  golden_rotate(true, re[1], im[1], ba2_r, ba2_i);
+  golden_rotate(false, re[2], im[2], ca_r, ca_i);
+  golden_rotate(true, re[2], im[2], ca2_r, ca2_i);
+  seq_re[0] = golden_div3(re[0] + re[1] + re[2]);
+  seq_im[0] = golden_div3(im[0] + im[1] + im[2]);
+  seq_re[1] = golden_div3(re[0] + ba_r + ca2_r);
+  seq_im[1] = golden_div3(im[0] + ba_i + ca2_i);
+  seq_re[2] = golden_div3(re[0] + ba2_r + ca_r);
+  seq_im[2] = golden_div3(im[0] + ba2_i + ca_i);
+}
+static unsigned long long golden_ratio_e6(unsigned long long numerator,
+                                          unsigned long long denominator) {
+  if (denominator == 0) return 0;
+  const unsigned __int128 ratio =
+      (unsigned __int128)numerator * 1000000u / denominator;
+  return ratio > 0xFFFFFFFFu ? 0xFFFFFFFFull : (unsigned long long)ratio;
+}
+
 struct CycleSpec {
   unsigned zero_lanes = 0;  // bitmask: force these lanes' samples to 0
   unsigned sequence = 1;
@@ -396,11 +439,19 @@ static void take_power_record(Bench &b, ap_uint<32> (&words)[MREC_WORDS]) {
         (unsigned)words[MREC_FORMAT_WORD]);
 }
 
-// Drain the PHASOR record that closes every block's record triple.
+// Drain the PHASOR record, third of every block's record quad.
 static void take_phasor_record(Bench &b, ap_uint<32> (&words)[MREC_WORDS]) {
   take_record(b, words);
   CHECK(words[MREC_FORMAT_WORD] == MREC_FORMAT_PHASOR_V1,
         "paired phasor record format, got %08x",
+        (unsigned)words[MREC_FORMAT_WORD]);
+}
+
+// Drain the UNBALANCE record that closes every block's record quad.
+static void take_unbalance_record(Bench &b, ap_uint<32> (&words)[MREC_WORDS]) {
+  take_record(b, words);
+  CHECK(words[MREC_FORMAT_WORD] == MREC_FORMAT_UNBAL_V1,
+        "paired unbalance record format, got %08x",
         (unsigned)words[MREC_FORMAT_WORD]);
 }
 
@@ -665,6 +716,58 @@ int main() {
           "phase A displacement PF ~ cos(10 deg) (got %lld)", dpf_a);
     CHECK(ph[60] == 0 && ph[61] == 0 && ph[62] == 0 && ph[63] == 0,
           "phasor reserved words zero");
+
+    // ---- UNBALANCE-v1 companion record (M10): exact goldens. ------------
+    ap_uint<32> ub[MREC_WORDS];
+    take_unbalance_record(b, ub);
+    CHECK(ub[MREC_SEQUENCE_WORD] == 1 &&
+              ub[MREC_STATUS_WORD] == ph[MREC_STATUS_WORD] &&
+              ub[MTR1_TIMING_WORD] == words[MTR1_TIMING_WORD] &&
+              ub[BASIC_LAST_SAMPLE_LOW_WORD] ==
+                  words[BASIC_LAST_SAMPLE_LOW_WORD],
+          "unbalance record shares the block's envelope");
+    for (int set = 0; set < 2; ++set) {
+      const int la = set == 0 ? MET_LANE_VA : MET_LANE_IA;
+      const int lb = set == 0 ? MET_LANE_VB : MET_LANE_IB;
+      const int lc = set == 0 ? MET_LANE_VC : MET_LANE_IC;
+      const long long in_re[3] = {re_c[la], re_c[lb], re_c[lc]};
+      const long long in_im[3] = {im_c[la], im_c[lb], im_c[lc]};
+      long long sre[3], sim[3];
+      golden_sequence(in_re, in_im, sre, sim);
+      unsigned long long rms[3];
+      for (int k = 0; k < 3; ++k) {
+        rms[k] = golden_fund_rms_q16(sre[k], sim[k]);
+        const int base =
+            (set == 0 ? UNBAL_V_BASE_WORD : UNBAL_I_BASE_WORD) +
+            k * UNBAL_SEQ_STRIDE;
+        CHECK((unsigned long long)ub[base + UNBAL_SEQ_RMS] == (rms[k] >> 16),
+              "set %d component %d sequence RMS exact", set, k);
+        const long long got = (long long)(int)ub[base + UNBAL_SEQ_ANGLE];
+        const long long expect =
+            wrap_mdeg(golden_angle_mdeg(sim[k], sre[k]) - ref_mdeg);
+        const long long diff = wrap_mdeg(got - expect);
+        CHECK(diff >= -2 && diff <= 2,
+              "set %d component %d angle within 2 mdeg", set, k);
+      }
+      CHECK((unsigned long long)ub[set == 0 ? UNBAL_V_ZERO_RATIO_WORD
+                                            : UNBAL_I_ZERO_RATIO_WORD] ==
+                    golden_ratio_e6(rms[0], rms[1]) &&
+                (unsigned long long)ub[set == 0 ? UNBAL_V_UNBALANCE_WORD
+                                                : UNBAL_I_UNBALANCE_WORD] ==
+                    golden_ratio_e6(rms[2], rms[1]),
+            "set %d ratios exact", set);
+      // Balanced defaults: the negative-sequence ratio is far below 0.1%.
+      CHECK(golden_ratio_e6(rms[2], rms[1]) < 1000,
+            "set %d nearly balanced", set);
+    }
+    CHECK(ub[UNBAL_FLAGS_WORD] ==
+              ((1u << UNBAL_FLAGS_REF_VALID_BIT) |
+               (1u << UNBAL_FLAGS_V_VALID_BIT) |
+               (1u << UNBAL_FLAGS_I_VALID_BIT)),
+          "unbalance flags: both sets valid + reference (got 0x%x)",
+          (unsigned)ub[UNBAL_FLAGS_WORD]);
+    for (int i = 33; i < 64; ++i)
+      CHECK(ub[i] == 0, "unbalance reserved word %d nonzero", i);
   }
 
   // --- Second block: clean status, sequences chain. -----------------------
@@ -675,6 +778,7 @@ int main() {
     take_record(b, words);
     take_power_record(b, words);
     take_phasor_record(b, words);
+    take_unbalance_record(b, words);
     CHECK(r.sequence == 2 && (r.status & 0x5u) == 0,
           "second block is clean (status 0x%x)", (unsigned)r.status);
     CHECK((r.flags & 0x4u) == 0, "first-block flag clears");
@@ -698,6 +802,7 @@ int main() {
     take_record(b, words);
     take_power_record(b, words);
     take_phasor_record(b, words);
+    take_unbalance_record(b, words);
     CHECK(r.first_sample == block_start,
           "block anchors at the gap-marked cycle");
     CHECK((r.status & 0x4u) == 0x4u, "block after a gap carries the mark");
@@ -719,6 +824,7 @@ int main() {
     take_record(b, words);
     take_power_record(b, words);
     take_phasor_record(b, words);
+    take_unbalance_record(b, words);
     CHECK(r.cycle_count == 10 && r.nominal_hz == 50,
           "50 Hz block closes at 10 cycles");
     CHECK((r.status & 0x4u) == 0x4u, "sequence break marks the next block");
@@ -755,6 +861,7 @@ int main() {
     take_record(b, words);
     take_power_record(b, words);
     take_phasor_record(b, words);
+    take_unbalance_record(b, words);
     CHECK((r.flags & 0x1u) == 0 && (r.flags & 0x2u) == 0x2u,
           "one unlocked cycle clears LOCKED and sets FALLBACK, got 0x%x",
           (unsigned)r.flags);
@@ -777,6 +884,7 @@ int main() {
     take_record(b, words);
     take_power_record(b, words);
     take_phasor_record(b, words);
+    take_unbalance_record(b, words);
     CHECK((r.status & 0x1u) == 0x1u,
           "upstream saturation folds into the sticky flag");
     CHECK((r.rms_q16[0] == ap_int<64>(ap_uint<64>(~ap_uint<64>(0)))) ||
@@ -791,6 +899,7 @@ int main() {
     take_record(b, words);
     take_power_record(b, words);
     take_phasor_record(b, words);
+    take_unbalance_record(b, words);
     CHECK((r2.status & 0x1u) == 0, "APPLY clears the sticky flag");
     CHECK((r2.status & 0x4u) == 0x4u, "post-APPLY block carries the mark");
   }
@@ -834,6 +943,7 @@ int main() {
               ((phz[PHASOR_FLAGS_WORD] >> PHASOR_FLAGS_NATURE_A_LSB) & 0x3) ==
                   (unsigned)MET_NATURE_UNDEFINED,
           "zero current: Q1/dPF zero, nature UNDEFINED");
+    take_unbalance_record(b, phz);
     c = z;
   }
 
@@ -857,6 +967,8 @@ int main() {
     take_power_record(b, words);
     ap_uint<32> ph[MREC_WORDS];
     take_phasor_record(b, ph);
+    ap_uint<32> ub_scratch[MREC_WORDS];
+    take_unbalance_record(b, ub_scratch);
     const long long q1_a = read_s64(ph, PHASOR_Q1_BASE_WORD);
     CHECK(q1_a < 0, "leading current: Q1_A negative (got %lld)", q1_a);
     const unsigned nature_a =
@@ -883,6 +995,7 @@ int main() {
     take_record(b, words);
     take_power_record(b, words);
     take_phasor_record(b, ph);
+    take_unbalance_record(b, ub_scratch);
     const long long q1_quad = read_s64(ph, PHASOR_Q1_BASE_WORD);
     const long long dpf_quad = (long long)(int)ph[PHASOR_DPF_BASE_WORD];
     CHECK(q1_quad > 0 && dpf_quad >= -100 && dpf_quad <= 100,
@@ -925,6 +1038,10 @@ int main() {
     take_phasor_record(b, ph);
     CHECK((ph[MREC_STATUS_WORD] & (1u << PHASOR_STATUS_INVALID_BIT)) != 0,
           "one invalid cycle marks the block's PHASOR record");
+    ap_uint<32> ub[MREC_WORDS];
+    take_unbalance_record(b, ub);
+    CHECK((ub[MREC_STATUS_WORD] & (1u << UNBAL_STATUS_INVALID_BIT)) != 0,
+          "the UNBALANCE record mirrors the phasor-invalid bit");
     c = inv;
 
     GoldenBlock g2;
@@ -935,6 +1052,7 @@ int main() {
     take_phasor_record(b, ph);
     CHECK((ph[MREC_STATUS_WORD] & (1u << PHASOR_STATUS_INVALID_BIT)) == 0,
           "phasor-invalid clears on the next block");
+    take_unbalance_record(b, ub);
   }
 
   // --- VA absent: the angle reference is declared invalid. ---------------
@@ -958,7 +1076,96 @@ int main() {
     CHECK(ph[va_base + PHASOR_CH_FUND_RMS] == 0, "silent VA fundamental is 0");
     CHECK((ph[PHASOR_FLAGS_WORD] & (1u << PHASOR_FLAGS_REF_VALID_BIT)) == 0,
           "zero VA fundamental clears the angle-reference flag");
+    ap_uint<32> ub[MREC_WORDS];
+    take_unbalance_record(b, ub);
+    CHECK((ub[UNBAL_FLAGS_WORD] & (1u << UNBAL_FLAGS_REF_VALID_BIT)) == 0,
+          "unbalance record mirrors the reference flag");
     c = no_va;
+  }
+
+  // --- ACB rotation: the sequence swap (M10 acceptance). ------------------
+  {
+    GoldenBlock g;
+    CycleSpec acb = c;
+    acb.zero_lanes = 0;
+    acb.ph_deg[MET_LANE_VB] = 120.0;  // B and C swapped: reversed rotation
+    acb.ph_deg[MET_LANE_VC] = -120.0;
+    // Earlier scenarios scrambled the current phases; restore a balanced
+    // ABC current set so the I ratios contrast with the reversed V set.
+    acb.ph_deg[MET_LANE_IA] = -10.0;
+    acb.ph_deg[MET_LANE_IB] = -130.0;
+    acb.ph_deg[MET_LANE_IC] = 110.0;
+    for (unsigned i = 0; i < 10; ++i) {
+      const single_cycle_result_t r = make_cycle(acb, g);
+      b.send(r);
+      acb.sequence += 1;
+      acb.cycle_sequence += 1;
+      acb.first_sample += acb.samples;
+    }
+    (void)unpack_basic_result(b.m_result.read());
+    take_record(b, words);
+    take_power_record(b, words);
+    ap_uint<32> ph[MREC_WORDS];
+    take_phasor_record(b, ph);
+    ap_uint<32> ub[MREC_WORDS];
+    take_unbalance_record(b, ub);
+    // Exact golden replication for the V set under ACB.
+    long long in_re[3], in_im[3], sre[3], sim[3];
+    static const int vlanes[3] = {MET_LANE_VA, MET_LANE_VB, MET_LANE_VC};
+    for (int k = 0; k < 3; ++k) {
+      in_re[k] = golden_phasor_counts(g.ph_re[vlanes[k]], g.count);
+      in_im[k] = golden_phasor_counts(g.ph_im[vlanes[k]], g.count);
+    }
+    golden_sequence(in_re, in_im, sre, sim);
+    const unsigned long long v1 = golden_fund_rms_q16(sre[1], sim[1]);
+    const unsigned long long v2 = golden_fund_rms_q16(sre[2], sim[2]);
+    CHECK((unsigned long long)ub[UNBAL_V_BASE_WORD + 1 * UNBAL_SEQ_STRIDE +
+                                 UNBAL_SEQ_RMS] == (v1 >> 16),
+          "ACB V1 exact");
+    CHECK((unsigned long long)ub[UNBAL_V_BASE_WORD + 2 * UNBAL_SEQ_STRIDE +
+                                 UNBAL_SEQ_RMS] == (v2 >> 16),
+          "ACB V2 exact");
+    // The sequence swap: negative dominates, positive collapses, and the
+    // unbalance ratio flies off scale (or is undefined if V1 hit 0).
+    const unsigned long long v_fund =
+        golden_fund_rms_q16(in_re[0], in_im[0]);
+    CHECK(v2 > (v_fund / 10) * 9 && v1 < v_fund / 1000,
+          "ACB: V2 takes (nearly) everything, V1 collapses");
+    CHECK((unsigned long long)ub[UNBAL_V_UNBALANCE_WORD] ==
+              golden_ratio_e6(v2, v1),
+          "ACB unbalance ratio exact (huge or undefined-as-0)");
+    // Currents kept their ABC rotation: the I set stays nearly balanced.
+    CHECK((unsigned long long)ub[UNBAL_I_UNBALANCE_WORD] < 1000,
+          "ACB voltages leave the current set balanced");
+    c = acb;
+  }
+
+  // --- Dead voltages: V ratios undefined, their flag clears. --------------
+  {
+    GoldenBlock g;
+    CycleSpec dead = c;
+    dead.zero_lanes =
+        (1u << MET_LANE_VA) | (1u << MET_LANE_VB) | (1u << MET_LANE_VC);
+    for (unsigned i = 0; i < 10; ++i) {
+      const single_cycle_result_t r = make_cycle(dead, g);
+      b.send(r);
+      dead.sequence += 1;
+      dead.cycle_sequence += 1;
+      dead.first_sample += dead.samples;
+    }
+    (void)unpack_basic_result(b.m_result.read());
+    take_record(b, words);
+    take_power_record(b, words);
+    take_phasor_record(b, words);
+    ap_uint<32> ub[MREC_WORDS];
+    take_unbalance_record(b, ub);
+    CHECK((ub[UNBAL_FLAGS_WORD] & (1u << UNBAL_FLAGS_V_VALID_BIT)) == 0 &&
+              ub[UNBAL_V_UNBALANCE_WORD] == 0 &&
+              ub[UNBAL_V_ZERO_RATIO_WORD] == 0,
+          "dead voltages: V ratios undefined-as-0 with the flag clear");
+    CHECK((ub[UNBAL_FLAGS_WORD] & (1u << UNBAL_FLAGS_I_VALID_BIT)) != 0,
+          "dead voltages leave the current set valid");
+    c = dead;
   }
 
   // --- Disable stops everything. ------------------------------------------
