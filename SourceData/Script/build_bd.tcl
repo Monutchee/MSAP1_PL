@@ -111,5 +111,31 @@ if {[file exists $wrapper] && [file mtime $wrapper] < [file mtime $bd]} {
  boundary changed, refresh the managed top wrapper in IP Integrator"
 }
 
+# ---- Stage summary ---------------------------------------------------
+# IP freshness: a stale customization silently ships old logic (the
+# 2026-08 stale-bitstream incident class), so the count is a headline.
+set upgradable [llength [get_ips -quiet -filter {UPGRADE_VERSIONS != ""}]]
+set locked [llength [get_ips -quiet -filter {IS_LOCKED}]]
+puts "PL_BUILD_BD_IP_TOTAL=[llength [get_ips -quiet]]"
+puts "PL_BUILD_BD_IP_UPGRADABLE=$upgradable"
+puts "PL_BUILD_BD_IP_LOCKED=$locked"
+# Locked counts vary with how the session loaded the catalog and are
+# informational; upgradable customizations are the real staleness signal.
+if {$upgradable > 0} {
+    puts "*** STALE IP: $upgradable customization(s) trail their packaged"
+    puts "*** revision -- run Script/refresh_hls_ip.tcl (or 'mnc HLS build')"
+    puts "*** before trusting this build's netlist."
+}
+
+# Module-reference customizations actually baked into this build (the
+# build-shape switches, e.g. the ADC simulator's presence on K24 targets).
+foreach cell [get_bd_cells -quiet -hierarchical -filter {VLNV =~ "*:module_ref:*"}] {
+    foreach parameter [list_property $cell] {
+        if {[string match "CONFIG.G_*" $parameter]} {
+            puts "PL_BUILD_BD_GENERIC=[file tail $cell]:[string range $parameter 7 end]=[get_property $parameter $cell]"
+        }
+    }
+}
+
 puts "PL_BUILD_STAGE_COMPLETE=bd"
 pl_build_close_project
