@@ -377,6 +377,130 @@ proc pl_build_running_runs {} {
 # really finished (it returns immediately when it already is), so a stale or
 # unexpected property value can delay a message but can never let a stage
 # continue over an unfinished run.
+# Headline utilization from a report_utilization file: the GUI Project
+# Summary numbers (LUT/FF/BRAM/DSP used, available, percent) as parseable
+# stage output. Silent if the report is missing (a failed stage already
+# said why).
+proc pl_build_utilization_summary {rpt {prefix PL_BUILD_UTIL}} {
+    if {![file exists $rpt]} {
+        return
+    }
+    set rows {
+        LUT  "CLB LUTs"
+        FF   "CLB Registers"
+        BRAM "Block RAM Tile"
+        DSP  "DSPs"
+    }
+    set handle [open $rpt r]
+    set content [read $handle]
+    close $handle
+    foreach {tag row} $rows {
+        foreach line [split $content "\n"] {
+            set cells [lmap cell [split $line "|"] {string trim $cell}]
+            if {[llength $cells] < 7} {
+                continue
+            }
+            set name [lindex $cells 1]
+            if {$name eq $row || $name eq "${row}*"} {
+                set used [lindex $cells 2]
+                set available [lindex $cells 5]
+                set percent [lindex $cells 6]
+                puts "${prefix}_${tag}=$used/$available (${percent}%)"
+                break
+            }
+        }
+    }
+}
+
+# Post-synthesis WNS from a report_timing_summary file, clearly labeled:
+# synthesis estimates can be optimistic by >1 ns against routing (the M7
+# build estimated +0.228 and routed -0.858), so this is a smoke check,
+# never a verdict. The routed verdict is pl_build_timing_verdict.
+proc pl_build_estimated_wns {rpt} {
+    if {![file exists $rpt]} {
+        return
+    }
+    set handle [open $rpt r]
+    set lines [split [read $handle] "\n"]
+    close $handle
+    for {set index 0} {$index < [llength $lines]} {incr index} {
+        if {[string match "*Design Timing Summary*" [lindex $lines $index]]} {
+            foreach line [lrange $lines $index [expr {$index + 8}]] {
+                if {[regexp {^\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)} $line -> wns tns]} {
+                    puts "PL_BUILD_TIMING_SYNTH_ESTIMATE_WNS=$wns (post-synth estimate, not routed)"
+                    return
+                }
+            }
+        }
+    }
+}
+
+# Total on-chip power from the routed power report (the GUI Power panel's
+# headline number).
+proc pl_build_power_summary {run} {
+    set rpt [file join [pl_build_run_dir $run] "[pl_build_top]_power_routed.rpt"]
+    if {![file exists $rpt]} {
+        return
+    }
+    set handle [open $rpt r]
+    set content [read $handle]
+    close $handle
+    foreach line [split $content "\n"] {
+        if {[regexp {Total On-Chip Power \(W\)\s*\|\s*([0-9.]+)} $line -> watts]} {
+            puts "PL_BUILD_POWER_TOTAL_W=$watts"
+            return
+        }
+    }
+}
+
+# Message counts from the run's own log: the GUI messages panel headline.
+proc pl_build_message_summary {run} {
+    set log [file join [pl_build_run_dir $run] runme.log]
+    if {![file exists $log]} {
+        return
+    }
+    set handle [open $log r]
+    set content [read $handle]
+    close $handle
+    set critical [regexp -all {CRITICAL WARNING:} $content]
+    set warnings [regexp -all {(?n)^WARNING:} $content]
+    puts "PL_BUILD_${run}_CRITICAL_WARNINGS=$critical"
+    puts "PL_BUILD_${run}_WARNINGS=$warnings"
+}
+
+# Print the routed timing verdict from the run's recorded statistics (no
+# design open, no report regeneration). Loud on purpose: a bitstream from
+# a run with negative slack can misbehave on silicon, and the numbers
+# should never hide in the GUI. Reports, never fails -- the artifacts are
+# still written and the decision stays with the operator.
+proc pl_build_timing_verdict {run} {
+    set object [get_runs $run]
+    set wns [pl_build_property $object STATS.WNS]
+    set tns [pl_build_property $object STATS.TNS]
+    set whs [pl_build_property $object STATS.WHS]
+    set ths [pl_build_property $object STATS.THS]
+    set tpws [pl_build_property $object STATS.TPWS]
+    puts "PL_BUILD_TIMING_WNS=$wns"
+    puts "PL_BUILD_TIMING_TNS=$tns"
+    puts "PL_BUILD_TIMING_WHS=$whs"
+    puts "PL_BUILD_TIMING_THS=$ths"
+    puts "PL_BUILD_TIMING_TPWS=$tpws"
+    set failed 0
+    foreach value [list $wns $whs $tpws] {
+        if {[string is double -strict $value] && $value < 0} {
+            set failed 1
+        }
+    }
+    if {$failed} {
+        puts "PL_BUILD_TIMING=VIOLATED"
+        puts "*** TIMING FAILED: WNS=$wns ns, TNS=$tns ns -- this bitstream"
+        puts "*** is NOT safe to flash. Inspect the worst paths with"
+        puts "*** vivado_gen/*.runs/$run/*timing_summary_routed.rpt"
+    } else {
+        puts "PL_BUILD_TIMING=MET"
+    }
+}
+
 proc pl_build_finish_run {run {poll_seconds 5} {heartbeat_seconds 60}} {
     set started [clock seconds]
     set last_line ""

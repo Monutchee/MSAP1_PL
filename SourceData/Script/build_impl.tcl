@@ -37,11 +37,16 @@ if {![file exists $routed]} {
 puts "PL_BUILD_ROUTED=$routed"
 
 pl_build_write_reports impl_1 [list \
+    impl_utilization    {report_utilization} \
     impl_timing_summary {report_timing_summary} \
     impl_cdc            {report_cdc} \
     impl_drc            {report_drc} \
     impl_io             {report_io} \
 ]
+
+pl_build_utilization_summary [file join $pl_build_report_dir impl_utilization.rpt]
+pl_build_timing_verdict impl_1
+pl_build_message_summary impl_1
 
 puts "PL_BUILD_STAGE_COMPLETE=impl"
 pl_build_close_project
