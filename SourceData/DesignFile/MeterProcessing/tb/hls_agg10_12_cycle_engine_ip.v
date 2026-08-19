@@ -23,7 +23,7 @@ module hls_agg10_12_cycle_engine_ip (
     output [3:0]    m_axis_TKEEP,
     output [3:0]    m_axis_TSTRB,
     output [0:0]    m_axis_TLAST,
-    output [807:0]  m_result_TDATA,
+    output [7071:0] m_result_TDATA,
     output          m_result_TVALID,
     input           m_result_TREADY
 );

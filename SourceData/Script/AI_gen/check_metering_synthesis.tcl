@@ -18,7 +18,7 @@ set design_root [file join $project_root SourceData DesignFile]
 # Packaged HLS RTL (IP repository entry); refreshed by 'mnc HLS build' or
 # SourceData/HLS_DesignFile/run_hls.sh <component>.
 set hls_mtr2_hdl [file join $project_root SourceData HLS_DesignFile \
-  ip_repo Mtr2Engine hdl verilog]
+  ip_repo Agg150_180CycleEngine hdl verilog]
 if {![file isdirectory $hls_mtr2_hdl]} {
   error "missing $hls_mtr2_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
 }
@@ -60,7 +60,7 @@ read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_frequency.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing grid_cycle_timing.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing record_word_tap.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_agg10_12_cycle_hls_shim.vhd]
-read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_mtr2_hls_shim.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_agg150_180_hls_shim.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd]
 read_verilog [lsort [glob -directory $hls_mtr2_hdl *.v]]
 read_verilog [lsort [glob -directory $hls_agg1012_hdl *.v]]
@@ -68,7 +68,7 @@ read_verilog [lsort [glob -directory $hls_scyc_hdl *.v]]
 read_verilog [lsort [glob -directory $hls_sim_wave_hdl *.v]]
 # Bind the IP-customization module names over the packaged RTL for this
 # non-project flow (the project gets the same modules from the XCIs).
-read_verilog [file join $design_root MeterProcessing tb hls_mtr2_engine_ip.v]
+read_verilog [file join $design_root MeterProcessing tb hls_agg150_180_cycle_engine_ip.v]
 read_verilog [file join $design_root MeterProcessing tb hls_agg10_12_cycle_engine_ip.v]
 read_verilog [file join $design_root MeterProcessing tb hls_single_cycle_engine_ip.v]
 read_verilog [file join $design_root MeterCore tb hls_sim_wave_engine_ip.v]

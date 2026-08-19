@@ -44,11 +44,16 @@
   retired the sample-domain Mtr1Engine in M7, and emits four records
   per block on one stream: BASIC-v4 `0x00010004`, POWER-v1 `0x00070001`,
   PHASOR-v1 `0x00080001`, UNBAL-v1 `0x00090001`) and
-  the 150/180-cycle aggregation engine (`.../Mtr2Engine`,
-  `mtr2_engine.hpp`/`.cpp` normative, MTR2-v2 `0x00020002`; the
-  hand-written RTL engines live in git history). Shared contracts -- the
-  256-byte record envelope and word maps, the SingleCycleResult beat, the
-  basic-result beat, and the serial math -- are single-defined in
+  the 150/180-cycle aggregation engine (`.../Agg150_180CycleEngine`,
+  `agg150_180_cycle_engine.hpp`/`.cpp` normative — consumes the 10/12
+  tier's block-result beats (provenance + merge-safe accumulators,
+  `agg_block_result.hpp`) and emits four records per aggregate: AGG-v3
+  `0x00020003`, AGG-POWER `0x00100001`, AGG-PHASOR `0x00110001`,
+  AGG-UNBAL `0x00120001`; Mtr2Engine and the 808-bit basic beat retired
+  in M11, the hand-written RTL engines live in git history). Shared
+  contracts -- the 256-byte record envelope and word maps, the
+  SingleCycleResult and block-result beats, the shared interval finalize
+  (`metrology_finalize.hpp`), and the serial math -- are single-defined in
   `SourceData/HLS_DesignFile/common/include/` and mirrored by any VHDL
   shim in lock step. Aggregates are formed from exactly 15 eligible Basic
   results -- never from raw samples or a wall-clock timer -- and
@@ -79,7 +84,7 @@
   products are not. The non-project check scripts compile the packaged RTL
   directly from `ip_repo/<Name>/hdl/verilog` with the module-name binding
   in `DesignFile/MeterProcessing/tb/hls_agg10_12_cycle_engine_ip.v`,
-  `hls_single_cycle_engine_ip.v`, and `hls_mtr2_engine_ip.v`. A fresh
+  `hls_single_cycle_engine_ip.v`, and `hls_agg150_180_cycle_engine_ip.v`. A fresh
   checkout must run `mnc HLS build` (or `HLS_DesignFile/run_hls.sh`) first;
   the check scripts fail with that instruction when the repository is
   absent. After any HLS source change: `run_hls.sh`, then

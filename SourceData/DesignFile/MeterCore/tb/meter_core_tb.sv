@@ -826,6 +826,40 @@ module meter_core_tb;
 
   // Consume one MTR2 aggregate record from the MTR2 stream and check every
   // meaningful word.
+  // Drain one aggregate sibling record (AGG-POWER/PHASOR/UNBAL), checking
+  // framing, format, and the shared sequence; values are pinned by the
+  // engine's golden bench and the record-stream bench.
+  task automatic drain_agg_sibling(input logic [31:0] expected_format,
+                                   input integer expected_sequence);
+    integer word_index;
+    begin
+      @(negedge clock);
+      mtr2_tready = 1'b1;
+      word_index = 0;
+      while (word_index < 64) begin
+        @(posedge clock);
+        if (mtr2_tvalid && mtr2_tready) begin
+          assert (mtr2_tkeep == 4'hf) else $fatal(1, "AGG sibling TKEEP");
+          assert (mtr2_tlast == (word_index == 63))
+            else $fatal(1, "AGG sibling TLAST at word %0d", word_index);
+          case (word_index)
+            0: assert (mtr2_tdata == 32'h3152_544d)
+              else $fatal(1, "AGG sibling magic");
+            1: assert (mtr2_tdata == expected_format)
+              else $fatal(1, "AGG sibling format %08h != %08h",
+                          mtr2_tdata, expected_format);
+            3: assert (mtr2_tdata == expected_sequence)
+              else $fatal(1, "AGG sibling sequence");
+            default: ;
+          endcase
+          word_index = word_index + 1;
+        end
+      end
+      @(negedge clock);
+      mtr2_tready = 1'b0;
+    end
+  endtask
+
   task automatic consume_mtr2_record(input integer expected_sequence,
                                      input integer expected_generation,
                                      input logic [31:0] expected_samples,
@@ -847,7 +881,7 @@ module meter_core_tb;
             else $fatal(1, "MTR2 TLAST at word %0d", word_index);
           case (word_index)
             0: assert (mtr2_tdata == 32'h3152_544d) else $fatal(1, "MTR2 magic");
-            1: assert (mtr2_tdata == 32'h0002_0002) else $fatal(1, "MTR2 format");
+            1: assert (mtr2_tdata == 32'h0002_0003) else $fatal(1, "AGG format");
             2: assert (mtr2_tdata == 32'd256) else $fatal(1, "MTR2 length");
             3: assert (mtr2_tdata == expected_sequence) else $fatal(1, "MTR2 sequence");
             4: assert (mtr2_tdata == expected_generation) else $fatal(1, "MTR2 generation");
@@ -870,8 +904,9 @@ module meter_core_tb;
               else $fatal(1, "MTR2 first basic");
             15: assert (mtr2_tdata == expected_last_basic)
               else $fatal(1, "MTR2 last basic");
-            // Uniform blocks: the aggregate equals the per-block RMS in
-            // micro-units (zero-referenced, no DC removal).
+            // Uniform blocks: the whole-interval finalize (M11) of
+            // identical inputs equals the per-block RMS in micro-units,
+            // so the legacy expectations carry over exactly.
             16: assert (mtr2_tdata == 32'd22) else $fatal(1, "MTR2 CH0: %0d", mtr2_tdata);
             17: assert (mtr2_tdata == 0) else $fatal(1, "MTR2 CH0 high");
             18: assert (mtr2_tdata == 32'd20) else $fatal(1, "MTR2 CH1: %0d", mtr2_tdata);
@@ -1117,6 +1152,11 @@ module meter_core_tb;
     $display("TB: consuming MTR2");
     consume_mtr2_record(1, 45, 32'd2400, 32'd7, 32'd21,
                         32'h0096_320f, 32'd1207, 32'd5);
+    // The aggregate quad (M11): drain the AGG-POWER/PHASOR/UNBAL
+    // siblings that follow every AGG-v3 record.
+    drain_agg_sibling(32'h0010_0001, 1);
+    drain_agg_sibling(32'h0011_0001, 1);
+    drain_agg_sibling(32'h0012_0001, 1);
 
     repeat (20) @(posedge clock);
     capture_read(8'h10, read_value);

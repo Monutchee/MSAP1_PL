@@ -20,6 +20,15 @@ use work.measurement_record_bus_pkg.all;
 -- captured mid-packet publish atomically on the TLAST beat, so a register
 -- read never sees a torn mix of two records.
 entity record_word_tap is
+  generic (
+    -- Format word (record word 1) whose diagnostics words 33..35 this
+    -- tap republishes. Streams carry MULTIPLE record formats back to
+    -- back (M8..M11); only one format on a stream owns the diagnostic
+    -- map, and latching those words from its siblings would wipe the
+    -- registers with payload or reserved zeros. All-zeros (the default)
+    -- matches every record — the envelope words are format-invariant.
+    G_DIAG_FORMAT : std_logic_vector(31 downto 0) := (others => '0')
+  );
   port (
     aclk    : in std_logic;
     aresetn : in std_logic;
@@ -51,6 +60,11 @@ end entity;
 
 architecture rtl of record_word_tap is
   signal beat_index : natural range 0 to MEASUREMENT_RECORD_WORDS - 1 := 0;
+  -- Does the in-flight record own the diagnostics map? Decided at its
+  -- format beat (word 1); shadows for 33..35 hold the last owning
+  -- record's values through non-owning siblings, so the atomic publish
+  -- at TLAST always republishes the owner's diagnostics.
+  signal diag_owner : std_logic := '0';
 
   signal shadow_sequence     : std_logic_vector(31 downto 0) := (others => '0');
   signal shadow_status       : std_logic_vector(31 downto 0) := (others => '0');
@@ -97,13 +111,23 @@ begin
         framing_error_count <= (others => '0');
       elsif tvalid_i = '1' and tready_i = '1' then
         case beat_index is
+          when 1 =>
+            if G_DIAG_FORMAT = (G_DIAG_FORMAT'range => '0') or
+               tdata_i = G_DIAG_FORMAT then
+              diag_owner <= '1';
+            else
+              diag_owner <= '0';
+            end if;
           when 3 => shadow_sequence <= tdata_i;
           when 8 => shadow_status <= tdata_i;
           when 11 => shadow_emit_drops <= tdata_i;
           when 12 => shadow_result_drops <= tdata_i;
-          when 33 => shadow_reset <= tdata_i;
-          when 34 => shadow_ineligible <= tdata_i;
-          when 35 => shadow_continuity <= tdata_i;
+          when 33 =>
+            if diag_owner = '1' then shadow_reset <= tdata_i; end if;
+          when 34 =>
+            if diag_owner = '1' then shadow_ineligible <= tdata_i; end if;
+          when 35 =>
+            if diag_owner = '1' then shadow_continuity <= tdata_i; end if;
           when others => null;
         end case;
 

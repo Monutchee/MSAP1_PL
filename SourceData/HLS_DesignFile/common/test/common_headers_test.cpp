@@ -14,7 +14,7 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include "basic_result_beat.hpp"
+#include "agg_block_result.hpp"
 #include "measurement_record.hpp"
 #include "metering_types.hpp"
 #include "metrology_math.hpp"
@@ -25,27 +25,16 @@
 // 1. Compile-time pins.
 // ---------------------------------------------------------------------------
 
-// Pin the beat layout to the values in CycleAggregator/src/
-// cycle_aggregator.hpp (CAGG_IN_*). If either side changes, this file
-// stops compiling — update BOTH normative comments, the VHDL shim, and
-// the equivalence bench together.
-static_assert(BASIC_BEAT_SEQUENCE_LSB == 0, "layout pin");
-static_assert(BASIC_BEAT_GENERATION_LSB == 32, "layout pin");
-static_assert(BASIC_BEAT_SAMPLE_RATE_LSB == 64, "layout pin");
-static_assert(BASIC_BEAT_SAMPLE_COUNT_LSB == 96, "layout pin");
-static_assert(BASIC_BEAT_VALID_MASK_LSB == 128, "layout pin");
-static_assert(BASIC_BEAT_FLAGS_LSB == 136, "layout pin");
-static_assert(BASIC_BEAT_CYCLE_COUNT_LSB == 144, "layout pin");
-static_assert(BASIC_BEAT_NOMINAL_HZ_LSB == 152, "layout pin");
-static_assert(BASIC_BEAT_STATUS_LSB == 160, "layout pin");
-static_assert(BASIC_BEAT_FREQ_LSB == 192, "layout pin");
-static_assert(BASIC_BEAT_FREQ_VALID_BIT == 224, "layout pin");
-static_assert(BASIC_BEAT_APPLY_TOGGLE_BIT == 225, "layout pin");
-static_assert(BASIC_BEAT_FIRST_SAMPLE_LSB == 232, "layout pin");
-static_assert(BASIC_BEAT_RMS_LSB == 296, "layout pin");
-static_assert(BASIC_BEAT_BITS == 808, "layout pin");
-static_assert(BASIC_BEAT_RMS_LSB + MET_RMS_LANES_BITS == BASIC_BEAT_BITS,
-              "RMS lanes must end exactly at the beat MSB");
+// Pin the M11 block-result beat: the accumulator sections must stay
+// bit-congruent with the single-cycle beat (agg_block_result.hpp is
+// normative; the 150/180 shim mirrors the width).
+static_assert(AGGB_SUM_LSB == 512 && AGGB_SQUARE_LSB == 1408 &&
+                  AGGB_RAW_SUM_LSB == 2304 && AGGB_RAW_SQUARE_LSB == 2752 &&
+                  AGGB_MIN_LSB == 3424 && AGGB_MAX_LSB == 3872 &&
+                  AGGB_VLL_SQUARE_LSB == 4320 && AGGB_POWER_SUM_LSB == 4896 &&
+                  AGGB_PHASOR_RE_LSB == 5280 && AGGB_PHASOR_IM_LSB == 6176 &&
+                  AGGB_BEAT_BITS == 7072,
+              "block-result sections must stay congruent with the SCYC beat");
 
 // Record geometry is fixed by the kernel DMA contract.
 static_assert(MREC_WORDS == 64 && MREC_BYTES == 256, "DMA framing contract");
@@ -77,55 +66,79 @@ static int failures = 0;
     }                                                            \
   } while (0)
 
-static void test_basic_result_round_trip() {
-  basic_result_t in;
+static void test_agg_block_round_trip() {
+  agg_block_result_t in = unpack_agg_block_result(agg_block_beat_t(0));
   in.sequence = 0xDEADBEEF;
   in.generation = 7;
-  in.sample_rate_hz = 32000;
-  in.sample_count = 6379;             // cycle mode: not the configured window
-  in.valid_mask = 0x7F;               // CH0..CH6
-  in.flags = (1u << MET_FLAG_LOCKED); // locked, no fallback, not first
-  in.cycle_count = MET_GRID_CYCLES_60HZ;
+  in.first_sample = ap_uint<64>(0x123456789ABCDEF0ULL);
+  in.last_sample = ap_uint<64>(0x123456789ABD0000ULL);
+  in.sample_count = 25600;
+  in.sample_rate_hz = 128000;
   in.nominal_hz = 60;
-  in.status = 0;
+  in.valid_mask = 0x7F;
+  in.flags = (1u << MET_FLAG_LOCKED);
+  in.cycle_count = MET_GRID_CYCLES_60HZ;
+  in.status = 0x5;
   in.frequency_millihz = 59987;
   in.frequency_valid = 1;
   in.apply_toggle = 1;
-  in.first_sample = ap_uint<64>(0x123456789ABCDEF0ULL);
-  for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane)
-    in.rms_q16[lane] = (lane == 3) ? met_q16_t(-1234567891234LL)
-                                   : met_q16_t(0x0123456700000000LL + lane);
+  in.dc_remove = 1;
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+    in.sum[lane] = ap_int<128>(-1234567891234LL) * (lane + 1);
+    in.square[lane] = (ap_uint<128>(1) << 96) + lane;
+    in.raw_sum[lane] = -1000000LL - lane;
+    in.raw_square[lane] = (ap_uint<96>(1) << 80) + lane;
+    in.minimum[lane] = -42 - lane;
+    in.maximum[lane] = 42 + lane;
+    in.phasor_re[lane] = ap_int<128>(1) << (100 + lane % 4);
+    in.phasor_im[lane] = -(ap_int<128>(1) << (99 + lane % 4));
+  }
+  for (int pair = 0; pair < MET_VLL_PAIRS; ++pair)
+    in.vll_square[pair] = (ap_uint<128>(3) << 90) + pair;
+  for (int phase = 0; phase < MET_POWER_PHASES; ++phase)
+    in.power_sum[phase] = -(ap_int<128>(5) << 88) - phase;
 
-  const basic_result_t out = unpack_basic_result(pack_basic_result(in));
+  const agg_block_result_t out =
+      unpack_agg_block_result(pack_agg_block_result(in));
+  CHECK(out.sequence == in.sequence && out.generation == in.generation &&
+            out.first_sample == in.first_sample &&
+            out.last_sample == in.last_sample &&
+            out.sample_count == in.sample_count &&
+            out.sample_rate_hz == in.sample_rate_hz &&
+            out.nominal_hz == in.nominal_hz &&
+            out.valid_mask == in.valid_mask && out.flags == in.flags &&
+            out.cycle_count == in.cycle_count && out.status == in.status &&
+            out.frequency_millihz == in.frequency_millihz &&
+            out.frequency_valid == in.frequency_valid &&
+            out.apply_toggle == in.apply_toggle &&
+            out.dc_remove == in.dc_remove,
+        "block-beat provenance round-trips");
+  bool arrays_ok = true;
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane)
+    arrays_ok = arrays_ok && out.sum[lane] == in.sum[lane] &&
+                out.square[lane] == in.square[lane] &&
+                out.raw_sum[lane] == in.raw_sum[lane] &&
+                out.raw_square[lane] == in.raw_square[lane] &&
+                out.minimum[lane] == in.minimum[lane] &&
+                out.maximum[lane] == in.maximum[lane] &&
+                out.phasor_re[lane] == in.phasor_re[lane] &&
+                out.phasor_im[lane] == in.phasor_im[lane];
+  for (int pair = 0; pair < MET_VLL_PAIRS; ++pair)
+    arrays_ok = arrays_ok && out.vll_square[pair] == in.vll_square[pair];
+  for (int phase = 0; phase < MET_POWER_PHASES; ++phase)
+    arrays_ok = arrays_ok && out.power_sum[phase] == in.power_sum[phase];
+  CHECK(arrays_ok, "block-beat accumulators round-trip");
 
-  CHECK(out.sequence == in.sequence, "sequence");
-  CHECK(out.generation == in.generation, "generation");
-  CHECK(out.sample_rate_hz == in.sample_rate_hz, "sample_rate");
-  CHECK(out.sample_count == in.sample_count, "sample_count");
-  CHECK(out.valid_mask == in.valid_mask, "valid_mask");
-  CHECK(out.flags == in.flags, "flags");
-  CHECK(out.cycle_count == in.cycle_count, "cycle_count");
-  CHECK(out.nominal_hz == in.nominal_hz, "nominal_hz");
-  CHECK(out.status == in.status, "status");
-  CHECK(out.frequency_millihz == in.frequency_millihz, "frequency_millihz");
-  CHECK(out.frequency_valid == in.frequency_valid, "frequency_valid");
-  CHECK(out.apply_toggle == in.apply_toggle, "apply_toggle");
-  CHECK(out.first_sample == in.first_sample, "first_sample");
-  for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane)
-    CHECK(out.rms_q16[lane] == in.rms_q16[lane], "rms lane");
-
-  // Field independence: a beat with exactly one field set must read back
-  // zero everywhere else (catches overlapping ranges). Note ap_uint's
-  // default constructor does NOT zero the value, so unpacking an
-  // explicitly zero beat is the reliable way to get an all-zero struct.
-  basic_result_t lone = unpack_basic_result(basic_result_beat_t(0));
+  // Field independence: one field set, everything else zero.
+  agg_block_result_t lone = unpack_agg_block_result(agg_block_beat_t(0));
   lone.frequency_millihz = 0xFFFFFFFF;
-  const basic_result_t lone_out = unpack_basic_result(pack_basic_result(lone));
-  CHECK(lone_out.frequency_millihz == 0xFFFFFFFF, "lone field survives");
-  CHECK(lone_out.sequence == 0 && lone_out.status == 0 &&
-            lone_out.first_sample == 0 && lone_out.frequency_valid == 0 &&
-            lone_out.rms_q16[0] == 0,
-        "no field overlap");
+  const agg_block_result_t lone_out =
+      unpack_agg_block_result(pack_agg_block_result(lone));
+  CHECK(lone_out.frequency_millihz == 0xFFFFFFFF &&
+            lone_out.sequence == 0 && lone_out.status == 0 &&
+            lone_out.first_sample == 0 && lone_out.sum[0] == 0 &&
+            lone_out.phasor_im[6] == 0,
+        "no block-beat field overlap");
 }
 
 static void test_serialize_record_framing() {
@@ -327,7 +340,7 @@ static void test_sequence_components() {
 }
 
 int main() {
-  test_basic_result_round_trip();
+  test_agg_block_round_trip();
   test_serialize_record_framing();
   test_metrology_primitives();
   test_cordic_atan2();

@@ -379,7 +379,7 @@ static single_cycle_result_t make_cycle(const CycleSpec &c, GoldenBlock &g) {
 struct Bench {
   hls::stream<agg10_12_input_beat_t> s_result{"s_result"};
   hls::stream<record_axis_t> m_axis{"m_axis"};
-  hls::stream<basic_result_beat_t> m_result{"m_result"};
+  hls::stream<agg_block_beat_t> m_result{"m_result"};
   bool apply_level = false;
   unsigned cfg_generation = 1;
   bool enable = true;
@@ -460,6 +460,14 @@ static long long read_s64(const ap_uint<32> (&words)[MREC_WORDS], int low) {
                      ((unsigned long long)words[low + 1] << 32));
 }
 
+// Exact 128-bit equality between a beat accumulator and a golden value.
+static bool acc128_equal(const ap_uint<128> value, unsigned __int128 golden) {
+  return (unsigned long long)value.range(63, 0) ==
+             (unsigned long long)golden &&
+         (unsigned long long)value.range(127, 64) ==
+             (unsigned long long)(golden >> 64);
+}
+
 // Drive one whole block of `cycles` cycles; returns via out-params.
 static void run_block(Bench &b, CycleSpec &c, unsigned cycles, GoldenBlock &g,
                       bool apply_on_first = false) {
@@ -485,7 +493,7 @@ int main() {
     GoldenBlock g;
     run_block(b, c, 12, g, /*apply_on_first=*/true);
     CHECK(b.m_result.size() == 1, "12 cycles at 60 Hz close one block");
-    const basic_result_t r = unpack_basic_result(b.m_result.read());
+    const agg_block_result_t r = unpack_agg_block_result(b.m_result.read());
     take_record(b, words);
 
     CHECK(words[MREC_FORMAT_WORD] == MREC_FORMAT_BASIC_V4, "record format");
@@ -533,8 +541,12 @@ int main() {
       CHECK((unsigned long long)words[base + MTR1_CH_RMS_COUNT] ==
                 (raw_rms & 0xFFFFFFFFull),
             "lane %d raw RMS counts exact", lane);
-      CHECK((unsigned long long)(long long)r.rms_q16[lane] == rms_q16,
-            "lane %d beat RMS Q16 exact", lane);
+      CHECK(acc128_equal(ap_uint<128>(r.sum[lane]),
+                         (unsigned __int128)g.sum[lane]) &&
+                acc128_equal(r.square[lane], g.square[lane]) &&
+                acc128_equal(ap_uint<128>(r.phasor_re[lane]),
+                             (unsigned __int128)g.ph_re[lane]),
+            "lane %d beat accumulators exact", lane);
     }
     for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
       const unsigned long long vll_q16 =
@@ -774,7 +786,7 @@ int main() {
   {
     GoldenBlock g;
     run_block(b, c, 12, g);
-    const basic_result_t r = unpack_basic_result(b.m_result.read());
+    const agg_block_result_t r = unpack_agg_block_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
     take_phasor_record(b, words);
@@ -798,7 +810,7 @@ int main() {
     const unsigned long long block_start = (unsigned long long)r0.first_sample;
     run_block(b, c, 11, g2);
     CHECK(b.m_result.size() == 1, "gap restart: 12 cycles from the mark");
-    const basic_result_t r = unpack_basic_result(b.m_result.read());
+    const agg_block_result_t r = unpack_agg_block_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
     take_phasor_record(b, words);
@@ -820,7 +832,7 @@ int main() {
     c.sequence += 1; c.cycle_sequence += 1; c.first_sample += c.samples;
     run_block(b, c, 9, g2);
     CHECK(b.m_result.size() == 1, "10 cycles at 50 Hz close one block");
-    const basic_result_t r = unpack_basic_result(b.m_result.read());
+    const agg_block_result_t r = unpack_agg_block_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
     take_phasor_record(b, words);
@@ -829,10 +841,8 @@ int main() {
           "50 Hz block closes at 10 cycles");
     CHECK((r.status & 0x4u) == 0x4u, "sequence break marks the next block");
     for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
-      const unsigned long long rms_q16 =
-          golden_rms_q16(g2.square[lane], g2.sum[lane], g2.count, true);
-      CHECK((unsigned long long)(long long)r.rms_q16[lane] == rms_q16,
-            "50 Hz lane %d RMS exact", lane);
+      CHECK(acc128_equal(r.square[lane], g2.square[lane]),
+            "50 Hz lane %d beat square accumulator exact", lane);
     }
   }
 
@@ -857,7 +867,7 @@ int main() {
       c.seed += 1;
     }
     CHECK(b.m_result.size() == 1, "fallback block still closes");
-    const basic_result_t r = unpack_basic_result(b.m_result.read());
+    const agg_block_result_t r = unpack_agg_block_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
     take_phasor_record(b, words);
@@ -880,22 +890,21 @@ int main() {
       b.send(r);
       sat.sequence += 1; sat.cycle_sequence += 1; sat.first_sample += sat.samples;
     }
-    const basic_result_t r = unpack_basic_result(b.m_result.read());
+    const agg_block_result_t r = unpack_agg_block_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
     take_phasor_record(b, words);
     take_unbalance_record(b, words);
     CHECK((r.status & 0x1u) == 0x1u,
           "upstream saturation folds into the sticky flag");
-    CHECK((r.rms_q16[0] == ap_int<64>(ap_uint<64>(~ap_uint<64>(0)))) ||
-              r.rms_q16[0] != 0,
-          "saturated lane finalizes clamped, not silent");
+    CHECK(r.square[0] == ~ap_uint<128>(0),
+          "saturated lane's beat accumulator stays clamped at all-ones");
     c = sat;
 
     // APPLY clears the sticky flag: the next full block is clean again.
     GoldenBlock g2;
     run_block(b, c, 10, g2, /*apply_on_first=*/true);
-    const basic_result_t r2 = unpack_basic_result(b.m_result.read());
+    const agg_block_result_t r2 = unpack_agg_block_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
     take_phasor_record(b, words);
@@ -914,7 +923,7 @@ int main() {
       b.send(r);
       z.sequence += 1; z.cycle_sequence += 1; z.first_sample += z.samples;
     }
-    (void)unpack_basic_result(b.m_result.read());
+    (void)unpack_agg_block_result(b.m_result.read());
     take_record(b, words);
     ap_uint<32> pw[MREC_WORDS];
     take_power_record(b, pw);
@@ -962,7 +971,7 @@ int main() {
       lead.cycle_sequence += 1;
       lead.first_sample += lead.samples;
     }
-    (void)unpack_basic_result(b.m_result.read());
+    (void)unpack_agg_block_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
     ap_uint<32> ph[MREC_WORDS];
@@ -991,7 +1000,7 @@ int main() {
       quad.cycle_sequence += 1;
       quad.first_sample += quad.samples;
     }
-    (void)unpack_basic_result(b.m_result.read());
+    (void)unpack_agg_block_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
     take_phasor_record(b, ph);
@@ -1029,7 +1038,7 @@ int main() {
       inv.first_sample += inv.samples;
     }
     inv.status = 0;
-    (void)unpack_basic_result(b.m_result.read());
+    (void)unpack_agg_block_result(b.m_result.read());
     take_record(b, words);
     CHECK((words[MREC_STATUS_WORD] & 0x2u) == 0,
           "BASIC status does not carry the phasor-invalid bit");
@@ -1046,7 +1055,7 @@ int main() {
 
     GoldenBlock g2;
     run_block(b, c, 10, g2);
-    (void)unpack_basic_result(b.m_result.read());
+    (void)unpack_agg_block_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
     take_phasor_record(b, ph);
@@ -1067,7 +1076,7 @@ int main() {
       no_va.cycle_sequence += 1;
       no_va.first_sample += no_va.samples;
     }
-    (void)unpack_basic_result(b.m_result.read());
+    (void)unpack_agg_block_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
     ap_uint<32> ph[MREC_WORDS];
@@ -1102,7 +1111,7 @@ int main() {
       acb.cycle_sequence += 1;
       acb.first_sample += acb.samples;
     }
-    (void)unpack_basic_result(b.m_result.read());
+    (void)unpack_agg_block_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
     ap_uint<32> ph[MREC_WORDS];
@@ -1153,7 +1162,7 @@ int main() {
       dead.cycle_sequence += 1;
       dead.first_sample += dead.samples;
     }
-    (void)unpack_basic_result(b.m_result.read());
+    (void)unpack_agg_block_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
     take_phasor_record(b, words);

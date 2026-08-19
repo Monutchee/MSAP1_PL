@@ -58,9 +58,9 @@ entity meter_agg10_12_cycle_hls_shim is
     m_axis_basic_tready : in  std_logic;
     m_axis_basic_tlast  : out std_logic;
 
-    -- Basic-result beats to the 150/180-cycle aggregator (contract
-    -- unchanged from the retired producer).
-    m_result_tdata  : out std_logic_vector(807 downto 0);
+    -- Block-result beats to the 150/180-cycle aggregator (M11 contract:
+    -- agg_block_result.hpp — provenance + merge-safe accumulators).
+    m_result_tdata  : out std_logic_vector(7071 downto 0);
     m_result_tvalid : out std_logic;
     m_result_tready : in  std_logic;
 
@@ -107,7 +107,7 @@ architecture rtl of meter_agg10_12_cycle_hls_shim is
       m_axis_TKEEP    : out std_logic_vector(3 downto 0);
       m_axis_TSTRB    : out std_logic_vector(3 downto 0);
       m_axis_TLAST    : out std_logic_vector(0 downto 0);
-      m_result_TDATA  : out std_logic_vector(807 downto 0);
+      m_result_TDATA  : out std_logic_vector(7071 downto 0);
       m_result_TVALID : out std_logic;
       m_result_TREADY : in  std_logic
     );

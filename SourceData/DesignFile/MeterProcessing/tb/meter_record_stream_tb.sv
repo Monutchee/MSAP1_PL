@@ -90,7 +90,7 @@ module meter_record_stream_tb;
   wire basic_tvalid;
   logic basic_tready;
   wire basic_tlast;
-  wire [807:0] result_tdata;
+  wire [7071:0] result_tdata;
   wire result_tvalid;
   wire result_tready;
   wire [31:0] mtr2_tdata;
@@ -168,7 +168,7 @@ module meter_record_stream_tb;
     .apply_seen_o(apply_seen)
   );
 
-  meter_mtr2_hls_shim aggregator (
+  meter_agg150_180_hls_shim aggregator (
     .aclk(clock), .aresetn(resetn),
     .s_result_tdata(result_tdata),
     .s_result_tvalid(result_tvalid),
@@ -195,7 +195,7 @@ module meter_record_stream_tb;
     .reset_count_o(), .ineligible_count_o(), .continuity_count_o(),
     .framing_error_o(basic_framing_error), .framing_error_count_o()
   );
-  record_word_tap mtr2_tap (
+  record_word_tap #(.G_DIAG_FORMAT(32'h0002_0003)) mtr2_tap (
     .aclk(clock), .aresetn(resetn),
     .tdata_i(mtr2_tdata), .tvalid_i(mtr2_tvalid),
     .tready_i(mtr2_tready), .tlast_i(mtr2_tlast),
@@ -230,8 +230,15 @@ module meter_record_stream_tb;
   // the collector array starts refilling before a checker fires.
   logic [31:0] done_word [0:63];
   int mtr2_records = 0;
+  int agg_power_records = 0;
+  int agg_phasor_records = 0;
+  int agg_unbal_records = 0;
   int mtr2_beat = 0;
   logic [31:0] mtr2_word [0:63];
+  // Completed-record snapshot: the aggregate quad streams back to back,
+  // so the collector refills before a checker fires (the same race the
+  // basic side hit in M8).
+  logic [31:0] mtr2_done [0:63];
 
   // --- golden helpers ------------------------------------------------------
   function automatic logic [63:0] lane_dc(input int lane);
@@ -425,14 +432,18 @@ module meter_record_stream_tb;
 
   task automatic check_mtr2_record();
     // One aggregate over eligible blocks 2..16 (block 1 carries the
-    // first-block flag and must be rejected as ineligible).
+    // first-block flag and must be rejected as ineligible). AGG-v3
+    // (M11): the whole-interval finalize of constant-DC lanes equals the
+    // constants, so every legacy expectation carries over; the additive
+    // words (36/37 last sample, 38..40 VLL) are exact too.
     logic [63:0] fs = block_first_sample(2);
+    logic [63:0] ls = block_first_sample(17) - 1;
     logic [31:0] expected;
     for (int i = 0; i < 64; ++i) begin
       expected = 32'h0;
       case (i)
         0: expected = 32'h3152_544D;
-        1: expected = 32'h0002_0002;
+        1: expected = 32'h0002_0003;
         2: expected = 32'd256;
         3: expected = 32'd1;
         4: expected = GENERATION;
@@ -449,6 +460,11 @@ module meter_record_stream_tb;
         33: expected = 32'h0;  // reset_count
         34: expected = 32'd1;  // ineligible_count (the flagged block 1)
         35: expected = 32'h0;  // continuity_count
+        36: expected = ls[31:0];   // interval last-sample anchor
+        37: expected = ls[63:32];
+        38: expected = 32'd1;      // |Va-Vb| of the constant lanes
+        39: expected = 32'd1;      // |Vb-Vc|
+        40: expected = 32'd2;      // |Vc-Va|
         default: begin
           // Aggregate RMS of identical inputs equals the input: lane+1
           // units in the low word of each channel pair.
@@ -460,9 +476,9 @@ module meter_record_stream_tb;
           end
         end
       endcase
-      assert (mtr2_word[i] == expected)
+      assert (mtr2_done[i] == expected)
         else $fatal(1, "MTR2 record word %0d: got %08h expected %08h",
-                    i, mtr2_word[i], expected);
+                    i, mtr2_done[i], expected);
     end
   endtask
 
@@ -501,7 +517,19 @@ module meter_record_stream_tb;
           else $fatal(1, "MTR2 TLAST at beat %0d", mtr2_beat);
         if (mtr2_beat == 63) begin
           mtr2_beat <= 0;
-          mtr2_records <= mtr2_records + 1;
+          for (int i = 0; i < 63; ++i)
+            mtr2_done[i] <= mtr2_word[i];
+          mtr2_done[63] <= mtr2_tdata;
+          // The aggregate stream interleaves AGG-v3 and its siblings:
+          // route by word 1 (all four are checked one cycle later).
+          if (mtr2_word[1] == 32'h0010_0001)
+            agg_power_records <= agg_power_records + 1;
+          else if (mtr2_word[1] == 32'h0011_0001)
+            agg_phasor_records <= agg_phasor_records + 1;
+          else if (mtr2_word[1] == 32'h0012_0001)
+            agg_unbal_records <= agg_unbal_records + 1;
+          else
+            mtr2_records <= mtr2_records + 1;
         end else begin
           mtr2_beat <= mtr2_beat + 1;
         end
@@ -518,6 +546,54 @@ module meter_record_stream_tb;
   int phasor_checked = 0;
   int unbal_checked = 0;
   int mtr2_checked = 0;
+  // AGG sibling checkers. Constant DC makes the whole-interval power
+  // quantities equal the basic ones EXACTLY: P = S = v*i unit^2, PF 1.0,
+  // crest 1.0. Phasor/unbalance siblings are pinned structurally (their
+  // exact values live in the engine's golden bench).
+  task automatic check_agg_power_record();
+    logic [63:0] fs = block_first_sample(2);
+    assert (mtr2_done[0] == 32'h3152_544D && mtr2_done[2] == 32'd256 &&
+            mtr2_done[3] == 32'd1 && mtr2_done[4] == GENERATION &&
+            mtr2_done[9] == fs[31:0] && mtr2_done[10] == fs[63:32])
+      else $fatal(1, "AGG-POWER envelope");
+    assert (mtr2_done[13] == (32'd15 | (32'd50 << 8) | (32'd150 << 16)) &&
+            mtr2_done[14] == 32'd2 && mtr2_done[15] == 32'd16)
+      else $fatal(1, "AGG-POWER shape/sequence-range words");
+    assert (mtr2_done[16] == 32'd7 && mtr2_done[18] == 32'd7 &&
+            mtr2_done[20] == 32'd1000000 && mtr2_done[21] == 32'd12 &&
+            mtr2_done[26] == 32'd15 && mtr2_done[31] == 32'd34 &&
+            mtr2_done[33] == 32'd34 && mtr2_done[35] == 32'd1000000)
+      else $fatal(1, "AGG-POWER constant-DC values");
+    for (int i = 36; i < 43; ++i)
+      assert (mtr2_done[i] == 32'd10000)
+        else $fatal(1, "AGG-POWER crest word %0d", i);
+  endtask
+
+  task automatic check_agg_phasor_record();
+    assert (mtr2_done[0] == 32'h3152_544D && mtr2_done[3] == 32'd1 &&
+            mtr2_done[14] == 32'd2 && mtr2_done[15] == 32'd16)
+      else $fatal(1, "AGG-PHASOR envelope");
+    assert (mtr2_done[29] == 32'h0)
+      else $fatal(1, "AGG-PHASOR: Va angle must be exactly 0");
+    assert (mtr2_done[51][8])
+      else $fatal(1, "AGG-PHASOR: angle reference must be valid");
+  endtask
+
+  task automatic check_agg_unbal_record();
+    assert (mtr2_done[0] == 32'h3152_544D && mtr2_done[3] == 32'd1 &&
+            mtr2_done[14] == 32'd2 && mtr2_done[15] == 32'd16)
+      else $fatal(1, "AGG-UNBAL envelope");
+    assert (mtr2_done[32][8])
+      else $fatal(1, "AGG-UNBAL: angle reference must be valid");
+    for (int i = 33; i < 64; ++i)
+      assert (mtr2_done[i] == 32'h0)
+        else $fatal(1, "AGG-UNBAL reserved word %0d nonzero", i);
+  endtask
+
+  int agg_power_checked = 0;
+  int agg_phasor_checked = 0;
+  int agg_unbal_checked = 0;
+
   always @(posedge clock) begin
     if (basic_records > basic_checked) begin
       check_basic_record();
@@ -538,6 +614,18 @@ module meter_record_stream_tb;
     if (mtr2_records > mtr2_checked) begin
       check_mtr2_record();
       mtr2_checked <= mtr2_records;
+    end
+    if (agg_power_records > agg_power_checked) begin
+      check_agg_power_record();
+      agg_power_checked <= agg_power_records;
+    end
+    if (agg_phasor_records > agg_phasor_checked) begin
+      check_agg_phasor_record();
+      agg_phasor_checked <= agg_phasor_records;
+    end
+    if (agg_unbal_records > agg_unbal_checked) begin
+      check_agg_unbal_record();
+      agg_unbal_checked <= agg_unbal_records;
     end
   end
 
@@ -616,10 +704,15 @@ module meter_record_stream_tb;
       else $fatal(1, "UNBAL records %0d, expected %0d", unbal_records,
                   BLOCKS);
     assert (mtr2_records == 1)
-      else $fatal(1, "MTR2 records %0d, expected 1", mtr2_records);
+      else $fatal(1, "AGG records %0d, expected 1", mtr2_records);
+    assert (agg_power_records == 1 && agg_phasor_records == 1 &&
+            agg_unbal_records == 1)
+      else $fatal(1, "AGG siblings %0d/%0d/%0d, expected 1 each",
+                  agg_power_records, agg_phasor_records, agg_unbal_records);
     assert (basic_checked == BLOCKS && power_checked == BLOCKS &&
             phasor_checked == BLOCKS && unbal_checked == BLOCKS &&
-            mtr2_checked == 1)
+            mtr2_checked == 1 && agg_power_checked == 1 &&
+            agg_phasor_checked == 1 && agg_unbal_checked == 1)
       else $fatal(1, "content checks incomplete");
     assert (scyc_drop_count == 0)
       else $fatal(1, "single-cycle shim dropped %0d beats", scyc_drop_count);

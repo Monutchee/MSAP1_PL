@@ -8,13 +8,13 @@ set work_root [file join /tmp msap1_metering_pipeline]
 # Packaged HLS RTL (IP repository entry); refreshed by 'mnc HLS build' or
 # SourceData/HLS_DesignFile/run_hls.sh <component>.
 set hls_mtr2_hdl [file join $project_root SourceData HLS_DesignFile \
-  ip_repo Mtr2Engine hdl verilog]
+  ip_repo Agg150_180CycleEngine hdl verilog]
 if {![file isdirectory $hls_mtr2_hdl]} {
   error "missing $hls_mtr2_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
 }
 set hls_mtr2_verilog [concat \
   [lsort [glob -directory $hls_mtr2_hdl *.v]] \
-  [list [file join $design_root MeterProcessing tb hls_mtr2_engine_ip.v]]]
+  [list [file join $design_root MeterProcessing tb hls_agg150_180_cycle_engine_ip.v]]]
 set hls_scyc_hdl [file join $project_root SourceData HLS_DesignFile \
   ip_repo SingleCycleEngine hdl verilog]
 if {![file isdirectory $hls_scyc_hdl]} {
@@ -64,7 +64,7 @@ set common_vhdl [list \
   [file join $design_root MeterProcessing record_word_tap.vhd] \
   [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_agg10_12_cycle_hls_shim.vhd] \
-  [file join $design_root MeterProcessing meter_mtr2_hls_shim.vhd]]
+  [file join $design_root MeterProcessing meter_agg150_180_hls_shim.vhd]]
 
 set wrapper_vhdl [list \
   [file join $design_root AdcConversion AdcConversion_Wrapper.vhd]]

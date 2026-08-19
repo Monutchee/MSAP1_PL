@@ -46,6 +46,8 @@ static const int MREC_BYTES = 256;
 //   0x0007 power             0x000A single-cycle diagnostic
 //   0x0008 phasor            0x000B sliding RMS / PQ trigger
 //   0x0009 unbalance         0x000C..0x000F 10-min/2-h/flicker/mains
+//   0x0010 aggregate power   0x0012 aggregate unbalance
+//   0x0011 aggregate phasor
 // ---------------------------------------------------------------------------
 // Plain integer constants so they can parameterize serialize_record<>.
 static const uint32_t MREC_MAGIC = 0x3152544Du;  // ASCII "MTR1", little-endian
@@ -111,6 +113,31 @@ static const uint32_t MREC_FORMAT_PHASOR_V1 = 0x00080001u;  // 10/12-cycle phaso
 // bit 1 mirrors the PHASOR record (frequency-reference loss poisons the
 // same correlation these components come from).
 static const uint32_t MREC_FORMAT_UNBAL_V1 = 0x00090001u;  // 10/12-cycle unbalance
+// AGG v3 (M11): the 150/180-cycle tier record emitted by
+// Agg150_180CycleEngine, which merges Agg10_12Result block accumulators
+// and retires Mtr2Engine + the 808-bit basic_result_beat. Interior keeps
+// the MTR2-v2 map (shape word 13, folded-sequence range 14/15, per-lane
+// RMS 16..31, mean frequency 32, diagnostics 33..35) with additive
+// changes:
+//   words 36/37 : the interval's last-sample index (low/high)
+//   words 38..40: VAB/VBC/VCA aggregate RMS, micro-units, 32-bit
+// SEMANTIC upgrade vs MTR2-v2 (pre-production, no compat): per-lane RMS
+// is finalized from the summed RAW accumulators over the whole interval
+// (mean-corrected under the committed dc_remove, sample-weighted) — no
+// longer sqrt(mean of the 15 block-RMS squares). Golden equivalence, not
+// bit-identity, is the acceptance rule.
+static const uint32_t MREC_FORMAT_AGG_V3 = 0x00020003u;  // 150/180-cycle basic
+// AGG-POWER/PHASOR/UNBAL v1 (M11): the aggregate tier's companions,
+// emitted back to back after each AGG-v3 record on the same stream with
+// the same sequence/anchors/status. Their PAYLOAD word maps are
+// IDENTICAL to the basic-period POWER-v1 / PHASOR-v1 / UNBAL-v1 maps
+// (words 16+); the format-header extension differs: word 13 carries the
+// MTR2 shape word and words 14/15 the folded basic-sequence range,
+// mirroring AGG-v3. Only the format word tells the periods apart — the
+// records interleave on ONE DMA stream.
+static const uint32_t MREC_FORMAT_AGG_POWER_V1  = 0x00100001u;
+static const uint32_t MREC_FORMAT_AGG_PHASOR_V1 = 0x00110001u;
+static const uint32_t MREC_FORMAT_AGG_UNBAL_V1  = 0x00120001u;
 
 // ---------------------------------------------------------------------------
 // Common envelope — words 0..12 mean the same thing in EVERY format, so
@@ -283,6 +310,11 @@ static_assert(MTR2_CH_BASE_WORD + MET_CHANNEL_LANES * MTR2_CH_STRIDE_WORDS ==
 static const int MTR2_RESET_COUNT_WORD      = 33;  // partial aggregates discarded
 static const int MTR2_INELIGIBLE_COUNT_WORD = 34;  // basic inputs rejected
 static const int MTR2_CONTINUITY_COUNT_WORD = 35;
+
+// AGG-v3 additions on top of the MTR2 map (see the format note above).
+static const int AGG_LAST_SAMPLE_LOW_WORD  = 36;
+static const int AGG_LAST_SAMPLE_HIGH_WORD = 37;
+static const int AGG_VLL_BASE_WORD         = 38;  // 3 x 32-bit micro-units
 
 // ---------------------------------------------------------------------------
 // SCYC-v4 interior: the single-cycle diagnostic record. One record per

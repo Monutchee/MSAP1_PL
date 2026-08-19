@@ -3,7 +3,7 @@
 
 #include <hls_stream.h>
 
-#include "basic_result_beat.hpp"
+#include "agg_block_result.hpp"
 #include "measurement_record.hpp"
 #include "metering_types.hpp"
 #include "single_cycle_result.hpp"
@@ -36,9 +36,10 @@
 //                          unbalance ratios (M10).
 //              The PHASOR and UNBAL records carry the phasor-invalid
 //              status bit (bit 1); BASIC/POWER never do.
-//   m_result : one basic_result_beat_t per finalized block — the 150/180
-//              tier's input contract, emitted here UNCHANGED so
-//              Mtr2Engine keeps producing until M11 replaces it.
+//   m_result : one agg_block_beat_t per finalized block (M11) — the
+//              block's provenance plus its merge-safe ACCUMULATORS, the
+//              150/180 tier's input contract (agg_block_result.hpp).
+//              The 808-bit basic_result_beat and Mtr2Engine are retired.
 //
 // Block rules (the handover's validity/generation contract, one tier up):
 //   - a block is N = met_expected_cycles(nominal) CONSECUTIVE whole
@@ -94,6 +95,6 @@ typedef ap_uint<AGG_IN_BITS> agg10_12_input_beat_t;
 
 void hls_agg10_12_cycle_engine(hls::stream<agg10_12_input_beat_t> &s_result,
                          hls::stream<record_axis_t> &m_axis,
-                         hls::stream<basic_result_beat_t> &m_result);
+                         hls::stream<agg_block_beat_t> &m_result);
 
 #endif  // AGG10_12_CYCLE_ENGINE_HPP

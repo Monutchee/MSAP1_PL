@@ -242,7 +242,7 @@ architecture structural of meter_core is
   -- drained unconditionally until then so the engine can never stall.
   signal scyc_result_tdata  : std_logic_vector(7071 downto 0);
   signal scyc_result_tvalid : std_logic;
-  signal mtr1_result_tdata    : std_logic_vector(807 downto 0);
+  signal mtr1_result_tdata    : std_logic_vector(7071 downto 0);
   signal mtr1_result_tvalid   : std_logic;
   signal mtr1_result_tready   : std_logic;
 
@@ -827,10 +827,12 @@ begin
   processing_status <= (31 downto 4 => '0') & mtr1_tap_status(0) & '0' &
                        (apply_toggle xor apply_seen) & active_enable;
 
-  -- MTR2 producer: the 150/180-cycle aggregation engine consumes the
-  -- MTR1 engine's basic-result beats and emits complete MTR2-v2 records
-  -- (HLS_DesignFile/MeterProcessing/Mtr2Engine, hosted by its shim).
-  mtr2_producer : entity work.meter_mtr2_hls_shim
+  -- Aggregate producer (M11): the 150/180-cycle aggregation engine
+  -- consumes the 10/12-cycle tier's block-result beats (provenance +
+  -- merge-safe accumulators) and emits the complete AGG record quad
+  -- (HLS_DesignFile/MeterProcessing/Agg150_180CycleEngine, hosted by its
+  -- pure-hosting shim). Mtr2Engine and the 808-bit basic beat retired.
+  mtr2_producer : entity work.meter_agg150_180_hls_shim
     port map (
       aclk => aclk,
       aresetn => aresetn,
@@ -907,6 +909,11 @@ begin
     );
 
   mtr2_tap : entity work.record_word_tap
+    generic map (
+      -- Words 33..35 belong to AGG-v3; the sibling records reuse them
+      -- as payload/reserved space and must not reach the registers.
+      G_DIAG_FORMAT => x"00020003"
+    )
     port map (
       aclk => aclk,
       aresetn => aresetn,

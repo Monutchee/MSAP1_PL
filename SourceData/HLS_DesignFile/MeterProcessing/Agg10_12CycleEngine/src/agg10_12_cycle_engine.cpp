@@ -1,5 +1,6 @@
 #include "agg10_12_cycle_engine.hpp"
 
+#include "metrology_finalize.hpp"
 #include "metrology_math.hpp"
 #include "metrology_stats.hpp"
 #include "metrology_trig.hpp"
@@ -9,63 +10,22 @@
 //
 // Structure: one free-running single-shot process (the house pattern):
 // each invocation consumes at most one result beat; the invocation
-// closing a block runs the whole finalize + both emissions inline. Input
+// closing a block runs the whole finalize + every emission inline. Input
 // cadence is one beat per grid cycle (~16-20 ms), four orders of
 // magnitude slower than the sample-domain engines, so the brief finalize
 // backpressure is absorbed by the AXIS register slices upstream.
 //
-// Arithmetic is shaped for area (rolled per-lane loops, PIPELINE off):
-// the wide adders and the divider/root pipeline exist once each.
-
-namespace {
-
-// One lane's finalized results — the retired Mtr1 CALC_* sequence.
-struct lane_result_t {
-  ap_int<64> mean_q16;
-  ap_uint<64> rms_q16;
-  ap_uint<32> rms_count;
-  ap_uint<1> overflow;
-};
-
-lane_result_t finalize_lane(const ap_int<128> sum, const ap_uint<128> square,
-                            const ap_int<64> raw_sum,
-                            const ap_uint<96> raw_square,
-                            const ap_uint<32> count,
-                            const ap_uint<1> dc_remove) {
-#pragma HLS INLINE off
-  lane_result_t r;
-  r.overflow = 0;
-  r.mean_q16 = met_floor_mean_signed<128, 64>(sum, count);
-  r.rms_q16 = met_rms_from_accumulators<128, 128>(square, sum, count,
-                                                  dc_remove, r.overflow);
-  const ap_uint<64> raw_root = met_rms_from_accumulators<96, 64>(
-      raw_square, raw_sum, count, dc_remove, r.overflow);
-  r.rms_count = raw_root.range(31, 0);
-  return r;
-}
-
-// Load nature from Q1's sign under the S1 = 0 gate (metering_types.hpp).
-ap_uint<2> classify_nature(const ap_int<64> q1_pvar,
-                           const ap_uint<64> s1_pva) {
-#pragma HLS INLINE
-  if (s1_pva == 0) {
-    return ap_uint<2>(MET_NATURE_UNDEFINED);
-  }
-  if (q1_pvar == 0) {
-    return ap_uint<2>(MET_NATURE_UNITY);
-  }
-  return q1_pvar > 0 ? ap_uint<2>(MET_NATURE_LAGGING)
-                     : ap_uint<2>(MET_NATURE_LEADING);
-}
-
-}  // namespace
+// The derived-quantity arithmetic lives in the shared
+// metrology_finalize.hpp (one definition for this tier and the 150/180
+// tier); this file owns the block rules, the merge, the block-result
+// beat, and the record-word assembly.
 
 void hls_agg10_12_cycle_engine(hls::stream<agg10_12_input_beat_t> &s_result,
                          hls::stream<record_axis_t> &m_axis,
-                         hls::stream<basic_result_beat_t> &m_result) {
+                         hls::stream<agg_block_beat_t> &m_result) {
   // s_result unregistered (shim registers its side); both masters keep
-  // boundary registers (a raw HLS axis master gates TVALID on TREADY —
-  // AXI-illegal — and m_result feeds the Mtr2 shim directly).
+  // boundary registers (a raw HLS axis master gates TVALID on TREADY --
+  // AXI-illegal -- and m_result feeds the 150/180 tier's shim directly).
 #pragma HLS INTERFACE mode=axis port=s_result register_mode=off
 #pragma HLS INTERFACE mode=axis port=m_result register_mode=both
 #pragma HLS INTERFACE mode=axis port=m_axis
@@ -97,7 +57,7 @@ void hls_agg10_12_cycle_engine(hls::stream<agg10_12_input_beat_t> &s_result,
   // First finalized block after reset/APPLY/any discard carries the mark.
   static ap_uint<1> disc_pending = 1;
   // Any merged cycle without a usable frequency reference poisons the
-  // block's phasor products (PHASOR record status bit 1).
+  // block's phasor products (PHASOR/UNBAL record status bit 1).
   static ap_uint<1> block_phasor_invalid = 0;
 
   // Merged block accumulators — bit-identical to the retired Mtr1 block
@@ -259,186 +219,18 @@ merge_phasor:
   }
   cycles_in_block = 0;
 
-  // ---- Finalize this block inline --------------------------------------
+  // ---- Finalize this block inline (shared arithmetic) ------------------
   const ap_uint<8> result_mask =
       (active_valid_mask & block_mask) & ap_uint<8>(0x7F);
   const ap_uint<32> count_now = block_sample_count;
   sequence += 1;
 
-  ap_int<64> mean_q16[MET_ACTIVE_CHANNELS];
-#pragma HLS ARRAY_PARTITION variable=mean_q16 complete
-  ap_uint<64> rms_q16[MET_ACTIVE_CHANNELS];
-#pragma HLS ARRAY_PARTITION variable=rms_q16 complete
-  ap_uint<32> rms_count[MET_ACTIVE_CHANNELS];
-#pragma HLS ARRAY_PARTITION variable=rms_count complete
-finalize_lanes:
-  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
-#pragma HLS PIPELINE off
-    const lane_result_t lr =
-        finalize_lane(acc_sum[lane], acc_square[lane], acc_raw_sum[lane],
-                      acc_raw_square[lane], count_now, active_dc_remove);
-    mean_q16[lane] = lr.mean_q16;
-    rms_q16[lane] = lr.rms_q16;
-    rms_count[lane] = lr.rms_count;
-    arithmetic_overflow |= lr.overflow;
-  }
-  ap_uint<64> vll_rms[MET_VLL_PAIRS];
-#pragma HLS ARRAY_PARTITION variable=vll_rms complete
-finalize_pairs:
-  for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
-#pragma HLS PIPELINE off
-    vll_rms[pair] = met_rms_from_accumulators<128, 128>(
-        acc_vll_square[pair], ap_int<128>(0), count_now, ap_uint<1>(0),
-        arithmetic_overflow);
-  }
-
-  // ---- Power finalization (M8): P, S = Vrms*Irms, true PF ------------
-  static const int power_v[MET_POWER_PHASES] = {MET_LANE_VA, MET_LANE_VB,
-                                                MET_LANE_VC};
-  static const int power_i[MET_POWER_PHASES] = {MET_LANE_IA, MET_LANE_IB,
-                                                MET_LANE_IC};
-  ap_int<64> phase_p_pw[MET_POWER_PHASES];
-#pragma HLS ARRAY_PARTITION variable=phase_p_pw complete
-  ap_uint<64> phase_s_pw[MET_POWER_PHASES];
-#pragma HLS ARRAY_PARTITION variable=phase_s_pw complete
-  ap_int<32> phase_pf_e6[MET_POWER_PHASES];
-#pragma HLS ARRAY_PARTITION variable=phase_pf_e6 complete
-finalize_power:
-  for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
-#pragma HLS PIPELINE off
-    const ap_int<128> mean_q32 =
-        met_floor_mean_signed<128, 128>(acc_power[phase], count_now);
-    phase_p_pw[phase] = ap_int<64>((mean_q32 >> 32).range(63, 0));
-    const ap_uint<128> s_product =
-        ap_uint<128>(rms_q16[power_v[phase]]) * rms_q16[power_i[phase]];
-    phase_s_pw[phase] = ap_uint<64>((s_product >> 32).range(63, 0));
-    phase_pf_e6[phase] = met_power_factor_e6(phase_p_pw[phase],
-                                             phase_s_pw[phase]);
-  }
-  ap_int<64> total_p_pw = 0;
-  ap_uint<64> total_s_pw = 0;
-total_power:
-  for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
-#pragma HLS PIPELINE off
-    total_p_pw += phase_p_pw[phase];
-    total_s_pw += phase_s_pw[phase];
-  }
-  const ap_int<32> total_pf_e6 = met_power_factor_e6(total_p_pw, total_s_pw);
-
-  // Crest factors: peak / finalized RMS per lane, ten-thousandths.
-  ap_uint<32> crest_e4[MET_ACTIVE_CHANNELS];
-#pragma HLS ARRAY_PARTITION variable=crest_e4 complete
-finalize_crest:
-  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
-#pragma HLS PIPELINE off
-    const ap_uint<64> magnitude_min = met_abs<64>(acc_minimum[lane]);
-    const ap_uint<64> magnitude_max = met_abs<64>(acc_maximum[lane]);
-    const ap_uint<64> peak =
-        magnitude_min > magnitude_max ? magnitude_min : magnitude_max;
-    if (rms_q16[lane] == 0) {
-      crest_e4[lane] = 0;
-    } else {
-      const ap_uint<128> scaled = ap_uint<128>(peak) * ap_uint<128>(10000);
-      const ap_uint<128> ratio =
-          floor_div<128>(scaled, ap_uint<128>(rms_q16[lane]));
-      crest_e4[lane] = ratio > ap_uint<128>(0xFFFFFFFFu)
-                           ? ap_uint<32>(0xFFFFFFFFu)
-                           : ap_uint<32>(ratio.range(31, 0));
-    }
-  }
-
-  // ---- Phasor finalization (M9): fundamental magnitudes and angles,
-  // ---- reactive / displacement quantities. Q1 needs no trig at all:
-  // ---- V1*I1*sin(phi1) = 2*(im_V*re_I - re_V*im_I) exactly in the Q16
-  // ---- mean-phasor domain, so the picovar value is the cross product
-  // ---- floored by >> 31 (the Q32 product over the factor 2).
-  ap_int<64> ph_re[MET_ACTIVE_CHANNELS];
-#pragma HLS ARRAY_PARTITION variable=ph_re complete
-  ap_int<64> ph_im[MET_ACTIVE_CHANNELS];
-#pragma HLS ARRAY_PARTITION variable=ph_im complete
-  ap_uint<64> fund_rms_q16[MET_ACTIVE_CHANNELS];
-#pragma HLS ARRAY_PARTITION variable=fund_rms_q16 complete
-  ap_int<32> angle_turns[MET_ACTIVE_CHANNELS];
-#pragma HLS ARRAY_PARTITION variable=angle_turns complete
-finalize_phasor_lanes:
-  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
-#pragma HLS PIPELINE off
-    ph_re[lane] = met_phasor_counts(acc_phasor_re[lane], count_now);
-    ph_im[lane] = met_phasor_counts(acc_phasor_im[lane], count_now);
-    fund_rms_q16[lane] = met_phasor_rms_q16(ph_re[lane], ph_im[lane]);
-    angle_turns[lane] = met_atan2_turns(ph_im[lane], ph_re[lane]);
-  }
-
-  // Line-line fundamental phasors: complex differences of the finalized
-  // lane phasors (components are ~2^40 under the sample contract, so the
-  // 64-bit difference cannot wrap outside already-flagged results).
-  static const int vll_pos[MET_VLL_PAIRS] = {MET_LANE_VA, MET_LANE_VB,
-                                             MET_LANE_VC};
-  static const int vll_neg[MET_VLL_PAIRS] = {MET_LANE_VB, MET_LANE_VC,
-                                             MET_LANE_VA};
-  ap_uint<64> vll_fund_rms_q16[MET_VLL_PAIRS];
-#pragma HLS ARRAY_PARTITION variable=vll_fund_rms_q16 complete
-  ap_int<32> vll_angle_turns[MET_VLL_PAIRS];
-#pragma HLS ARRAY_PARTITION variable=vll_angle_turns complete
-finalize_phasor_pairs:
-  for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
-#pragma HLS PIPELINE off
-    const ap_int<64> re = ph_re[vll_pos[pair]] - ph_re[vll_neg[pair]];
-    const ap_int<64> im = ph_im[vll_pos[pair]] - ph_im[vll_neg[pair]];
-    vll_fund_rms_q16[pair] = met_phasor_rms_q16(re, im);
-    vll_angle_turns[pair] = met_atan2_turns(im, re);
-  }
-
-  ap_int<64> phase_p1_pw[MET_POWER_PHASES];
-#pragma HLS ARRAY_PARTITION variable=phase_p1_pw complete
-  ap_int<64> phase_q1_pvar[MET_POWER_PHASES];
-#pragma HLS ARRAY_PARTITION variable=phase_q1_pvar complete
-  ap_uint<64> phase_s1_pva[MET_POWER_PHASES];
-#pragma HLS ARRAY_PARTITION variable=phase_s1_pva complete
-  ap_int<32> phase_dpf_e6[MET_POWER_PHASES];
-#pragma HLS ARRAY_PARTITION variable=phase_dpf_e6 complete
-  ap_int<32> disp_turns[MET_POWER_PHASES];
-#pragma HLS ARRAY_PARTITION variable=disp_turns complete
-  ap_uint<2> phase_nature[MET_POWER_PHASES];
-#pragma HLS ARRAY_PARTITION variable=phase_nature complete
-finalize_phasor_power:
-  for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
-#pragma HLS PIPELINE off
-    const int v = power_v[phase];
-    const int i = power_i[phase];
-    const ap_int<128> dot = ap_int<128>(ph_re[v] * ph_re[i]) +
-                            ap_int<128>(ph_im[v] * ph_im[i]);
-    const ap_int<128> cross = ap_int<128>(ph_im[v] * ph_re[i]) -
-                              ap_int<128>(ph_re[v] * ph_im[i]);
-    phase_p1_pw[phase] = ap_int<64>((dot >> 31).range(63, 0));
-    phase_q1_pvar[phase] = ap_int<64>((cross >> 31).range(63, 0));
-    const ap_uint<128> s1_product =
-        ap_uint<128>(fund_rms_q16[v]) * fund_rms_q16[i];
-    phase_s1_pva[phase] = ap_uint<64>((s1_product >> 32).range(63, 0));
-    phase_dpf_e6[phase] =
-        met_power_factor_e6(phase_p1_pw[phase], phase_s1_pva[phase]);
-    disp_turns[phase] = angle_turns[v] - angle_turns[i];
-    phase_nature[phase] =
-        classify_nature(phase_q1_pvar[phase], phase_s1_pva[phase]);
-  }
-  ap_int<64> total_p1_pw = 0;
-  ap_int<64> total_q1_pvar = 0;
-  ap_uint<64> total_s1_pva = 0;
-total_phasor_power:
-  for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
-#pragma HLS PIPELINE off
-    total_p1_pw += phase_p1_pw[phase];
-    total_q1_pvar += phase_q1_pvar[phase];
-    total_s1_pva += phase_s1_pva[phase];
-  }
-  const ap_int<32> total_dpf_e6 =
-      met_power_factor_e6(total_p1_pw, total_s1_pva);
-  const ap_uint<2> total_nature = classify_nature(total_q1_pvar, total_s1_pva);
-  const ap_uint<1> angle_ref_valid =
-      (result_mask.bit(MET_LANE_VA) == 1 &&
-       fund_rms_q16[MET_LANE_VA] != 0)
-          ? 1
-          : 0;
+  met_finalize_out_t fin;
+  met_finalize_interval(acc_sum, acc_square, acc_raw_sum, acc_raw_square,
+                        acc_minimum, acc_maximum, acc_vll_square, acc_power,
+                        acc_phasor_re, acc_phasor_im, count_now,
+                        active_dc_remove, result_mask, fin,
+                        arithmetic_overflow);
 
   const ap_uint<1> first_block = disc_pending;
   disc_pending = 0;
@@ -449,30 +241,49 @@ total_phasor_power:
   flags[MET_FLAG_FALLBACK] = block_fallback_or;
   flags[MET_FLAG_FIRST_BLOCK] = first_block;
 
-  // Basic result beat for the 150/180-cycle aggregator (contract
-  // unchanged: Mtr2Engine consumes these until M11).
-  basic_result_t result;
+  // Block-result beat for the 150/180-cycle aggregator: the block's
+  // provenance plus its MERGE-SAFE ACCUMULATORS (agg_block_result.hpp) —
+  // the higher tier merges by pure addition, never re-derives.
+  agg_block_result_t result;
   result.sequence = sequence;
   result.generation = active_generation;
-  result.sample_rate_hz = active_sample_rate;
+  result.first_sample = block_first_sample;
+  result.last_sample = cycle.last_sample;
   result.sample_count = count_now;
+  result.sample_rate_hz = active_sample_rate;
+  result.nominal_hz = block_nominal;
   result.valid_mask = result_mask;
   result.flags = flags;
   result.cycle_count = block_cycles_target;
-  result.nominal_hz = block_nominal;
-  result.status = status;
+  result.status =
+      status | (ap_uint<32>(block_phasor_invalid) << PHASOR_STATUS_INVALID_BIT);
   result.frequency_millihz = cycle.frequency_millihz;
   result.frequency_valid = cycle.frequency_valid;
   result.apply_toggle = apply_seen;
-  result.first_sample = block_first_sample;
-result_lanes:
-  for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
-#pragma HLS UNROLL
-    result.rms_q16[lane] = (lane < MET_ACTIVE_CHANNELS)
-                               ? ap_int<64>(rms_q16[lane])
-                               : ap_int<64>(0);
+  result.dc_remove = active_dc_remove;
+result_accumulators:
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+#pragma HLS PIPELINE off
+    result.sum[lane] = acc_sum[lane];
+    result.square[lane] = acc_square[lane];
+    result.raw_sum[lane] = acc_raw_sum[lane];
+    result.raw_square[lane] = acc_raw_square[lane];
+    result.minimum[lane] = acc_minimum[lane];
+    result.maximum[lane] = acc_maximum[lane];
+    result.phasor_re[lane] = acc_phasor_re[lane];
+    result.phasor_im[lane] = acc_phasor_im[lane];
   }
-  m_result.write(pack_basic_result(result));
+result_pairs:
+  for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
+#pragma HLS PIPELINE off
+    result.vll_square[pair] = acc_vll_square[pair];
+  }
+result_power:
+  for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
+#pragma HLS PIPELINE off
+    result.power_sum[phase] = acc_power[phase];
+  }
+  m_result.write(pack_agg_block_result(result));
 
   // BASIC-v4 record (MTR1-v3 interior plus the documented additions).
   record_image_t image;
@@ -489,14 +300,14 @@ record_lanes:
   for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
 #pragma HLS PIPELINE off
     if (lane < MET_ACTIVE_CHANNELS) {
-      const ap_int<64> mean_units = mean_q16[lane] >> 16;  // arithmetic
-      const ap_uint<64> rms_units = rms_q16[lane] >> 16;
+      const ap_int<64> mean_units = fin.mean_q16[lane] >> 16;  // arithmetic
+      const ap_uint<64> rms_units = fin.rms_q16[lane] >> 16;
       const int base = MTR1_CH_BASE_WORD + lane * MTR1_CH_STRIDE_WORDS;
       image.word[base + MTR1_CH_MEAN_LOW] =
           ap_uint<64>(mean_units).range(31, 0);
       image.word[base + MTR1_CH_MEAN_HIGH] =
           ap_uint<64>(mean_units).range(63, 32);
-      image.word[base + MTR1_CH_RMS_COUNT] = rms_count[lane];
+      image.word[base + MTR1_CH_RMS_COUNT] = fin.rms_count[lane];
       image.word[base + MTR1_CH_RMS_LOW] = rms_units.range(31, 0);
       image.word[base + MTR1_CH_RMS_HIGH] = rms_units.range(63, 32);
     }
@@ -505,7 +316,7 @@ record_pairs:
   for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
 #pragma HLS PIPELINE off
     image.word[BASIC_VLL_BASE_WORD + pair] =
-        ap_uint<64>(vll_rms[pair] >> 16).range(31, 0);
+        ap_uint<64>(fin.vll_rms[pair] >> 16).range(31, 0);
   }
   image.word[MTR1_FREQUENCY_VALUE_WORD] = cycle.frequency_millihz;
   image.word[MTR1_FREQUENCY_STATUS_WORD] =
@@ -540,33 +351,32 @@ power_record_phases:
   for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
 #pragma HLS PIPELINE off
     const int base = POWER_PHASE_BASE_WORD + phase * POWER_PHASE_STRIDE;
-    const ap_uint<64> p_bits = ap_uint<64>(phase_p_pw[phase]);
+    const ap_uint<64> p_bits = ap_uint<64>(fin.phase_p_pw[phase]);
     power_image.word[base + POWER_PHASE_P_LOW] = p_bits.range(31, 0);
     power_image.word[base + POWER_PHASE_P_HIGH] = p_bits.range(63, 32);
     power_image.word[base + POWER_PHASE_S_LOW] =
-        phase_s_pw[phase].range(31, 0);
+        fin.phase_s_pva[phase].range(31, 0);
     power_image.word[base + POWER_PHASE_S_HIGH] =
-        phase_s_pw[phase].range(63, 32);
+        fin.phase_s_pva[phase].range(63, 32);
     power_image.word[base + POWER_PHASE_PF] =
-        ap_uint<32>(ap_int<32>(phase_pf_e6[phase]));
+        ap_uint<32>(ap_int<32>(fin.phase_pf_e6[phase]));
   }
-  const ap_uint<64> total_p_bits = ap_uint<64>(total_p_pw);
+  const ap_uint<64> total_p_bits = ap_uint<64>(fin.total_p_pw);
   power_image.word[POWER_TOTAL_P_LOW_WORD] = total_p_bits.range(31, 0);
   power_image.word[POWER_TOTAL_P_HIGH_WORD] = total_p_bits.range(63, 32);
-  power_image.word[POWER_TOTAL_S_LOW_WORD] = total_s_pw.range(31, 0);
-  power_image.word[POWER_TOTAL_S_HIGH_WORD] = total_s_pw.range(63, 32);
+  power_image.word[POWER_TOTAL_S_LOW_WORD] = fin.total_s_pva.range(31, 0);
+  power_image.word[POWER_TOTAL_S_HIGH_WORD] = fin.total_s_pva.range(63, 32);
   power_image.word[POWER_TOTAL_PF_WORD] =
-      ap_uint<32>(ap_int<32>(total_pf_e6));
+      ap_uint<32>(ap_int<32>(fin.total_pf_e6));
 power_record_crest:
   for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
 #pragma HLS PIPELINE off
-    power_image.word[POWER_CREST_BASE_WORD + lane] = crest_e4[lane];
+    power_image.word[POWER_CREST_BASE_WORD + lane] = fin.crest_e4[lane];
   }
   serialize_record<MREC_FORMAT_POWER_V1>(power_image, m_axis);
 
-  // PHASOR-v1 record, third on the stream for the same block. Only this
-  // record carries the block phasor-invalid status bit — the BASIC/POWER
-  // interiors do not depend on the frequency reference.
+  // PHASOR-v1 record, third on the stream for the same block. Only the
+  // PHASOR and UNBAL records carry the block phasor-invalid status bit.
   record_image_t phasor_image;
   clear_record(phasor_image);
   const ap_uint<32> phasor_status =
@@ -584,9 +394,9 @@ phasor_record_lanes:
 #pragma HLS PIPELINE off
     const int base = PHASOR_CH_BASE_WORD + lane * PHASOR_CH_STRIDE;
     phasor_image.word[base + PHASOR_CH_FUND_RMS] =
-        ap_uint<64>(fund_rms_q16[lane] >> 16).range(31, 0);
+        ap_uint<64>(fin.fund_rms_q16[lane] >> 16).range(31, 0);
     const ap_int<32> rel_turns =
-        angle_turns[lane] - angle_turns[MET_LANE_VA];
+        fin.angle_turns[lane] - fin.angle_turns[MET_LANE_VA];
     phasor_image.word[base + PHASOR_CH_ANGLE] =
         ap_uint<32>(met_turns_to_millidegrees(rel_turns));
   }
@@ -595,9 +405,9 @@ phasor_record_pairs:
 #pragma HLS PIPELINE off
     const int base = PHASOR_VLL_BASE_WORD + pair * PHASOR_VLL_STRIDE;
     phasor_image.word[base + PHASOR_CH_FUND_RMS] =
-        ap_uint<64>(vll_fund_rms_q16[pair] >> 16).range(31, 0);
+        ap_uint<64>(fin.vll_fund_rms_q16[pair] >> 16).range(31, 0);
     const ap_int<32> rel_turns =
-        vll_angle_turns[pair] - angle_turns[MET_LANE_VA];
+        fin.vll_angle_turns[pair] - fin.angle_turns[MET_LANE_VA];
     phasor_image.word[base + PHASOR_CH_ANGLE] =
         ap_uint<32>(met_turns_to_millidegrees(rel_turns));
   }
@@ -605,45 +415,35 @@ phasor_record_phases:
   for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
 #pragma HLS PIPELINE off
     phasor_image.word[PHASOR_DISP_BASE_WORD + phase] =
-        ap_uint<32>(met_turns_to_millidegrees(disp_turns[phase]));
-    const ap_uint<64> q1_bits = ap_uint<64>(phase_q1_pvar[phase]);
+        ap_uint<32>(met_turns_to_millidegrees(fin.disp_turns[phase]));
+    const ap_uint<64> q1_bits = ap_uint<64>(fin.phase_q1_pvar[phase]);
     phasor_image.word[PHASOR_Q1_BASE_WORD + phase * 2] = q1_bits.range(31, 0);
     phasor_image.word[PHASOR_Q1_BASE_WORD + phase * 2 + 1] =
         q1_bits.range(63, 32);
     phasor_image.word[PHASOR_DPF_BASE_WORD + phase] =
-        ap_uint<32>(ap_int<32>(phase_dpf_e6[phase]));
-    const ap_uint<64> p1_bits = ap_uint<64>(phase_p1_pw[phase]);
+        ap_uint<32>(ap_int<32>(fin.phase_dpf_e6[phase]));
+    const ap_uint<64> p1_bits = ap_uint<64>(fin.phase_p1_pw[phase]);
     phasor_image.word[PHASOR_P1_BASE_WORD + phase * 2] = p1_bits.range(31, 0);
     phasor_image.word[PHASOR_P1_BASE_WORD + phase * 2 + 1] =
         p1_bits.range(63, 32);
   }
-  const ap_uint<64> q1_total_bits = ap_uint<64>(total_q1_pvar);
+  const ap_uint<64> q1_total_bits = ap_uint<64>(fin.total_q1_pvar);
   phasor_image.word[PHASOR_Q1_TOTAL_LOW_WORD] = q1_total_bits.range(31, 0);
   phasor_image.word[PHASOR_Q1_TOTAL_HIGH_WORD] = q1_total_bits.range(63, 32);
   phasor_image.word[PHASOR_DPF_TOTAL_WORD] =
-      ap_uint<32>(ap_int<32>(total_dpf_e6));
+      ap_uint<32>(ap_int<32>(fin.total_dpf_e6));
   phasor_image.word[PHASOR_FLAGS_WORD] =
-      (ap_uint<32>(phase_nature[0]) << PHASOR_FLAGS_NATURE_A_LSB) |
-      (ap_uint<32>(phase_nature[1]) << PHASOR_FLAGS_NATURE_B_LSB) |
-      (ap_uint<32>(phase_nature[2]) << PHASOR_FLAGS_NATURE_C_LSB) |
-      (ap_uint<32>(total_nature) << PHASOR_FLAGS_NATURE_TOTAL_LSB) |
-      (ap_uint<32>(angle_ref_valid) << PHASOR_FLAGS_REF_VALID_BIT);
-  const ap_uint<64> p1_total_bits = ap_uint<64>(total_p1_pw);
+      (ap_uint<32>(fin.phase_nature[0]) << PHASOR_FLAGS_NATURE_A_LSB) |
+      (ap_uint<32>(fin.phase_nature[1]) << PHASOR_FLAGS_NATURE_B_LSB) |
+      (ap_uint<32>(fin.phase_nature[2]) << PHASOR_FLAGS_NATURE_C_LSB) |
+      (ap_uint<32>(fin.total_nature) << PHASOR_FLAGS_NATURE_TOTAL_LSB) |
+      (ap_uint<32>(fin.angle_ref_valid) << PHASOR_FLAGS_REF_VALID_BIT);
+  const ap_uint<64> p1_total_bits = ap_uint<64>(fin.total_p1_pw);
   phasor_image.word[PHASOR_P1_TOTAL_LOW_WORD] = p1_total_bits.range(31, 0);
   phasor_image.word[PHASOR_P1_TOTAL_HIGH_WORD] = p1_total_bits.range(63, 32);
   serialize_record<MREC_FORMAT_PHASOR_V1>(phasor_image, m_axis);
 
-  // UNBALANCE-v1 record, fourth on the stream (M10): symmetrical
-  // components of the same finalized mean phasors, so it shares the
-  // PHASOR record's status semantics (bit 1 = frequency-reference loss).
-  ap_int<64> set_re[3];
-#pragma HLS ARRAY_PARTITION variable=set_re complete
-  ap_int<64> set_im[3];
-#pragma HLS ARRAY_PARTITION variable=set_im complete
-  ap_int<64> seq_re[3];
-#pragma HLS ARRAY_PARTITION variable=seq_re complete
-  ap_int<64> seq_im[3];
-#pragma HLS ARRAY_PARTITION variable=seq_im complete
+  // UNBALANCE-v1 record, fourth on the stream (M10).
   record_image_t unbal_image;
   clear_record(unbal_image);
   fill_envelope(unbal_image, sequence, active_generation, active_sample_rate,
@@ -653,52 +453,31 @@ phasor_record_phases:
       image.word[BASIC_LAST_SAMPLE_LOW_WORD];
   unbal_image.word[BASIC_LAST_SAMPLE_HIGH_WORD] =
       image.word[BASIC_LAST_SAMPLE_HIGH_WORD];
-  ap_uint<32> unbal_flags =
-      ap_uint<32>(angle_ref_valid) << UNBAL_FLAGS_REF_VALID_BIT;
-finalize_sequence_sets:
+unbal_record_sets:
   for (int set = 0; set < 2; ++set) {
 #pragma HLS PIPELINE off
-    // A/B/C order per set: voltages first (the reversed lane order is
-    // centralized in the MET_LANE_* map), then phase currents.
-    const int lane_a = (set == 0) ? MET_LANE_VA : MET_LANE_IA;
-    const int lane_b = (set == 0) ? MET_LANE_VB : MET_LANE_IB;
-    const int lane_c = (set == 0) ? MET_LANE_VC : MET_LANE_IC;
-    set_re[0] = ph_re[lane_a];
-    set_im[0] = ph_im[lane_a];
-    set_re[1] = ph_re[lane_b];
-    set_im[1] = ph_im[lane_b];
-    set_re[2] = ph_re[lane_c];
-    set_im[2] = ph_im[lane_c];
-    met_sequence_components(set_re, set_im, seq_re, seq_im);
-    ap_uint<64> seq_rms_q16[3];
-  sequence_terms:
+  unbal_record_terms:
     for (int component = 0; component < 3; ++component) {
 #pragma HLS PIPELINE off
-      seq_rms_q16[component] =
-          met_phasor_rms_q16(seq_re[component], seq_im[component]);
-      const ap_int<32> rel_turns =
-          met_atan2_turns(seq_im[component], seq_re[component]) -
-          angle_turns[MET_LANE_VA];
       const int base = ((set == 0) ? UNBAL_V_BASE_WORD : UNBAL_I_BASE_WORD) +
                        component * UNBAL_SEQ_STRIDE;
       unbal_image.word[base + UNBAL_SEQ_RMS] =
-          ap_uint<64>(seq_rms_q16[component] >> 16).range(31, 0);
+          ap_uint<64>(fin.seq_rms_q16[set][component] >> 16).range(31, 0);
+      const ap_int<32> rel_turns = fin.seq_angle_turns[set][component] -
+                                   fin.angle_turns[MET_LANE_VA];
       unbal_image.word[base + UNBAL_SEQ_ANGLE] =
           ap_uint<32>(met_turns_to_millidegrees(rel_turns));
     }
-    // Ratios gate on the positive-sequence magnitude (undefined at 0).
     const int zero_word =
         (set == 0) ? UNBAL_V_ZERO_RATIO_WORD : UNBAL_I_ZERO_RATIO_WORD;
     const int unbal_word =
         (set == 0) ? UNBAL_V_UNBALANCE_WORD : UNBAL_I_UNBALANCE_WORD;
-    unbal_image.word[zero_word] = met_ratio_e6(seq_rms_q16[0], seq_rms_q16[1]);
-    unbal_image.word[unbal_word] = met_ratio_e6(seq_rms_q16[2], seq_rms_q16[1]);
-    if (seq_rms_q16[1] != 0) {
-      unbal_flags |= ap_uint<32>(1)
-                     << ((set == 0) ? UNBAL_FLAGS_V_VALID_BIT
-                                    : UNBAL_FLAGS_I_VALID_BIT);
-    }
+    unbal_image.word[zero_word] = fin.seq_zero_ratio_e6[set];
+    unbal_image.word[unbal_word] = fin.seq_unbal_ratio_e6[set];
   }
-  unbal_image.word[UNBAL_FLAGS_WORD] = unbal_flags;
+  unbal_image.word[UNBAL_FLAGS_WORD] =
+      (ap_uint<32>(fin.seq_set_valid[0]) << UNBAL_FLAGS_V_VALID_BIT) |
+      (ap_uint<32>(fin.seq_set_valid[1]) << UNBAL_FLAGS_I_VALID_BIT) |
+      (ap_uint<32>(fin.angle_ref_valid) << UNBAL_FLAGS_REF_VALID_BIT);
   serialize_record<MREC_FORMAT_UNBAL_V1>(unbal_image, m_axis);
 }
