@@ -143,6 +143,37 @@ ap_uint<64> met_rms_from_accumulators(const ap_uint<SQUARE_WIDTH> square,
 }
 
 
+// ---------------------------------------------------------------------------
+// Fundamental-phasor finalization (M5 single-cycle diagnostic, M9 tier
+// finalizer — one definition so the two stay bit-identical).
+// ---------------------------------------------------------------------------
+
+// Mean phasor component in signed Q16 counts: floor mean of the Q1.37
+// correlation sum (phasor_core.hpp), then the single >> 37 trig-domain
+// floor. Truncation to 64 bits is exact under the sample contract
+// (components stay below 2^40); a saturated flagged sum can exceed it,
+// and that divergence is confined to overflow-flagged results.
+inline ap_int<64> met_phasor_counts(const ap_int<128> sum,
+                                    const ap_uint<32> count) {
+#pragma HLS INLINE off
+  const ap_int<128> mean = met_floor_mean_signed<128, 128>(sum, count);
+  return ap_int<64>((mean >> 37).range(63, 0));
+}
+
+// Fundamental RMS in Q16 counts from the mean phasor components:
+// |(re, im)| * sqrt(2) (amplitude = 2|mean|, RMS = amplitude / sqrt(2)).
+// sqrt(2) is the Q16 constant 92682 — a documented ~1.2e-6 high bias;
+// the exact sums stay on the beat for the authoritative tiers.
+inline ap_uint<64> met_phasor_rms_q16(const ap_int<64> re_counts,
+                                      const ap_int<64> im_counts) {
+#pragma HLS INLINE off
+  const ap_uint<128> magnitude_square =
+      ap_uint<128>(re_counts * re_counts) +
+      ap_uint<128>(im_counts * im_counts);
+  const ap_uint<64> magnitude = floor_sqrt_128(magnitude_square);
+  return ap_uint<64>((ap_uint<81>(magnitude) * 92682) >> 16);
+}
+
 // True power factor in millionths (M8, shared with the later displacement
 // and energy tiers): floor(|P| * 1e6 / S) carrying P's sign. Clamped to
 // +/-1e6 -- Cauchy-Schwarz bounds |P| <= S mathematically, but the two

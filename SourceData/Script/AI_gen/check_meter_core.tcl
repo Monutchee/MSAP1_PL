@@ -89,9 +89,14 @@ file delete -force $work_root
 file mkdir $work_root
 # ROM initialization images referenced by the packaged HLS RTL via
 # relative $readmemh paths -- xsim resolves them against the working
-# directory, so stage them beside the compiled snapshot.
-foreach rom_image [glob -nocomplain -directory $hls_sim_wave_hdl *.dat] {
-  file copy -force $rom_image $work_root
+# directory, so stage them beside the compiled snapshot. Sweep EVERY
+# packaged engine (sim-wave sine LUT, single-cycle trig LUT, the M9
+# CORDIC atan table, anything future).
+foreach hdl_dir [list $hls_sim_wave_hdl $hls_scyc_hdl $hls_agg1012_hdl \
+                     $hls_mtr2_hdl] {
+  foreach rom_image [glob -nocomplain -directory $hdl_dir *.dat] {
+    file copy -force $rom_image $work_root
+  }
 }
 set original_dir [pwd]
 cd $work_root

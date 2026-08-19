@@ -81,12 +81,38 @@ static const int MET_POWER_PHASES = 3;
 //   * Crest factor (M8): peak / RMS per lane in ten-thousandths, with
 //     peak = max(|min|, |max|) of the block's extrema and RMS as
 //     finalized under the committed dc_remove; 0 when RMS = 0.
+//   * Fundamental quantities (M9) come from the synchronous-correlation
+//     phasors ONLY (phasor_core.hpp): P1/Q1/S1 are the fundamental
+//     active/reactive/apparent powers, distinct from the M8 true
+//     (all-harmonic) P/S. Q1 = V1 x I1 x sin(phi1) is computed as the
+//     exact phasor cross product (no trig at finalize); lagging /
+//     inductive current is POSITIVE Q1, leading / capacitive NEGATIVE.
+//   * Displacement power factor (M9): cos(phi1) = P1 / S1, sign follows
+//     P1, millionths, 0 = undefined when S1 = 0 -- the same gating rule
+//     as the true PF, and the two are NEVER interchangeable (they
+//     diverge under distortion; the divergence is an acceptance check).
+//   * Load nature (M9): classified from the SIGN of Q1, never from a PF
+//     magnitude: MET_NATURE_UNDEFINED when S1 = 0, else _UNITY (Q1 = 0),
+//     _LAGGING (Q1 > 0, inductive), _LEADING (Q1 < 0, capacitive).
+//   * Phase angles (M9): published in millidegrees in [-180000, 180000),
+//     RELATIVE TO THE VA FUNDAMENTAL (VA reads exactly 0). The raw
+//     correlation reference (the grid-locked cycle start) is not a
+//     specified quantity; only angle differences are. Records carry an
+//     angle-reference-valid flag that clears when VA's fundamental is
+//     absent (masked out or zero magnitude).
 //
 // Units through the chain: converted samples are Q16 micro-units
 // (micro-volts / micro-amperes), so a v*i product is Q32 in
 // micro-volt-micro-amperes = picowatts; record power words publish
-// picowatts (product >> 32).
+// picowatts (product >> 32). Fundamental powers publish the same way:
+// picowatts / picovars / pico-VA.
 // ---------------------------------------------------------------------------
+
+// Load-nature codes (M9, record word values — APU mirror).
+static const int MET_NATURE_UNDEFINED = 0;  // S1 = 0, nothing to classify
+static const int MET_NATURE_UNITY     = 1;  // Q1 = 0 exactly
+static const int MET_NATURE_LAGGING   = 2;  // Q1 > 0, inductive
+static const int MET_NATURE_LEADING   = 3;  // Q1 < 0, capacitive
 
 // ---------------------------------------------------------------------------
 // IEC 61000-4-30 block geometry.

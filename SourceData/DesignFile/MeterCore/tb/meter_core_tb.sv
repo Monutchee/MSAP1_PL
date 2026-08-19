@@ -611,6 +611,40 @@ module meter_core_tb;
     end
   endtask
 
+  // ... and the POWER record by its PHASOR-v1 companion (M9), the third
+  // record of the block triple. Same drain contract as above: framing,
+  // format, and sequence pinned here; value words pinned by the HLS
+  // bench and the record-stream bench.
+  task automatic drain_phasor_record(input integer expected_sequence);
+    integer word_index;
+    begin
+      @(negedge clock);
+      mtr1_tready = 1'b1;
+      word_index = 0;
+      while (word_index < 64) begin
+        @(posedge clock);
+        if (mtr1_tvalid && mtr1_tready) begin
+          assert (mtr1_tkeep == 4'hf) else $fatal(1, "bad PHASOR TKEEP");
+          assert (mtr1_tlast == (word_index == 63))
+            else $fatal(1, "PHASOR TLAST at word %0d", word_index);
+          case (word_index)
+            0: assert (mtr1_tdata == 32'h3152_544d)
+              else $fatal(1, "bad PHASOR magic");
+            1: assert (mtr1_tdata == 32'h0008_0001)
+              else $fatal(1, "bad PHASOR format: %08h", mtr1_tdata);
+            3: assert (mtr1_tdata == expected_sequence)
+              else $fatal(1, "PHASOR sequence %0d, expected %0d",
+                          mtr1_tdata, expected_sequence);
+            default: ;
+          endcase
+          word_index = word_index + 1;
+        end
+      end
+      @(negedge clock);
+      mtr1_tready = 1'b0;
+    end
+  endtask
+
   task automatic consume_record(input integer expected_sequence,
                                 input integer expected_generation,
                                 input logic [31:0] expected_count,
@@ -648,6 +682,7 @@ module meter_core_tb;
       @(negedge clock);
       mtr1_tready = 1'b0;
       drain_power_record(expected_sequence);
+      drain_phasor_record(expected_sequence);
     end
   endtask
 
@@ -698,6 +733,7 @@ module meter_core_tb;
       @(negedge clock);
       mtr1_tready = 1'b0;
       drain_power_record(expected_sequence);
+      drain_phasor_record(expected_sequence);
     end
   endtask
 

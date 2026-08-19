@@ -10,6 +10,7 @@
 //      beats, TKEEP full on all, TLAST on beat 63 only, envelope words
 //      stamped even when the builder wrote garbage over them.
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 
@@ -18,6 +19,7 @@
 #include "metering_types.hpp"
 #include "metrology_math.hpp"
 #include "metrology_stats.hpp"
+#include "metrology_trig.hpp"
 
 // ---------------------------------------------------------------------------
 // 1. Compile-time pins.
@@ -217,10 +219,59 @@ static void test_metrology_primitives() {
         "nominal-to-cycles mapping");
 }
 
+// CORDIC atan2 against libm long-double (the independent-golden rule):
+// tolerance one millidegree — the algorithmic residual is < 0.001 mdeg,
+// so a real defect cannot hide inside the tolerance. Also pins the wrap
+// conventions: turns subtraction is modulo one turn, and atan2 of the
+// negative real axis is -half turn (the published range excludes +180).
+static void test_cordic_atan2() {
+  const long long vectors[][2] = {
+      // {im, re} — axes, quadrants, extreme scales, near-degenerate.
+      {0, 1},        {1, 0},          {0, -1},       {-1, 0},
+      {1, 1},        {1, -1},         {-1, -1},      {-1, 1},
+      {3, 4},        {-3, 4},         {12345, -678}, {-99999, -12},
+      {1LL << 40, 3},{3, 1LL << 40},  {(1LL << 40), -(1LL << 40)},
+      {-(1LL << 20), (1LL << 41)},    {7, 9},        {-1000000, 1},
+  };
+  for (const auto &v : vectors) {
+    const ap_int<32> turns =
+        met_atan2_turns(ap_int<64>(v[0]), ap_int<64>(v[1]));
+    const long long mdeg =
+        (long long)ap_int<32>(met_turns_to_millidegrees(turns));
+    long double ref =
+        atan2l((long double)v[0], (long double)v[1]) / M_PI * 180000.0L;
+    if (ref >= 180000.0L - 0.5L) ref -= 360000.0L;  // +180 -> -180
+    const long long ref_mdeg = (long long)llroundl(ref);
+    long long diff = mdeg - ref_mdeg;
+    if (diff > 180000) diff -= 360000;
+    if (diff < -180000) diff += 360000;
+    CHECK(diff >= -1 && diff <= 1, "CORDIC atan2 within one millidegree");
+  }
+  CHECK((met_atan2_turns(ap_int<64>(0), ap_int<64>(0)) == 0),
+        "atan2(0,0) defined as zero");
+  // Angle differences wrap modulo one turn: 170 - (-170) = -20 degrees.
+  const ap_int<32> a = met_atan2_turns(ap_int<64>(17365), ap_int<64>(-98481));
+  const ap_int<32> b = met_atan2_turns(ap_int<64>(-17365), ap_int<64>(-98481));
+  const long long wrapped =
+      (long long)ap_int<32>(met_turns_to_millidegrees(ap_int<32>(a - b)));
+  CHECK(wrapped >= -20002 && wrapped <= -19998,
+        "turns subtraction must wrap across the +/-180 seam");
+
+  // The phasor finalization helpers agree with a plain-integer model.
+  const ap_int<64> re = met_phasor_counts(
+      ap_int<128>(ap_int<64>(3000000) ) << 37, ap_uint<32>(4));
+  CHECK((re == ap_int<64>(750000)), "phasor counts mean + Q1.37 floor");
+  const ap_uint<64> rms = met_phasor_rms_q16(ap_int<64>(300000), ap_int<64>(-400000));
+  // |(3e5, -4e5)| = 5e5; * 92682 >> 16
+  CHECK((rms == ap_uint<64>((500000ULL * 92682ULL) >> 16)),
+        "phasor magnitude times sqrt(2)");
+}
+
 int main() {
   test_basic_result_round_trip();
   test_serialize_record_framing();
   test_metrology_primitives();
+  test_cordic_atan2();
   if (failures) {
     std::printf("common_headers_test: %d FAILURE(S)\n", failures);
     return EXIT_FAILURE;

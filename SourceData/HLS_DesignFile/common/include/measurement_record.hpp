@@ -83,6 +83,22 @@ static const uint32_t MREC_FORMAT_BASIC_V4 = 0x00010004u;  // 10/12-cycle basic
 // max(|min|, |max|) of the merged per-cycle extrema, RMS as finalized
 // under the committed dc_remove; 0 when the RMS is 0.
 static const uint32_t MREC_FORMAT_POWER_V1 = 0x00070001u;  // 10/12-cycle power
+// PHASOR v1 (M9): third record of the block, same stream, immediately
+// after POWER-v1, same correlation fields. Fundamental (synchronous-
+// correlation) quantities only. Per lane: fundamental RMS (micro-units)
+// and phase angle (millidegrees, RELATIVE TO VA — VA reads exactly 0;
+// see the angle conventions in metering_types.hpp). Line-line phasors
+// are the complex differences of the finalized lane phasors (VAB =
+// VA - VB etc.), never sqrt(3) scalings. Per phase: V-I displacement
+// angle phi1, fundamental active power P1 (signed picowatts), reactive
+// power Q1 (signed picovars, lagging/inductive POSITIVE — the exact
+// phasor cross product), displacement PF (millionths, sign follows P1,
+// 0 = undefined when the fundamental apparent power S1 = V1 x I1 is 0),
+// and a load-nature code (MET_NATURE_*, classified from Q1's sign).
+// Totals are arithmetic sums; total displacement PF = P1_tot / S1_tot.
+// Status bit 1: at least one merged cycle had no usable frequency
+// reference (SCYC phasor-invalid) — every phasor word is then suspect.
+static const uint32_t MREC_FORMAT_PHASOR_V1 = 0x00080001u;  // 10/12-cycle phasor
 
 // ---------------------------------------------------------------------------
 // Common envelope — words 0..12 mean the same thing in EVERY format, so
@@ -160,6 +176,36 @@ static const int POWER_CREST_BASE_WORD   = 36;  // 7 x u32, crest x 1e4
 static const int BASIC_LAST_SAMPLE_LOW_WORD  = 14;
 static const int BASIC_LAST_SAMPLE_HIGH_WORD = 15;
 static const int BASIC_VLL_BASE_WORD         = 51;  // 3 x 32-bit micro-units
+
+// PHASOR-v1 interior (envelope words 0..12 shared; timing word 13 and
+// the last-sample anchor 14/15 mirror BASIC-v4). Angle words are s32
+// millidegrees in [-180000, 180000), relative to VA.
+static const int PHASOR_CH_BASE_WORD    = 16;  // 7 lanes, hardware order
+static const int PHASOR_CH_STRIDE       = 2;
+static const int PHASOR_CH_FUND_RMS     = 0;   // u32 micro-units
+static const int PHASOR_CH_ANGLE        = 1;   // s32 millidegrees
+static const int PHASOR_VLL_BASE_WORD   = 30;  // 3 pairs (AB, BC, CA), same
+static const int PHASOR_VLL_STRIDE      = 2;   //   {fund RMS, angle} shape
+static const int PHASOR_DISP_BASE_WORD  = 36;  // 3 x s32 phi1 (A, B, C)
+static const int PHASOR_Q1_BASE_WORD    = 39;  // 3 x s64 picovars (lo/hi)
+static const int PHASOR_Q1_TOTAL_LOW_WORD  = 45;
+static const int PHASOR_Q1_TOTAL_HIGH_WORD = 46;
+static const int PHASOR_DPF_BASE_WORD   = 47;  // 3 x s32 millionths
+static const int PHASOR_DPF_TOTAL_WORD  = 50;
+static const int PHASOR_FLAGS_WORD      = 51;  // natures + reference flag:
+static const int PHASOR_FLAGS_NATURE_A_LSB     = 0;  // [1:0] MET_NATURE_*
+static const int PHASOR_FLAGS_NATURE_B_LSB     = 2;  // [3:2]
+static const int PHASOR_FLAGS_NATURE_C_LSB     = 4;  // [5:4]
+static const int PHASOR_FLAGS_NATURE_TOTAL_LSB = 6;  // [7:6]
+static const int PHASOR_FLAGS_REF_VALID_BIT    = 8;  // VA angle reference usable
+static const int PHASOR_P1_BASE_WORD    = 52;  // 3 x s64 picowatts (lo/hi)
+static const int PHASOR_P1_TOTAL_LOW_WORD  = 58;
+static const int PHASOR_P1_TOTAL_HIGH_WORD = 59;
+// Words 60..63 reserved zero.
+
+// PHASOR-v1 status bit (word 8), beyond the common arithmetic bit.
+static const int PHASOR_STATUS_INVALID_BIT = 1;  // a merged cycle lacked a
+                                                 //   frequency reference
 
 static const int MTR1_CAPTURE_FRAMES_WORD  = 60;
 static const int MTR1_HEADER_ERRORS_WORD   = 61;

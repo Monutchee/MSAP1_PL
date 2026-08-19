@@ -85,23 +85,18 @@ export_lanes:
   }
 }
 
-// Diagnostic fundamental RMS in Q16 counts: |mean phasor| * sqrt(2),
-// with the single Q1.37 floor here. sqrt(2) is applied as the Q16
-// constant 92682 (a ~8e-6 relative bias, documented; the beat carries
-// the exact sums for the authoritative tiers).
+// Diagnostic fundamental RMS in Q16 counts: |mean phasor| * sqrt(2).
+// The arithmetic moved to common (metrology_stats.hpp) when the M9
+// finalizer needed the identical chain; this composition is bit-exact to
+// the original in-place form (same mean, >> 37 floor, square, root, and
+// Q16 sqrt(2) constant).
 inline ap_uint<64> phasor_fundamental_rms(const ap_int<128> re_sum,
                                           const ap_int<128> im_sum,
                                           const ap_uint<32> count) {
 #pragma HLS INLINE off
-  const ap_int<128> re_mean = met_floor_mean_signed<128, 128>(re_sum, count);
-  const ap_int<128> im_mean = met_floor_mean_signed<128, 128>(im_sum, count);
-  const ap_int<64> re_counts = ap_int<64>((re_mean >> 37).range(63, 0));
-  const ap_int<64> im_counts = ap_int<64>((im_mean >> 37).range(63, 0));
-  const ap_uint<128> magnitude_square =
-      ap_uint<128>(re_counts * re_counts) + ap_uint<128>(im_counts * im_counts);
-  const ap_uint<64> magnitude = floor_sqrt_128(magnitude_square);
-  // amplitude = 2*|mean|; rms = amplitude / sqrt(2) = |mean| * sqrt(2).
-  return ap_uint<64>((ap_uint<81>(magnitude) * 92682) >> 16);
+  const ap_int<64> re_counts = met_phasor_counts(re_sum, count);
+  const ap_int<64> im_counts = met_phasor_counts(im_sum, count);
+  return met_phasor_rms_q16(re_counts, im_counts);
 }
 
 #endif  // SINGLE_CYCLE_PHASOR_CORE_HPP

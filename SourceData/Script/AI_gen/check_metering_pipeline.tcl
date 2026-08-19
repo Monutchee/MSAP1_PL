@@ -81,10 +81,13 @@ proc run_test {work_root test_name common_vhdl wrapper_vhdl testbench xvhdl xvlo
   puts [exec $xvlog -i $hls_mtr2_hdl {*}$hls_mtr2_verilog 2>@1]
   puts [exec $xvlog -i $hls_agg1012_hdl {*}$hls_agg1012_verilog 2>@1]
   puts [exec $xvlog -i $hls_scyc_hdl {*}$hls_scyc_verilog 2>@1]
-  # The single-cycle engine's trig LUT initializes from .dat images that
-  # xsim resolves relative to the working directory.
-  foreach rom_image [glob -nocomplain -directory $hls_scyc_hdl *.dat] {
-    file copy -force $rom_image [file join $test_dir [file tail $rom_image]]
+  # HLS ROMs (the single-cycle trig LUT, the M9 CORDIC atan table, any
+  # future table) initialize from .dat images that xsim resolves relative
+  # to the working directory — copy them from EVERY packaged engine.
+  foreach hdl_dir [list $hls_scyc_hdl $hls_agg1012_hdl $hls_mtr2_hdl] {
+    foreach rom_image [glob -nocomplain -directory $hdl_dir *.dat] {
+      file copy -force $rom_image [file join $test_dir [file tail $rom_image]]
+    }
   }
   puts [exec $xvlog --sv $testbench 2>@1]
   puts [exec $xelab -a --mt off $test_name -s ${test_name}_sim 2>@1]

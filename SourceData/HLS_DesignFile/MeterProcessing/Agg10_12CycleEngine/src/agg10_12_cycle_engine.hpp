@@ -22,11 +22,18 @@
 //
 //   s_result : one beat per whole grid cycle plus the config/context the
 //              hosting shim appends (layout below).
-//   m_axis   : complete BASIC-v4 records (0x00010004), MREC_WORDS x 32
-//              beats, TLAST on the last. Interior = MTR1-v3 for the
-//              envelope/timing/lane slots/words 56..63, plus the block's
-//              last-sample anchor (words 14/15) and merged line-line RMS
-//              (words 51..53, the retired map's unused lane-7 slot).
+//   m_axis   : three complete records per finalized block, back to back
+//              on the one stream, each MREC_WORDS x 32 beats with TLAST
+//              on the last and the same correlation fields (sequence,
+//              generation, anchors, block status):
+//                BASIC-v4  (0x00010004) — MTR1-v3 interior plus the
+//                          last-sample anchor (words 14/15) and merged
+//                          line-line RMS (words 51..53);
+//                POWER-v1  (0x00070001) — P/S/true-PF/crest (M8);
+//                PHASOR-v1 (0x00080001) — fundamental magnitudes/angles,
+//                          Q1, displacement PF, load nature (M9); only
+//                          this record carries the phasor-invalid status
+//                          bit (bit 1).
 //   m_result : one basic_result_beat_t per finalized block — the 150/180
 //              tier's input contract, emitted here UNCHANGED so
 //              Mtr2Engine keeps producing until M11 replaces it.

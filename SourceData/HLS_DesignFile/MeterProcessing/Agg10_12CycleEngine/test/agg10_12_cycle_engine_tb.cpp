@@ -13,6 +13,14 @@
 // upstream first-after-gap restart, result/cycle sequence breaks, stale
 // generation, nominal change, lock/fallback flag reduction, sticky
 // arithmetic flag, VLL merge, Mtr2-contract beat fields.
+//
+// M9: the bench synthesizes fundamental phasors per lane (amplitude +
+// phase, llround'd once to exact integer mean-phasor components) and
+// checks the PHASOR-v1 record: fundamental RMS / Q1 / P1 / displacement
+// PF / load nature EXACTLY against integer goldens; angles against libm
+// atan2l within 2 millidegrees (the CORDIC is the only non-replicated
+// arithmetic and its residual is < 0.01 mdeg). Lag/lead/quadrature sign
+// scenarios, the phasor-invalid fold, and the VA-reference rule.
 
 #include <cmath>
 #include <cstdio>
@@ -78,6 +86,8 @@ struct GoldenBlock {
   __int128 power[MET_POWER_PHASES] = {};
   long long minimum[MET_ACTIVE_CHANNELS] = {};
   long long maximum[MET_ACTIVE_CHANNELS] = {};
+  __int128 ph_re[MET_ACTIVE_CHANNELS] = {};
+  __int128 ph_im[MET_ACTIVE_CHANNELS] = {};
   bool extrema_seeded = false;
   unsigned count = 0;
 };
@@ -116,6 +126,49 @@ static unsigned long long golden_crest_e4(long long minimum, long long maximum,
   return (unsigned long long)ratio;
 }
 
+// ---- M9 phasor goldens. All exact integer replicas except the angle,
+// ---- which deliberately uses libm (the independent-golden rule).
+static long long golden_phasor_counts(__int128 sum, unsigned count) {
+  // Trunc-toward-zero mean, then the arithmetic >> 37 Q1.37 floor —
+  // both quirks are normative (met_phasor_counts).
+  const bool negative = sum < 0;
+  const unsigned __int128 magnitude =
+      (unsigned __int128)(negative ? -sum : sum);
+  __int128 mean = (__int128)(magnitude / count);
+  if (negative) mean = -mean;
+  return (long long)(mean >> 37);
+}
+static unsigned long long golden_fund_rms_q16(long long re_c, long long im_c) {
+  const unsigned __int128 sq = (unsigned __int128)((__int128)re_c * re_c) +
+                               (unsigned __int128)((__int128)im_c * im_c);
+  return (unsigned long long)((golden_isqrt(sq) * 92682u) >> 16);
+}
+static long long golden_p1_pw(long long re_v, long long im_v, long long re_i,
+                              long long im_i) {
+  const __int128 dot = (__int128)re_v * re_i + (__int128)im_v * im_i;
+  return (long long)(dot >> 31);
+}
+static long long golden_q1_pvar(long long re_v, long long im_v, long long re_i,
+                                long long im_i) {
+  const __int128 cross = (__int128)im_v * re_i - (__int128)re_v * im_i;
+  return (long long)(cross >> 31);
+}
+static long long golden_angle_mdeg(long long im, long long re) {
+  if (im == 0 && re == 0) return 0;
+  return (long long)llroundl(atan2l((long double)im, (long double)re) /
+                             M_PI * 180000.0L);
+}
+static long long wrap_mdeg(long long mdeg) {
+  while (mdeg >= 180000) mdeg -= 360000;
+  while (mdeg < -180000) mdeg += 360000;
+  return mdeg;
+}
+static unsigned golden_nature(long long q1, unsigned long long s1) {
+  if (s1 == 0) return (unsigned)MET_NATURE_UNDEFINED;
+  if (q1 == 0) return (unsigned)MET_NATURE_UNITY;
+  return q1 > 0 ? (unsigned)MET_NATURE_LAGGING : (unsigned)MET_NATURE_LEADING;
+}
+
 struct CycleSpec {
   unsigned zero_lanes = 0;  // bitmask: force these lanes' samples to 0
   unsigned sequence = 1;
@@ -132,6 +185,18 @@ struct CycleSpec {
    * keeps every derived quantity (S = rms*rms >> 32, PF, crest) nonzero
    * and non-trivial while all goldens stay exact in __int128. */
   long long seed = 500000001;  // varies the synthetic sample values
+
+  // Fundamental phasors (M9): amplitude in Q16 micro-units and phase in
+  // degrees vs the cycle reference, per lane. make_cycle llrounds each
+  // to ONE pair of integer mean-phasor components and scales them back
+  // into exact Q1.37 correlation sums, so every golden downstream is
+  // exact given the same integers. Defaults: balanced ABC voltages
+  // (1e12 ~ 15 kV-ish, inside the 2^40 component contract), currents
+  // lagging their voltage by 10 degrees (Q1 positive), IN silent.
+  double ph_amp[MET_ACTIVE_CHANNELS] = {5.0e10, 5.0e10, 5.0e10, 0.0,
+                                        1.0e12, 1.0e12, 1.0e12};
+  double ph_deg[MET_ACTIVE_CHANNELS] = {-10.0, -130.0, 110.0, 0.0,
+                                        120.0, -120.0, 0.0};
 };
 
 // Build one whole cycle: sample s of lane l is
@@ -228,6 +293,28 @@ static single_cycle_result_t make_cycle(const CycleSpec &c, GoldenBlock &g) {
         ap_uint<64>((unsigned long long)(vsq >> 64));
     g.vll_square[pair] += vll_square[pair];
   }
+  // Phasor sums: mean components (amp/2)*(sin, -cos)(phase) llround'd to
+  // integers, back-scaled by << 37 and the sample count — the engine's
+  // mean + floor then recovers them exactly.
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+    const double amp =
+        (c.zero_lanes & (1u << lane)) ? 0.0 : c.ph_amp[lane];
+    const double rad = c.ph_deg[lane] * M_PI / 180.0;
+    const long long re_c = (long long)llround(amp / 2.0 * sin(rad));
+    const long long im_c = (long long)llround(-amp / 2.0 * cos(rad));
+    const __int128 re_sum = ((__int128)re_c << 37) * (long long)c.samples;
+    const __int128 im_sum = ((__int128)im_c << 37) * (long long)c.samples;
+    unsigned __int128 re_image = (unsigned __int128)re_sum;
+    r.phasor_re[lane].range(63, 0) = ap_uint<64>((unsigned long long)re_image);
+    r.phasor_re[lane].range(127, 64) =
+        ap_uint<64>((unsigned long long)(re_image >> 64));
+    unsigned __int128 im_image = (unsigned __int128)im_sum;
+    r.phasor_im[lane].range(63, 0) = ap_uint<64>((unsigned long long)im_image);
+    r.phasor_im[lane].range(127, 64) =
+        ap_uint<64>((unsigned long long)(im_image >> 64));
+    g.ph_re[lane] += re_sum;
+    g.ph_im[lane] += im_sum;
+  }
   g.count += c.samples;
 
   r.sequence = c.sequence;
@@ -307,6 +394,19 @@ static void take_power_record(Bench &b, ap_uint<32> (&words)[MREC_WORDS]) {
   CHECK(words[MREC_FORMAT_WORD] == MREC_FORMAT_POWER_V1,
         "paired power record format, got %08x",
         (unsigned)words[MREC_FORMAT_WORD]);
+}
+
+// Drain the PHASOR record that closes every block's record triple.
+static void take_phasor_record(Bench &b, ap_uint<32> (&words)[MREC_WORDS]) {
+  take_record(b, words);
+  CHECK(words[MREC_FORMAT_WORD] == MREC_FORMAT_PHASOR_V1,
+        "paired phasor record format, got %08x",
+        (unsigned)words[MREC_FORMAT_WORD]);
+}
+
+static long long read_s64(const ap_uint<32> (&words)[MREC_WORDS], int low) {
+  return (long long)((unsigned long long)words[low] |
+                     ((unsigned long long)words[low + 1] << 32));
 }
 
 // Drive one whole block of `cycles` cycles; returns via out-params.
@@ -460,6 +560,111 @@ int main() {
       CHECK((unsigned long long)pw[POWER_CREST_BASE_WORD + lane] == crest,
             "lane %d crest exact", lane);
     }
+
+    // ---- PHASOR-v1 companion record: exact goldens, libm angles. --------
+    ap_uint<32> ph[MREC_WORDS];
+    take_phasor_record(b, ph);
+    CHECK(ph[MREC_SEQUENCE_WORD] == 1 &&
+              ph[MREC_SAMPLE_COUNT_WORD] == g.count &&
+              ph[MREC_FIRST_SAMPLE_LOW_WORD] == 1000 &&
+              ph[MTR1_TIMING_WORD] == words[MTR1_TIMING_WORD] &&
+              ph[BASIC_LAST_SAMPLE_LOW_WORD] ==
+                  words[BASIC_LAST_SAMPLE_LOW_WORD],
+          "phasor record shares the block's envelope");
+    CHECK((ph[MREC_STATUS_WORD] & (1u << PHASOR_STATUS_INVALID_BIT)) == 0,
+          "clean block: phasor-invalid bit clear");
+    long long re_c[MET_ACTIVE_CHANNELS], im_c[MET_ACTIVE_CHANNELS];
+    for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+      re_c[lane] = golden_phasor_counts(g.ph_re[lane], g.count);
+      im_c[lane] = golden_phasor_counts(g.ph_im[lane], g.count);
+    }
+    const long long ref_mdeg =
+        golden_angle_mdeg(im_c[MET_LANE_VA], re_c[MET_LANE_VA]);
+    for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+      const int base = PHASOR_CH_BASE_WORD + lane * PHASOR_CH_STRIDE;
+      const unsigned long long fund =
+          golden_fund_rms_q16(re_c[lane], im_c[lane]);
+      CHECK((unsigned long long)ph[base + PHASOR_CH_FUND_RMS] == (fund >> 16),
+            "lane %d fundamental RMS exact", lane);
+      const long long got_angle = (long long)(int)ph[base + PHASOR_CH_ANGLE];
+      if (lane == MET_LANE_VA) {
+        CHECK(got_angle == 0, "VA reference angle is exactly 0");
+      } else {
+        const long long expect =
+            wrap_mdeg(golden_angle_mdeg(im_c[lane], re_c[lane]) - ref_mdeg);
+        const long long diff = wrap_mdeg(got_angle - expect);
+        CHECK(diff >= -2 && diff <= 2,
+              "lane %d angle within 2 mdeg (got %lld expected %lld)", lane,
+              got_angle, expect);
+      }
+    }
+    static const int vp[MET_VLL_PAIRS] = {MET_LANE_VA, MET_LANE_VB,
+                                          MET_LANE_VC};
+    static const int vn[MET_VLL_PAIRS] = {MET_LANE_VB, MET_LANE_VC,
+                                          MET_LANE_VA};
+    for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
+      const long long vre = re_c[vp[pair]] - re_c[vn[pair]];
+      const long long vim = im_c[vp[pair]] - im_c[vn[pair]];
+      const int base = PHASOR_VLL_BASE_WORD + pair * PHASOR_VLL_STRIDE;
+      CHECK((unsigned long long)ph[base + PHASOR_CH_FUND_RMS] ==
+                (golden_fund_rms_q16(vre, vim) >> 16),
+            "pair %d VLL fundamental exact", pair);
+      const long long got = (long long)(int)ph[base + PHASOR_CH_ANGLE];
+      const long long expect =
+          wrap_mdeg(golden_angle_mdeg(vim, vre) - ref_mdeg);
+      const long long diff = wrap_mdeg(got - expect);
+      CHECK(diff >= -2 && diff <= 2, "pair %d VLL angle within 2 mdeg", pair);
+    }
+    // Balanced defaults: VAB leads VA by 30 degrees.
+    const long long vab_angle =
+        (long long)(int)ph[PHASOR_VLL_BASE_WORD + PHASOR_CH_ANGLE];
+    CHECK(vab_angle >= 29997 && vab_angle <= 30003,
+          "balanced VAB sits at +30 degrees (got %lld mdeg)", vab_angle);
+
+    long long g_p1_total = 0, g_q1_total = 0;
+    unsigned long long g_s1_total = 0;
+    unsigned expect_flags = 0;
+    for (int phase = 0; phase < 3; ++phase) {
+      const int v = pv[phase], ii = pi_[phase];
+      const long long p1 = golden_p1_pw(re_c[v], im_c[v], re_c[ii], im_c[ii]);
+      const long long q1 =
+          golden_q1_pvar(re_c[v], im_c[v], re_c[ii], im_c[ii]);
+      const unsigned long long s1 =
+          golden_s_pw(golden_fund_rms_q16(re_c[v], im_c[v]),
+                      golden_fund_rms_q16(re_c[ii], im_c[ii]));
+      const long long dpf = golden_pf_e6(p1, s1);
+      g_p1_total += p1;
+      g_q1_total += q1;
+      g_s1_total += s1;
+      CHECK(read_s64(ph, PHASOR_Q1_BASE_WORD + phase * 2) == q1,
+            "phase %d Q1 exact", phase);
+      CHECK(read_s64(ph, PHASOR_P1_BASE_WORD + phase * 2) == p1,
+            "phase %d P1 exact", phase);
+      CHECK((long long)(int)ph[PHASOR_DPF_BASE_WORD + phase] == dpf,
+            "phase %d displacement PF exact", phase);
+      CHECK(q1 > 0, "lagging current: phase %d Q1 positive", phase);
+      const long long disp = (long long)(int)ph[PHASOR_DISP_BASE_WORD + phase];
+      CHECK(disp >= 9997 && disp <= 10003,
+            "phase %d displacement angle ~ +10 deg (got %lld)", phase, disp);
+      expect_flags |= golden_nature(q1, s1) << (phase * 2);
+    }
+    CHECK(read_s64(ph, PHASOR_Q1_TOTAL_LOW_WORD) == g_q1_total &&
+              read_s64(ph, PHASOR_P1_TOTAL_LOW_WORD) == g_p1_total,
+          "phasor totals are arithmetic sums");
+    CHECK((long long)(int)ph[PHASOR_DPF_TOTAL_WORD] ==
+              golden_pf_e6(g_p1_total, g_s1_total),
+          "total displacement PF = P1_tot / S1_tot");
+    expect_flags |= golden_nature(g_q1_total, g_s1_total)
+                    << PHASOR_FLAGS_NATURE_TOTAL_LSB;
+    expect_flags |= 1u << PHASOR_FLAGS_REF_VALID_BIT;
+    CHECK(ph[PHASOR_FLAGS_WORD] == expect_flags,
+          "flags word: natures + reference (got 0x%x expected 0x%x)",
+          (unsigned)ph[PHASOR_FLAGS_WORD], expect_flags);
+    const long long dpf_a = (long long)(int)ph[PHASOR_DPF_BASE_WORD];
+    CHECK(dpf_a >= 984300 && dpf_a <= 985300,
+          "phase A displacement PF ~ cos(10 deg) (got %lld)", dpf_a);
+    CHECK(ph[60] == 0 && ph[61] == 0 && ph[62] == 0 && ph[63] == 0,
+          "phasor reserved words zero");
   }
 
   // --- Second block: clean status, sequences chain. -----------------------
@@ -469,6 +674,7 @@ int main() {
     const basic_result_t r = unpack_basic_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
+    take_phasor_record(b, words);
     CHECK(r.sequence == 2 && (r.status & 0x5u) == 0,
           "second block is clean (status 0x%x)", (unsigned)r.status);
     CHECK((r.flags & 0x4u) == 0, "first-block flag clears");
@@ -491,6 +697,7 @@ int main() {
     const basic_result_t r = unpack_basic_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
+    take_phasor_record(b, words);
     CHECK(r.first_sample == block_start,
           "block anchors at the gap-marked cycle");
     CHECK((r.status & 0x4u) == 0x4u, "block after a gap carries the mark");
@@ -511,6 +718,7 @@ int main() {
     const basic_result_t r = unpack_basic_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
+    take_phasor_record(b, words);
     CHECK(r.cycle_count == 10 && r.nominal_hz == 50,
           "50 Hz block closes at 10 cycles");
     CHECK((r.status & 0x4u) == 0x4u, "sequence break marks the next block");
@@ -546,6 +754,7 @@ int main() {
     const basic_result_t r = unpack_basic_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
+    take_phasor_record(b, words);
     CHECK((r.flags & 0x1u) == 0 && (r.flags & 0x2u) == 0x2u,
           "one unlocked cycle clears LOCKED and sets FALLBACK, got 0x%x",
           (unsigned)r.flags);
@@ -567,6 +776,7 @@ int main() {
     const basic_result_t r = unpack_basic_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
+    take_phasor_record(b, words);
     CHECK((r.status & 0x1u) == 0x1u,
           "upstream saturation folds into the sticky flag");
     CHECK((r.rms_q16[0] == ap_int<64>(ap_uint<64>(~ap_uint<64>(0)))) ||
@@ -580,6 +790,7 @@ int main() {
     const basic_result_t r2 = unpack_basic_result(b.m_result.read());
     take_record(b, words);
     take_power_record(b, words);
+    take_phasor_record(b, words);
     CHECK((r2.status & 0x1u) == 0, "APPLY clears the sticky flag");
     CHECK((r2.status & 0x4u) == 0x4u, "post-APPLY block carries the mark");
   }
@@ -614,7 +825,140 @@ int main() {
     CHECK(pw[base_b + POWER_PHASE_S_LOW] != 0 ||
               pw[base_b + POWER_PHASE_S_HIGH] != 0,
           "zero current on A leaves B's S alone");
+    // The phasor record mirrors the gate: S1 = 0 means Q1/dPF read zero
+    // and the load nature is UNDEFINED.
+    ap_uint<32> phz[MREC_WORDS];
+    take_phasor_record(b, phz);
+    CHECK(read_s64(phz, PHASOR_Q1_BASE_WORD) == 0 &&
+              (int)phz[PHASOR_DPF_BASE_WORD] == 0 &&
+              ((phz[PHASOR_FLAGS_WORD] >> PHASOR_FLAGS_NATURE_A_LSB) & 0x3) ==
+                  (unsigned)MET_NATURE_UNDEFINED,
+          "zero current: Q1/dPF zero, nature UNDEFINED");
     c = z;
+  }
+
+  // --- Leading current flips Q1; quadrature pins dPF ~ 0, Q1 ~ S1. -------
+  {
+    GoldenBlock g;
+    CycleSpec lead = c;
+    lead.zero_lanes = 0;              // the zero-current scenario is over
+    lead.ph_deg[MET_LANE_IA] = 15.0;  // currents LEAD their voltage by 15
+    lead.ph_deg[MET_LANE_IB] = -105.0;
+    lead.ph_deg[MET_LANE_IC] = 135.0;
+    for (unsigned i = 0; i < 10; ++i) {
+      const single_cycle_result_t r = make_cycle(lead, g);
+      b.send(r);
+      lead.sequence += 1;
+      lead.cycle_sequence += 1;
+      lead.first_sample += lead.samples;
+    }
+    (void)unpack_basic_result(b.m_result.read());
+    take_record(b, words);
+    take_power_record(b, words);
+    ap_uint<32> ph[MREC_WORDS];
+    take_phasor_record(b, ph);
+    const long long q1_a = read_s64(ph, PHASOR_Q1_BASE_WORD);
+    CHECK(q1_a < 0, "leading current: Q1_A negative (got %lld)", q1_a);
+    const unsigned nature_a =
+        (ph[PHASOR_FLAGS_WORD] >> PHASOR_FLAGS_NATURE_A_LSB) & 0x3;
+    CHECK(nature_a == (unsigned)MET_NATURE_LEADING,
+          "leading current classifies as LEADING (got %u)", nature_a);
+    const long long disp_a = (long long)(int)ph[PHASOR_DISP_BASE_WORD];
+    CHECK(disp_a >= -15003 && disp_a <= -14997,
+          "leading 15 deg: displacement -15 deg (got %lld)", disp_a);
+    c = lead;
+
+    // Quadrature: IA lags VA by 90 degrees.
+    GoldenBlock g2;
+    CycleSpec quad = c;
+    quad.ph_deg[MET_LANE_IA] = -90.0;
+    for (unsigned i = 0; i < 10; ++i) {
+      const single_cycle_result_t r = make_cycle(quad, g2);
+      b.send(r);
+      quad.sequence += 1;
+      quad.cycle_sequence += 1;
+      quad.first_sample += quad.samples;
+    }
+    (void)unpack_basic_result(b.m_result.read());
+    take_record(b, words);
+    take_power_record(b, words);
+    take_phasor_record(b, ph);
+    const long long q1_quad = read_s64(ph, PHASOR_Q1_BASE_WORD);
+    const long long dpf_quad = (long long)(int)ph[PHASOR_DPF_BASE_WORD];
+    CHECK(q1_quad > 0 && dpf_quad >= -100 && dpf_quad <= 100,
+          "quadrature: Q1 positive, dPF ~ 0 (Q1 %lld dPF %lld)", q1_quad,
+          dpf_quad);
+    // |Q1| ~ S1 at 90 degrees, within the documented sqrt(2)-constant
+    // bias plus rounding (the exact pin lives in the main block).
+    const long long rv = golden_phasor_counts(g2.ph_re[MET_LANE_VA], g2.count);
+    const long long iv = golden_phasor_counts(g2.ph_im[MET_LANE_VA], g2.count);
+    const long long ri = golden_phasor_counts(g2.ph_re[MET_LANE_IA], g2.count);
+    const long long im_i =
+        golden_phasor_counts(g2.ph_im[MET_LANE_IA], g2.count);
+    const unsigned long long s1 = golden_s_pw(
+        golden_fund_rms_q16(rv, iv), golden_fund_rms_q16(ri, im_i));
+    const long long delta = q1_quad - (long long)s1;
+    CHECK(delta > -(long long)(s1 / 500) && delta < (long long)(s1 / 500),
+          "quadrature: Q1 within 0.2%% of S1 (Q1 %lld S1 %llu)", q1_quad, s1);
+    c = quad;
+  }
+
+  // --- A phasor-invalid cycle poisons only the PHASOR record. ------------
+  {
+    GoldenBlock g;
+    CycleSpec inv = c;
+    for (unsigned i = 0; i < 10; ++i) {
+      inv.status = (i == 3) ? (1u << SCYC_STATUS_PHASOR_INVALID_BIT) : 0;
+      const single_cycle_result_t r = make_cycle(inv, g);
+      b.send(r);
+      inv.sequence += 1;
+      inv.cycle_sequence += 1;
+      inv.first_sample += inv.samples;
+    }
+    inv.status = 0;
+    (void)unpack_basic_result(b.m_result.read());
+    take_record(b, words);
+    CHECK((words[MREC_STATUS_WORD] & 0x2u) == 0,
+          "BASIC status does not carry the phasor-invalid bit");
+    take_power_record(b, words);
+    ap_uint<32> ph[MREC_WORDS];
+    take_phasor_record(b, ph);
+    CHECK((ph[MREC_STATUS_WORD] & (1u << PHASOR_STATUS_INVALID_BIT)) != 0,
+          "one invalid cycle marks the block's PHASOR record");
+    c = inv;
+
+    GoldenBlock g2;
+    run_block(b, c, 10, g2);
+    (void)unpack_basic_result(b.m_result.read());
+    take_record(b, words);
+    take_power_record(b, words);
+    take_phasor_record(b, ph);
+    CHECK((ph[MREC_STATUS_WORD] & (1u << PHASOR_STATUS_INVALID_BIT)) == 0,
+          "phasor-invalid clears on the next block");
+  }
+
+  // --- VA absent: the angle reference is declared invalid. ---------------
+  {
+    GoldenBlock g;
+    CycleSpec no_va = c;
+    no_va.zero_lanes = 1u << MET_LANE_VA;
+    for (unsigned i = 0; i < 10; ++i) {
+      const single_cycle_result_t r = make_cycle(no_va, g);
+      b.send(r);
+      no_va.sequence += 1;
+      no_va.cycle_sequence += 1;
+      no_va.first_sample += no_va.samples;
+    }
+    (void)unpack_basic_result(b.m_result.read());
+    take_record(b, words);
+    take_power_record(b, words);
+    ap_uint<32> ph[MREC_WORDS];
+    take_phasor_record(b, ph);
+    const int va_base = PHASOR_CH_BASE_WORD + MET_LANE_VA * PHASOR_CH_STRIDE;
+    CHECK(ph[va_base + PHASOR_CH_FUND_RMS] == 0, "silent VA fundamental is 0");
+    CHECK((ph[PHASOR_FLAGS_WORD] & (1u << PHASOR_FLAGS_REF_VALID_BIT)) == 0,
+          "zero VA fundamental clears the angle-reference flag");
+    c = no_va;
   }
 
   // --- Disable stops everything. ------------------------------------------
