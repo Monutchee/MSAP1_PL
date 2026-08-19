@@ -47,6 +47,18 @@
 // samples the config APPLY toggle level into every beat; a level change
 // between consecutive beats is the consumer's APPLY event.
 
+// Engine status word bits (the beat's status field and record word 8).
+// Bits 2..4 are the handover's validity/generation contract: results
+// never span a discontinuity, and the first WHOLE cycle emitted after
+// one says so, with its cause. A window interrupted by reset, APPLY,
+// malformed input, a sample-index jump (dropped beat), or cycle-timing
+// loss is discarded, never emitted.
+static const int SCYC_STATUS_OVERFLOW_BIT        = 0;  // accumulator clamped
+static const int SCYC_STATUS_PHASOR_INVALID_BIT  = 1;  // no frequency reference
+static const int SCYC_STATUS_FIRST_AFTER_GAP_BIT = 2;  // first result after a discontinuity
+static const int SCYC_STATUS_GAP_MALFORMED_BIT   = 3;  // cause included malformed/dropped frames
+static const int SCYC_STATUS_GAP_TIMING_BIT      = 4;  // cause included cycle-timing loss
+
 static const int SCYC_SEQUENCE_LSB     = 0;    // [31:0]    result sequence
 static const int SCYC_GENERATION_LSB   = 32;   // [63:32]   config generation
 static const int SCYC_FIRST_SAMPLE_LSB = 64;   // [127:64]  cycle's first index

@@ -30,6 +30,21 @@ void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
   static ap_uint<32> sample_count = 0;
   static ap_uint<64> window_first_sample = 0;
   static ap_uint<32> sequence = 0;  // first emitted result carries 1
+  // Validity/generation contract (handover: no result may span a
+  // discontinuity; the first result after one is marked). await_close
+  // discards frames until a cycle boundary passes, so accumulation only
+  // ever starts at a true cycle start -- partial windows after reset,
+  // APPLY, malformed input, dropped beats, or timing loss are suppressed
+  // rather than emitted. disc_* latch the pending mark and its causes
+  // until the next emitted result carries them.
+  static ap_uint<1> await_close = 1;
+  static ap_uint<1> disc_pending = 1;  // reset: the very first result is marked
+  static ap_uint<1> disc_malformed = 0;
+  static ap_uint<1> disc_timing = 0;
+  // In-window sample continuity: a shim FIFO drop would otherwise sum
+  // across the hole silently. Tracks every accepted frame.
+  static ap_uint<64> expected_sample = 0;
+  static ap_uint<1> expected_valid = 0;
   // Per-cycle arithmetic flag: seeded clear with each window's first
   // frame (the seed-in-place idiom), so every clear point resets it.
   static ap_uint<1> window_overflow = 0;
@@ -63,6 +78,8 @@ void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
     active_enable = beat.bit(SCYC_IN_ENABLE_BIT);
     active_dc_remove = beat.bit(SCYC_IN_DC_REMOVE_BIT);
     sample_count = 0;
+    await_close = 1;
+    disc_pending = 1;
   }
 
   if (active_enable == 0) {
@@ -71,9 +88,21 @@ void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
 
   const ap_uint<32> frame_generation =
       beat.range(SCYC_IN_FRAME_GEN_LSB + 31, SCYC_IN_FRAME_GEN_LSB);
-  if (beat.bit(SCYC_IN_MALFORMED_BIT) == 1 ||
-      frame_generation != active_generation) {
+  if (beat.bit(SCYC_IN_MALFORMED_BIT) == 1) {
     sample_count = 0;
+    await_close = 1;
+    disc_pending = 1;
+    disc_malformed = 1;
+    expected_valid = 0;
+    return;
+  }
+  // Stale tags are the expected transient while an APPLY's new generation
+  // propagates down the pipe: a discontinuity, but not a malformed one.
+  if (frame_generation != active_generation) {
+    sample_count = 0;
+    await_close = 1;
+    disc_pending = 1;
+    expected_valid = 0;
     return;
   }
 
@@ -82,11 +111,37 @@ void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
   // no per-cycle analogue).
   if (beat.bit(SCYC_IN_CYCLE_MODE_BIT) == 0) {
     sample_count = 0;
+    await_close = 1;
+    disc_pending = 1;
+    disc_timing = 1;
+    expected_valid = 0;
     return;
   }
 
   const ap_uint<64> sample_index =
       beat.range(SCYC_IN_SAMPLE_IDX_LSB + 63, SCYC_IN_SAMPLE_IDX_LSB);
+  if (expected_valid == 1 && sample_index != expected_sample) {
+    // Dropped beat(s): whatever accumulated would span the hole, and the
+    // true cycle start may be inside it. Discard and resynchronize.
+    sample_count = 0;
+    await_close = 1;
+    disc_pending = 1;
+    disc_malformed = 1;
+  }
+  expected_sample = sample_index + 1;
+  expected_valid = 1;
+
+  if (await_close == 1) {
+    // Discard until a boundary passes so the next window starts at a
+    // true cycle start; the boundary-carrying frame belongs to the
+    // discarded cycle.
+    if (beat.bit(SCYC_IN_CLOSES_BIT) == 1) {
+      await_close = 0;
+    }
+    sample_count = 0;
+    return;
+  }
+
   const bool first_frame = (sample_count == 0);
   if (first_frame) {
     window_first_sample = sample_index;
@@ -187,8 +242,15 @@ finalize_fundamental:
             : ap_uint<64>(0);
   }
   const ap_uint<32> status =
-      ap_uint<32>(window_overflow) |
-      (ap_uint<32>(phasor_valid == 0 ? 1 : 0) << 1);
+      (ap_uint<32>(window_overflow) << SCYC_STATUS_OVERFLOW_BIT) |
+      (ap_uint<32>(phasor_valid == 0 ? 1 : 0)
+       << SCYC_STATUS_PHASOR_INVALID_BIT) |
+      (ap_uint<32>(disc_pending) << SCYC_STATUS_FIRST_AFTER_GAP_BIT) |
+      (ap_uint<32>(disc_malformed) << SCYC_STATUS_GAP_MALFORMED_BIT) |
+      (ap_uint<32>(disc_timing) << SCYC_STATUS_GAP_TIMING_BIT);
+  disc_pending = 0;
+  disc_malformed = 0;
+  disc_timing = 0;
 
   single_cycle_result_t result;
   result.sequence = sequence;
@@ -225,7 +287,7 @@ zero_phasor:
   }
   m_result.write(pack_single_cycle_result(result));
 
-  // SCYC-v1 diagnostic record.
+  // SCYC-v5 diagnostic record.
   record_image_t image;
   clear_record(image);
   fill_envelope(image, sequence, active_generation, active_sample_rate,
@@ -274,5 +336,5 @@ record_fundamental:
     image.word[base + 1] = rms_units.range(63, 32);
   }
 
-  serialize_record<MREC_FORMAT_SCYC_V4>(image, m_axis);
+  serialize_record<MREC_FORMAT_SCYC_V5>(image, m_axis);
 }

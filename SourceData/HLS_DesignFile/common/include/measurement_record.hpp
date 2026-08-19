@@ -53,6 +53,10 @@ static const uint32_t MREC_MAGIC = 0x3152544Du;  // ASCII "MTR1", little-endian
 static const uint32_t MREC_FORMAT_MTR1_V3 = 0x00010003u;  // proposed (deployed: v2 0x00010002)
 static const uint32_t MREC_FORMAT_MTR2_V2 = 0x00020002u;  // proposed (deployed: v1 0x00020001)
 static const uint32_t MREC_FORMAT_SCYC_V4 = 0x000A0004u;  // single-cycle diagnostic
+// v5 (M6): status-word bits 2..4 gain meaning (first-after-gap and its
+// causes) and every emitted result is a whole cycle (partial windows
+// after reset/APPLY/abort are suppressed, not emitted).
+static const uint32_t MREC_FORMAT_SCYC_V5 = 0x000A0005u;  // single-cycle diagnostic
 
 // ---------------------------------------------------------------------------
 // Common envelope — words 0..12 mean the same thing in EVERY format, so

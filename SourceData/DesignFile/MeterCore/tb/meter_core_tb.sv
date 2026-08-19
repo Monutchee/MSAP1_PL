@@ -973,7 +973,7 @@ module meter_core_tb;
         assert (scyc_tdata == 32'h3152544d)
           else $fatal(1, "SCYC record magic mismatch: %08x", scyc_tdata);
       if (scyc_beats == 1)
-        assert (scyc_tdata == 32'h000A0004)
+        assert (scyc_tdata == 32'h000A0005)
           else $fatal(1, "SCYC record format mismatch: %08x", scyc_tdata);
       assert (scyc_tlast == (scyc_beats == 63))
         else $fatal(1, "SCYC TLAST misplaced at beat %0d", scyc_beats);
