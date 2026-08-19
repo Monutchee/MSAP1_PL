@@ -4,6 +4,13 @@ use ieee.std_logic_1164.all;
 -- Ordinary-VHDL Vivado module-reference boundary. The implementation and
 -- algorithm entities are VHDL-2008 sources.
 entity MeterCore_Wrapper is
+  generic (
+    -- Elaborate the raw ADC simulator (dev/test builds). Set false for
+    -- resource-constrained production targets (K24): the block leaves
+    -- the netlist entirely. Settable on the block-design module
+    -- reference (CONFIG.G_SIMULATOR_ENABLE) without editing sources.
+    G_SIMULATOR_ENABLE : boolean := true
+  );
   port (
     aclk    : in std_logic;
     aresetn : in std_logic;
@@ -279,6 +286,9 @@ architecture structural of MeterCore_Wrapper is
   attribute X_INTERFACE_INFO of m_axis_waveform_tlast : signal is "xilinx.com:interface:axis:1.0 M_AXIS_WAVEFORM TLAST";
 begin
   implementation : entity work.meter_core
+    generic map (
+      G_SIMULATOR_ENABLE => G_SIMULATOR_ENABLE
+    )
     port map (
       aclk => aclk,
       aresetn => aresetn,

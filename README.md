@@ -29,3 +29,27 @@
     source <path_to_your_script>.tcl
     ```
 
+
+## ADC simulator build switch (K24 targets)
+
+The raw ADC simulator is dev/test infrastructure. The `G_SIMULATOR_ENABLE`
+generic on `MeterCore_Wrapper` (default `true`) controls whether it is
+elaborated at all:
+
+- `true` — the simulator exists exactly as before (K26 dev builds).
+- `false` — the block never enters the netlist (no LUTs/DSPs/BRAM). A
+  minimal AXI-lite stub answers its register window with zeros/OKAY, so
+  the RPU's probe fails cleanly (`AdcController` isolates simulator-init
+  failure and physical metering proceeds); the source mux is pinned to
+  the physical front end.
+
+Set it on the block-design module reference without touching sources,
+e.g. in a K24 build script:
+
+```tcl
+set_property CONFIG.G_SIMULATOR_ENABLE false \
+  [get_bd_cells /MeterLogic/MeterCore_Wrapper]
+```
+
+`check_meter_core.tcl` elaborates the disabled shape on every run so the
+stub branch cannot rot unnoticed.

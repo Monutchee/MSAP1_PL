@@ -9,6 +9,15 @@ use xpm.vcomponents.all;
 -- Record formats and engine contracts are normative in C++
 -- (SourceData/HLS_DesignFile/common/include and each engine's header).
 entity meter_core is
+  generic (
+    -- Dev/test infrastructure switch: the raw ADC simulator (waveform
+    -- engine, harmonic slots, register bank). true (default) elaborates
+    -- it exactly as before; false removes it from the netlist entirely
+    -- (K24 production target) and a minimal AXI-lite stub answers its
+    -- register window with zeros so the RPU probe fails cleanly (the
+    -- AdcController isolates simulator-init failure by design).
+    G_SIMULATOR_ENABLE : boolean := true
+  );
   port (
     aclk    : in std_logic;
     aresetn : in std_logic;
@@ -331,6 +340,7 @@ begin
       adc_convst_sar => adc_convst_sar
     );
 
+  simulator_enabled : if G_SIMULATOR_ENABLE generate
   simulator : entity work.adc_simulator
     generic map (
       G_ACLK_HZ => 99999001,
@@ -367,6 +377,76 @@ begin
       frame_rate_valid_o => simulator_frame_rate_valid,
       saturation_count_o => simulator_saturations
     );
+  end generate;
+
+  -- K24 production shape: the simulator does not exist. Its register
+  -- window still answers (zeros, OKAY) so the RPU's probe terminates
+  -- instead of hanging the interconnect; the source mux is pinned to the
+  -- physical front end and the status counters read zero.
+  simulator_absent : if not G_SIMULATOR_ENABLE generate
+    simulator_stub : block
+      signal write_pending : std_logic := '0';
+      signal read_pending  : std_logic := '0';
+      signal aw_seen       : std_logic := '0';
+      signal w_seen        : std_logic := '0';
+    begin
+      s_axi_simulator_awready <= not aw_seen and not write_pending;
+      s_axi_simulator_wready  <= not w_seen and not write_pending;
+      s_axi_simulator_bvalid  <= write_pending;
+      s_axi_simulator_bresp   <= "00";
+      s_axi_simulator_arready <= not read_pending;
+      s_axi_simulator_rvalid  <= read_pending;
+      s_axi_simulator_rdata   <= (others => '0');
+      s_axi_simulator_rresp   <= "00";
+
+      process (aclk)
+      begin
+        if rising_edge(aclk) then
+          if aresetn = '0' then
+            write_pending <= '0';
+            read_pending <= '0';
+            aw_seen <= '0';
+            w_seen <= '0';
+          else
+            if write_pending = '0' then
+              if s_axi_simulator_awvalid = '1' then
+                aw_seen <= '1';
+              end if;
+              if s_axi_simulator_wvalid = '1' then
+                w_seen <= '1';
+              end if;
+              if (aw_seen = '1' or s_axi_simulator_awvalid = '1') and
+                 (w_seen = '1' or s_axi_simulator_wvalid = '1') then
+                write_pending <= '1';
+              end if;
+            elsif s_axi_simulator_bready = '1' then
+              write_pending <= '0';
+              aw_seen <= '0';
+              w_seen <= '0';
+            end if;
+
+            if read_pending = '0' then
+              if s_axi_simulator_arvalid = '1' then
+                read_pending <= '1';
+              end if;
+            elsif s_axi_simulator_rready = '1' then
+              read_pending <= '0';
+            end if;
+          end if;
+        end if;
+      end process;
+    end block;
+
+    simulator_raw_stream.data <= (others => '0');
+    simulator_raw_stream.keep <= (others => '0');
+    simulator_raw_stream.valid <= '0';
+    simulator_raw_stream.last <= '0';
+    simulator_selected <= '0';
+    simulator_frame_count <= (others => '0');
+    simulator_frame_rate <= (others => '0');
+    simulator_frame_rate_valid <= '0';
+    simulator_saturations <= (others => '0');
+  end generate;
 
   source_mux : entity work.adc_source_mux
     port map (

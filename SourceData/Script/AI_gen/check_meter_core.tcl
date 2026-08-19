@@ -127,6 +127,14 @@ if {![string match "*PASS: adc_simulator_tb*" $simulator_log]} {
   error "ADC simulator simulation did not report PASS"
 }
 
+# Elaborate the simulator-disabled configuration (K24 production shape):
+# the generate branch never runs in the benches above, so a dedicated
+# elaboration catches width/driver errors in the stub before a build does.
+set disabled_log [exec $xelab --mt off MeterCore_Wrapper glbl \
+  -generic_top "G_SIMULATOR_ENABLE=false" -s meter_core_sim_disabled 2>@1]
+puts $disabled_log
+puts "MeterCore G_SIMULATOR_ENABLE=false elaboration PASS"
+
 cd $original_dir
 file delete -force $work_root
 puts "MeterCore and ADC simulator mixed-language simulations PASS"
