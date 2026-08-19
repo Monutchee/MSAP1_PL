@@ -100,7 +100,9 @@ static const uint32_t MREC_FORMAT_POWER_V1 = 0x00070001u;  // 10/12-cycle power
 // Totals are arithmetic sums; total displacement PF = P1_tot / S1_tot.
 // Status bit 1: at least one merged cycle had no usable frequency
 // reference (SCYC phasor-invalid) — every phasor word is then suspect.
-static const uint32_t MREC_FORMAT_PHASOR_V1 = 0x00080001u;  // 10/12-cycle phasor
+// v2 (M11 follow-up): angle words switched from signed [-180000,
+// 180000) to the unsigned [0, 360000) industry convention.
+static const uint32_t MREC_FORMAT_PHASOR_V2 = 0x00080002u;  // 10/12-cycle phasor
 // UNBALANCE v1 (M10): fourth record of each block, same stream, same
 // correlation fields. Symmetrical components of the fundamental phasors
 // (a-operator conventions in metering_types.hpp): zero/positive/negative
@@ -112,7 +114,8 @@ static const uint32_t MREC_FORMAT_PHASOR_V1 = 0x00080001u;  // 10/12-cycle phaso
 // word: per-set ratio validity + the M9 angle-reference flag. Status
 // bit 1 mirrors the PHASOR record (frequency-reference loss poisons the
 // same correlation these components come from).
-static const uint32_t MREC_FORMAT_UNBAL_V1 = 0x00090001u;  // 10/12-cycle unbalance
+// v2: angle words in the unsigned [0, 360000) convention (see PHASOR).
+static const uint32_t MREC_FORMAT_UNBAL_V2 = 0x00090002u;  // 10/12-cycle unbalance
 // AGG v3 (M11): the 150/180-cycle tier record emitted by
 // Agg150_180CycleEngine, which merges Agg10_12Result block accumulators
 // and retires Mtr2Engine + the 808-bit basic_result_beat. Interior keeps
@@ -136,8 +139,8 @@ static const uint32_t MREC_FORMAT_AGG_V3 = 0x00020003u;  // 150/180-cycle basic
 // mirroring AGG-v3. Only the format word tells the periods apart — the
 // records interleave on ONE DMA stream.
 static const uint32_t MREC_FORMAT_AGG_POWER_V1  = 0x00100001u;
-static const uint32_t MREC_FORMAT_AGG_PHASOR_V1 = 0x00110001u;
-static const uint32_t MREC_FORMAT_AGG_UNBAL_V1  = 0x00120001u;
+static const uint32_t MREC_FORMAT_AGG_PHASOR_V2 = 0x00110002u;
+static const uint32_t MREC_FORMAT_AGG_UNBAL_V2  = 0x00120002u;
 
 // ---------------------------------------------------------------------------
 // Common envelope — words 0..12 mean the same thing in EVERY format, so
@@ -217,15 +220,15 @@ static const int BASIC_LAST_SAMPLE_HIGH_WORD = 15;
 static const int BASIC_VLL_BASE_WORD         = 51;  // 3 x 32-bit micro-units
 
 // PHASOR-v1 interior (envelope words 0..12 shared; timing word 13 and
-// the last-sample anchor 14/15 mirror BASIC-v4). Angle words are s32
-// millidegrees in [-180000, 180000), relative to VA.
+// the last-sample anchor 14/15 mirror BASIC-v4). Angle words are u32
+// millidegrees in [0, 360000), relative to VA (metering_types.hpp).
 static const int PHASOR_CH_BASE_WORD    = 16;  // 7 lanes, hardware order
 static const int PHASOR_CH_STRIDE       = 2;
 static const int PHASOR_CH_FUND_RMS     = 0;   // u32 micro-units
-static const int PHASOR_CH_ANGLE        = 1;   // s32 millidegrees
+static const int PHASOR_CH_ANGLE        = 1;   // u32 millidegrees
 static const int PHASOR_VLL_BASE_WORD   = 30;  // 3 pairs (AB, BC, CA), same
 static const int PHASOR_VLL_STRIDE      = 2;   //   {fund RMS, angle} shape
-static const int PHASOR_DISP_BASE_WORD  = 36;  // 3 x s32 phi1 (A, B, C)
+static const int PHASOR_DISP_BASE_WORD  = 36;  // 3 x u32 phi1 (A, B, C)
 static const int PHASOR_Q1_BASE_WORD    = 39;  // 3 x s64 picovars (lo/hi)
 static const int PHASOR_Q1_TOTAL_LOW_WORD  = 45;
 static const int PHASOR_Q1_TOTAL_HIGH_WORD = 46;
@@ -253,7 +256,7 @@ static const int UNBAL_V_BASE_WORD   = 16;  // 3 x {rms u32, angle s32}
 static const int UNBAL_I_BASE_WORD   = 22;  // 3 x {rms u32, angle s32}
 static const int UNBAL_SEQ_STRIDE    = 2;
 static const int UNBAL_SEQ_RMS       = 0;   // u32 micro-units
-static const int UNBAL_SEQ_ANGLE     = 1;   // s32 millidegrees (rel. VA)
+static const int UNBAL_SEQ_ANGLE     = 1;   // u32 millidegrees (rel. VA)
 static const int UNBAL_V_ZERO_RATIO_WORD = 28;  // |V0|/|V1|, millionths
 static const int UNBAL_V_UNBALANCE_WORD  = 29;  // |V2|/|V1|, millionths
 static const int UNBAL_I_ZERO_RATIO_WORD = 30;  // |I0|/|I1|, millionths

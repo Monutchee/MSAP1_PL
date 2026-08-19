@@ -30,9 +30,9 @@
 //                          last-sample anchor (words 14/15) and merged
 //                          line-line RMS (words 51..53);
 //                POWER-v1  (0x00070001) — P/S/true-PF/crest (M8);
-//                PHASOR-v1 (0x00080001) — fundamental magnitudes/angles,
+//                PHASOR-v2 (0x00080002) — fundamental magnitudes/angles,
 //                          Q1, displacement PF, load nature (M9);
-//                UNBAL-v1  (0x00090001) — symmetrical components and
+//                UNBAL-v2  (0x00090002) — symmetrical components and
 //                          unbalance ratios (M10).
 //              The PHASOR and UNBAL records carry the phasor-invalid
 //              status bit (bit 1); BASIC/POWER never do.

@@ -24,7 +24,7 @@
 //             hosting shim is pure hosting (all context rides the beat).
 //   m_axis  : four records per completed aggregate, back to back:
 //             AGG-v3 (0x00020003), AGG-POWER (0x00100001), AGG-PHASOR
-//             (0x00110001), AGG-UNBAL (0x00120001) — maps normative in
+//             (0x00110002), AGG-UNBAL (0x00120002) — maps normative in
 //             measurement_record.hpp.
 //
 // Aggregation rules (ported verbatim from the retired Mtr2Engine — the

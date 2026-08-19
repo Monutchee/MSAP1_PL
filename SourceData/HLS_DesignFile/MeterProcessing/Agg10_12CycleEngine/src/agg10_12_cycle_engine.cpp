@@ -441,7 +441,7 @@ phasor_record_phases:
   const ap_uint<64> p1_total_bits = ap_uint<64>(fin.total_p1_pw);
   phasor_image.word[PHASOR_P1_TOTAL_LOW_WORD] = p1_total_bits.range(31, 0);
   phasor_image.word[PHASOR_P1_TOTAL_HIGH_WORD] = p1_total_bits.range(63, 32);
-  serialize_record<MREC_FORMAT_PHASOR_V1>(phasor_image, m_axis);
+  serialize_record<MREC_FORMAT_PHASOR_V2>(phasor_image, m_axis);
 
   // UNBALANCE-v1 record, fourth on the stream (M10).
   record_image_t unbal_image;
@@ -479,5 +479,5 @@ unbal_record_sets:
       (ap_uint<32>(fin.seq_set_valid[0]) << UNBAL_FLAGS_V_VALID_BIT) |
       (ap_uint<32>(fin.seq_set_valid[1]) << UNBAL_FLAGS_I_VALID_BIT) |
       (ap_uint<32>(fin.angle_ref_valid) << UNBAL_FLAGS_REF_VALID_BIT);
-  serialize_record<MREC_FORMAT_UNBAL_V1>(unbal_image, m_axis);
+  serialize_record<MREC_FORMAT_UNBAL_V2>(unbal_image, m_axis);
 }

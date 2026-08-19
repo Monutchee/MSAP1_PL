@@ -250,11 +250,11 @@ static void test_cordic_atan2() {
     const ap_int<32> turns =
         met_atan2_turns(ap_int<64>(v[0]), ap_int<64>(v[1]));
     const long long mdeg =
-        (long long)ap_int<32>(met_turns_to_millidegrees(turns));
+        (long long)(unsigned)met_turns_to_millidegrees(turns);
     long double ref =
         atan2l((long double)v[0], (long double)v[1]) / M_PI * 180000.0L;
-    if (ref >= 180000.0L - 0.5L) ref -= 360000.0L;  // +180 -> -180
-    const long long ref_mdeg = (long long)llroundl(ref);
+    if (ref < 0.0L) ref += 360000.0L;  // publish convention: [0, 360000)
+    const long long ref_mdeg = (long long)llroundl(ref) % 360000;
     long long diff = mdeg - ref_mdeg;
     if (diff > 180000) diff -= 360000;
     if (diff < -180000) diff += 360000;
@@ -262,13 +262,14 @@ static void test_cordic_atan2() {
   }
   CHECK((met_atan2_turns(ap_int<64>(0), ap_int<64>(0)) == 0),
         "atan2(0,0) defined as zero");
-  // Angle differences wrap modulo one turn: 170 - (-170) = -20 degrees.
+  // Angle differences wrap modulo one turn: 170 - (-170) = -20 degrees,
+  // publishing as 340 in the [0, 360) convention.
   const ap_int<32> a = met_atan2_turns(ap_int<64>(17365), ap_int<64>(-98481));
   const ap_int<32> b = met_atan2_turns(ap_int<64>(-17365), ap_int<64>(-98481));
   const long long wrapped =
-      (long long)ap_int<32>(met_turns_to_millidegrees(ap_int<32>(a - b)));
-  CHECK(wrapped >= -20002 && wrapped <= -19998,
-        "turns subtraction must wrap across the +/-180 seam");
+      (long long)(unsigned)met_turns_to_millidegrees(ap_int<32>(a - b));
+  CHECK(wrapped >= 339998 && wrapped <= 340002,
+        "turns subtraction must wrap across the seam");
 
   // The phasor finalization helpers agree with a plain-integer model.
   const ap_int<64> re = met_phasor_counts(

@@ -154,9 +154,12 @@ static long long golden_q1_pvar(long long re_v, long long im_v, long long re_i,
   return (long long)(cross >> 31);
 }
 static long long golden_angle_mdeg(long long im, long long re) {
+  // Published convention: [0, 360000).
   if (im == 0 && re == 0) return 0;
-  return (long long)llroundl(atan2l((long double)im, (long double)re) /
-                             M_PI * 180000.0L);
+  long long mdeg = (long long)llroundl(
+      atan2l((long double)im, (long double)re) / M_PI * 180000.0L);
+  if (mdeg < 0) mdeg += 360000;
+  return mdeg % 360000;
 }
 static long long wrap_mdeg(long long mdeg) {
   while (mdeg >= 180000) mdeg -= 360000;
@@ -442,7 +445,7 @@ static void take_power_record(Bench &b, ap_uint<32> (&words)[MREC_WORDS]) {
 // Drain the PHASOR record, third of every block's record quad.
 static void take_phasor_record(Bench &b, ap_uint<32> (&words)[MREC_WORDS]) {
   take_record(b, words);
-  CHECK(words[MREC_FORMAT_WORD] == MREC_FORMAT_PHASOR_V1,
+  CHECK(words[MREC_FORMAT_WORD] == MREC_FORMAT_PHASOR_V2,
         "paired phasor record format, got %08x",
         (unsigned)words[MREC_FORMAT_WORD]);
 }
@@ -450,7 +453,7 @@ static void take_phasor_record(Bench &b, ap_uint<32> (&words)[MREC_WORDS]) {
 // Drain the UNBALANCE record that closes every block's record quad.
 static void take_unbalance_record(Bench &b, ap_uint<32> (&words)[MREC_WORDS]) {
   take_record(b, words);
-  CHECK(words[MREC_FORMAT_WORD] == MREC_FORMAT_UNBAL_V1,
+  CHECK(words[MREC_FORMAT_WORD] == MREC_FORMAT_UNBAL_V2,
         "paired unbalance record format, got %08x",
         (unsigned)words[MREC_FORMAT_WORD]);
 }
@@ -985,8 +988,8 @@ int main() {
     CHECK(nature_a == (unsigned)MET_NATURE_LEADING,
           "leading current classifies as LEADING (got %u)", nature_a);
     const long long disp_a = (long long)(int)ph[PHASOR_DISP_BASE_WORD];
-    CHECK(disp_a >= -15003 && disp_a <= -14997,
-          "leading 15 deg: displacement -15 deg (got %lld)", disp_a);
+    CHECK(disp_a >= 344997 && disp_a <= 345003,
+          "leading 15 deg: displacement 345 deg (got %lld)", disp_a);
     c = lead;
 
     // Quadrature: IA lags VA by 90 degrees.

@@ -630,7 +630,7 @@ module meter_core_tb;
           case (word_index)
             0: assert (mtr1_tdata == 32'h3152_544d)
               else $fatal(1, "bad PHASOR magic");
-            1: assert (mtr1_tdata == 32'h0008_0001)
+            1: assert (mtr1_tdata == 32'h0008_0002)
               else $fatal(1, "bad PHASOR format: %08h", mtr1_tdata);
             3: assert (mtr1_tdata == expected_sequence)
               else $fatal(1, "PHASOR sequence %0d, expected %0d",
@@ -661,7 +661,7 @@ module meter_core_tb;
           case (word_index)
             0: assert (mtr1_tdata == 32'h3152_544d)
               else $fatal(1, "bad UNBAL magic");
-            1: assert (mtr1_tdata == 32'h0009_0001)
+            1: assert (mtr1_tdata == 32'h0009_0002)
               else $fatal(1, "bad UNBAL format: %08h", mtr1_tdata);
             3: assert (mtr1_tdata == expected_sequence)
               else $fatal(1, "UNBAL sequence %0d, expected %0d",
@@ -1155,8 +1155,8 @@ module meter_core_tb;
     // The aggregate quad (M11): drain the AGG-POWER/PHASOR/UNBAL
     // siblings that follow every AGG-v3 record.
     drain_agg_sibling(32'h0010_0001, 1);
-    drain_agg_sibling(32'h0011_0001, 1);
-    drain_agg_sibling(32'h0012_0001, 1);
+    drain_agg_sibling(32'h0011_0002, 1);
+    drain_agg_sibling(32'h0012_0002, 1);
 
     repeat (20) @(posedge clock);
     capture_read(8'h10, read_value);

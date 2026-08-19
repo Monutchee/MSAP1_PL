@@ -74,8 +74,8 @@ static const ap_uint<30> MET_CORDIC_ATAN_TURNS[30] = {
     41,        20,        10,        5,        3,        1};
 
 // Angle of the vector (re, im) in signed Q0.32 turns; 0 when both are 0.
-// atan2(0, negative) returns -half turn (the published range is
-// [-180000, 180000) millidegrees, so +180 degrees does not exist).
+// atan2(0, negative) returns a half turn (publishing as 180000 in the
+// unsigned [0, 360000) millidegree convention).
 inline ap_int<32> met_atan2_turns(const ap_int<64> im, const ap_int<64> re) {
 #pragma HLS INLINE off
   if (im == 0 && re == 0) {
@@ -139,11 +139,17 @@ met_atan2_vector:
   return angle;
 }
 
-// Signed Q0.32 turns -> millidegrees in [-180000, 180000), floor.
-inline ap_int<32> met_turns_to_millidegrees(const ap_int<32> turns) {
+// Q0.32 turns -> millidegrees in [0, 360000), floor — the industry
+// display convention, owned by the PL (M11 follow-up): the SIGNED turns
+// word reinterpreted as an unsigned fraction of one turn maps straight
+// onto the positive circle, so -120 degrees publishes as 240000. The
+// internal angle arithmetic stays signed (wrapping subtraction is the
+// point); only this publication step is unsigned.
+inline ap_uint<32> met_turns_to_millidegrees(const ap_int<32> turns) {
 #pragma HLS INLINE off
-  const ap_int<52> scaled = ap_int<52>(turns) * ap_int<20>(360000);
-  return ap_int<32>((scaled >> 32).range(31, 0));
+  const ap_uint<64> scaled =
+      ap_uint<64>(ap_uint<32>(turns)) * ap_uint<20>(360000);
+  return ap_uint<32>((scaled >> 32).range(31, 0));
 }
 
 #endif  // MSAP1_METROLOGY_TRIG_HPP

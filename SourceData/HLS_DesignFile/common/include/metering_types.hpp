@@ -94,12 +94,16 @@ static const int MET_POWER_PHASES = 3;
 //   * Load nature (M9): classified from the SIGN of Q1, never from a PF
 //     magnitude: MET_NATURE_UNDEFINED when S1 = 0, else _UNITY (Q1 = 0),
 //     _LAGGING (Q1 > 0, inductive), _LEADING (Q1 < 0, capacitive).
-//   * Phase angles (M9): published in millidegrees in [-180000, 180000),
-//     RELATIVE TO THE VA FUNDAMENTAL (VA reads exactly 0). The raw
+//   * Phase angles (M9; convention finalized with M11): PUBLISHED in
+//     millidegrees in [0, 360000) — the industry display convention,
+//     owned here in the PL — RELATIVE TO THE VA FUNDAMENTAL (VA reads
+//     exactly 0; a 120-degree lag publishes as 240000). The raw
 //     correlation reference (the grid-locked cycle start) is not a
 //     specified quantity; only angle differences are. Records carry an
 //     angle-reference-valid flag that clears when VA's fundamental is
-//     absent (masked out or zero magnitude).
+//     absent (masked out or zero magnitude). INTERNAL angle values (the
+//     Q0.32 turns domain) stay signed — wrapping subtraction is the
+//     point — and map onto the positive circle only at publication.
 //   * Symmetrical components (M10): from the fundamental phasors ONLY,
 //     with the a-operator a = 1 at +120 degrees and the standard
 //     ABC-rotation convention:

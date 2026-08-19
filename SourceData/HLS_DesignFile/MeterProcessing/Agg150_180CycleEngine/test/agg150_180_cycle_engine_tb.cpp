@@ -422,7 +422,7 @@ int main() {
     }
 
     // AGG-PHASOR: VA reference + phase A Q1 exact.
-    take_record(b, words, MREC_FORMAT_AGG_PHASOR_V1);
+    take_record(b, words, MREC_FORMAT_AGG_PHASOR_V2);
     {
       long long re_c[MET_ACTIVE_CHANNELS], im_c[MET_ACTIVE_CHANNELS];
       for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
@@ -444,7 +444,7 @@ int main() {
             "aggregate angle reference valid");
 
       // AGG-UNBAL: V unbalance ratio exact.
-      take_record(b, words, MREC_FORMAT_AGG_UNBAL_V1);
+      take_record(b, words, MREC_FORMAT_AGG_UNBAL_V2);
       const long long in_re[3] = {re_c[MET_LANE_VA], re_c[MET_LANE_VB],
                                   re_c[MET_LANE_VC]};
       const long long in_im[3] = {im_c[MET_LANE_VA], im_c[MET_LANE_VB],
@@ -471,8 +471,8 @@ int main() {
               words[MTR2_LAST_BASIC_SEQ_WORD] == 30,
           "second aggregate chains");
     take_record(b, words, MREC_FORMAT_AGG_POWER_V1);
-    take_record(b, words, MREC_FORMAT_AGG_PHASOR_V1);
-    take_record(b, words, MREC_FORMAT_AGG_UNBAL_V1);
+    take_record(b, words, MREC_FORMAT_AGG_PHASOR_V2);
+    take_record(b, words, MREC_FORMAT_AGG_UNBAL_V2);
   }
 
   // --- Ineligible inputs: fallback flag, first-block flag, short count. ---
@@ -509,8 +509,8 @@ int main() {
           (unsigned)words[MTR2_RESET_COUNT_WORD],
           (unsigned)words[MTR2_CONTINUITY_COUNT_WORD]);
     take_record(b, words, MREC_FORMAT_AGG_POWER_V1);
-    take_record(b, words, MREC_FORMAT_AGG_PHASOR_V1);
-    take_record(b, words, MREC_FORMAT_AGG_UNBAL_V1);
+    take_record(b, words, MREC_FORMAT_AGG_PHASOR_V2);
+    take_record(b, words, MREC_FORMAT_AGG_UNBAL_V2);
   }
 
   // --- Sequence break mid-aggregate: continuity + reset, reseed. ---------
@@ -527,8 +527,8 @@ int main() {
           (unsigned)words[MTR2_CONTINUITY_COUNT_WORD],
           (unsigned)words[MTR2_RESET_COUNT_WORD]);
     take_record(b, words, MREC_FORMAT_AGG_POWER_V1);
-    take_record(b, words, MREC_FORMAT_AGG_PHASOR_V1);
-    take_record(b, words, MREC_FORMAT_AGG_UNBAL_V1);
+    take_record(b, words, MREC_FORMAT_AGG_PHASOR_V2);
+    take_record(b, words, MREC_FORMAT_AGG_UNBAL_V2);
   }
 
   // --- APPLY mid-aggregate discards the partial. --------------------------
@@ -543,8 +543,8 @@ int main() {
           "APPLY discard adds a reset (got %u)",
           (unsigned)words[MTR2_RESET_COUNT_WORD]);
     take_record(b, words, MREC_FORMAT_AGG_POWER_V1);
-    take_record(b, words, MREC_FORMAT_AGG_PHASOR_V1);
-    take_record(b, words, MREC_FORMAT_AGG_UNBAL_V1);
+    take_record(b, words, MREC_FORMAT_AGG_PHASOR_V2);
+    take_record(b, words, MREC_FORMAT_AGG_UNBAL_V2);
   }
 
   // --- Nominal change reseeds; 50 Hz aggregate carries 150 cycles. -------
@@ -562,8 +562,8 @@ int main() {
           "50 Hz shape word (150 cycles)");
     CHECK(words[MTR2_RESET_COUNT_WORD] == 4, "nominal change adds a reset");
     take_record(b, words, MREC_FORMAT_AGG_POWER_V1);
-    take_record(b, words, MREC_FORMAT_AGG_PHASOR_V1);
-    take_record(b, words, MREC_FORMAT_AGG_UNBAL_V1);
+    take_record(b, words, MREC_FORMAT_AGG_PHASOR_V2);
+    take_record(b, words, MREC_FORMAT_AGG_UNBAL_V2);
   }
 
   // --- Frequency-invalid and phasor-invalid blocks fold into status. -----
@@ -588,10 +588,10 @@ int main() {
     take_record(b, words, MREC_FORMAT_AGG_POWER_V1);
     CHECK((words[MREC_STATUS_WORD] & 0x2u) == 0,
           "power sibling does not carry phasor-invalid");
-    take_record(b, words, MREC_FORMAT_AGG_PHASOR_V1);
+    take_record(b, words, MREC_FORMAT_AGG_PHASOR_V2);
     CHECK((words[MREC_STATUS_WORD] & 0x2u) != 0,
           "phasor sibling carries the phasor-invalid fold");
-    take_record(b, words, MREC_FORMAT_AGG_UNBAL_V1);
+    take_record(b, words, MREC_FORMAT_AGG_UNBAL_V2);
     CHECK((words[MREC_STATUS_WORD] & 0x2u) != 0,
           "unbalance sibling carries the phasor-invalid fold");
   }
@@ -607,8 +607,8 @@ int main() {
     CHECK(words[MREC_SAMPLE_COUNT_WORD] == g.count,
           "only the complete 15-block interval emits");
     take_record(b, words, MREC_FORMAT_AGG_POWER_V1);
-    take_record(b, words, MREC_FORMAT_AGG_PHASOR_V1);
-    take_record(b, words, MREC_FORMAT_AGG_UNBAL_V1);
+    take_record(b, words, MREC_FORMAT_AGG_PHASOR_V2);
+    take_record(b, words, MREC_FORMAT_AGG_UNBAL_V2);
     CHECK(b.m_axis.empty(), "no partial aggregate ever emitted");
   }
 

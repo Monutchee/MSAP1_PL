@@ -372,7 +372,7 @@ module meter_record_stream_tb;
     int w = phasor_records;  // shares the basic sibling's sequence
     logic [63:0] fs = block_first_sample(w);
     logic [63:0] ls = block_first_sample(w + 1) - 1;
-    assert (done_word[0] == 32'h3152_544D && done_word[1] == 32'h0008_0001 &&
+    assert (done_word[0] == 32'h3152_544D && done_word[1] == 32'h0008_0002 &&
             done_word[2] == 32'd256)
       else $fatal(1, "PHASOR record %0d envelope identity", w);
     assert (done_word[3] == 32'(w) && done_word[4] == GENERATION &&
@@ -407,7 +407,7 @@ module meter_record_stream_tb;
     int w = unbal_records;  // shares the basic sibling's sequence
     logic [63:0] fs = block_first_sample(w);
     logic [63:0] ls = block_first_sample(w + 1) - 1;
-    assert (done_word[0] == 32'h3152_544D && done_word[1] == 32'h0009_0001 &&
+    assert (done_word[0] == 32'h3152_544D && done_word[1] == 32'h0009_0002 &&
             done_word[2] == 32'd256)
       else $fatal(1, "UNBAL record %0d envelope identity", w);
     assert (done_word[3] == 32'(w) && done_word[4] == GENERATION &&
@@ -499,9 +499,9 @@ module meter_record_stream_tb;
           // record to its checker.
           if (basic_word[1] == 32'h0007_0001)
             power_records <= power_records + 1;
-          else if (basic_word[1] == 32'h0008_0001)
+          else if (basic_word[1] == 32'h0008_0002)
             phasor_records <= phasor_records + 1;
-          else if (basic_word[1] == 32'h0009_0001)
+          else if (basic_word[1] == 32'h0009_0002)
             unbal_records <= unbal_records + 1;
           else
             basic_records <= basic_records + 1;
@@ -524,9 +524,9 @@ module meter_record_stream_tb;
           // route by word 1 (all four are checked one cycle later).
           if (mtr2_word[1] == 32'h0010_0001)
             agg_power_records <= agg_power_records + 1;
-          else if (mtr2_word[1] == 32'h0011_0001)
+          else if (mtr2_word[1] == 32'h0011_0002)
             agg_phasor_records <= agg_phasor_records + 1;
-          else if (mtr2_word[1] == 32'h0012_0001)
+          else if (mtr2_word[1] == 32'h0012_0002)
             agg_unbal_records <= agg_unbal_records + 1;
           else
             mtr2_records <= mtr2_records + 1;
