@@ -71,6 +71,16 @@ static const int MET_POWER_PHASES = 3;
 //                       leading / capacitive is NEGATIVE.
 //   * Leading/lagging classification derives from the SIGN of Q, never
 //     from a power-factor magnitude.
+//   * Apparent power S (M8): per phase S = Vrms x Irms, UNSIGNED; the
+//     total S is the ARITHMETIC sum of the phase values (4-wire
+//     convention). No vector apparent power anywhere.
+//   * True power factor PF (M8): P / S, sign follows P, published in
+//     millionths. PF is UNDEFINED when S = 0 and the record then
+//     carries 0 -- consumers must gate on S, never infer from PF alone.
+//     The total PF is P_total / S_total; phase PFs are NEVER averaged.
+//   * Crest factor (M8): peak / RMS per lane in ten-thousandths, with
+//     peak = max(|min|, |max|) of the block's extrema and RMS as
+//     finalized under the committed dc_remove; 0 when RMS = 0.
 //
 // Units through the chain: converted samples are Q16 micro-units
 // (micro-volts / micro-amperes), so a v*i product is Q32 in

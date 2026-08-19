@@ -142,4 +142,29 @@ ap_uint<64> met_rms_from_accumulators(const ap_uint<SQUARE_WIDTH> square,
   return floor_sqrt_128(floor_div<128>(numerator, denominator));
 }
 
+
+// True power factor in millionths (M8, shared with the later displacement
+// and energy tiers): floor(|P| * 1e6 / S) carrying P's sign. Clamped to
+// +/-1e6 -- Cauchy-Schwarz bounds |P| <= S mathematically, but the two
+// values reach here through different floor chains and the ratio can
+// land a hair above one. Returns 0 when either input is 0: PF is
+// UNDEFINED there and consumers must gate on S, never on PF alone.
+inline ap_int<32> met_power_factor_e6(const ap_int<64> active_pw,
+                                      const ap_uint<64> apparent_pw) {
+#pragma HLS INLINE off
+  if (active_pw == 0 || apparent_pw == 0) {
+    return 0;
+  }
+  const ap_uint<64> magnitude = met_abs<64>(active_pw);
+  const ap_uint<128> scaled =
+      ap_uint<128>(magnitude) * ap_uint<128>(1000000);
+  const ap_uint<128> ratio =
+      floor_div<128>(scaled, ap_uint<128>(apparent_pw));
+  const ap_uint<32> clamped = ratio > ap_uint<128>(1000000)
+                                  ? ap_uint<32>(1000000)
+                                  : ap_uint<32>(ratio.range(31, 0));
+  return active_pw < 0 ? ap_int<32>(-ap_int<33>(clamped))
+                       : ap_int<32>(clamped);
+}
+
 #endif  // MSAP1_METROLOGY_STATS_HPP

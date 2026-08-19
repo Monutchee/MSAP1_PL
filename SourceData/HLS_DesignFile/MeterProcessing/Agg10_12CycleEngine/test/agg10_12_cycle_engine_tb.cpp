@@ -75,10 +75,49 @@ struct GoldenBlock {
   long long raw_sum[MET_ACTIVE_CHANNELS] = {};
   unsigned __int128 raw_square[MET_ACTIVE_CHANNELS] = {};
   unsigned __int128 vll_square[MET_VLL_PAIRS] = {};
+  __int128 power[MET_POWER_PHASES] = {};
+  long long minimum[MET_ACTIVE_CHANNELS] = {};
+  long long maximum[MET_ACTIVE_CHANNELS] = {};
+  bool extrema_seeded = false;
   unsigned count = 0;
 };
 
+// Golden power finalization mirroring the engine exactly: trunc-toward-
+// zero mean of the Q32 product sum, arithmetic >>32 to picowatts; S from
+// the exact RMS product; PF floor(|P|*1e6/S) clamped, sign of P.
+static long long golden_p_pw(__int128 power_sum, unsigned count) {
+  const bool negative = power_sum < 0;
+  const unsigned __int128 magnitude =
+      (unsigned __int128)(negative ? -power_sum : power_sum);
+  __int128 mean = (__int128)(magnitude / count);
+  if (negative) mean = -mean;
+  return (long long)(mean >> 32);
+}
+static unsigned long long golden_s_pw(unsigned long long v_rms_q16,
+                                      unsigned long long i_rms_q16) {
+  return (unsigned long long)(((unsigned __int128)v_rms_q16 * i_rms_q16) >> 32);
+}
+static long long golden_pf_e6(long long p_pw, unsigned long long s_pw) {
+  if (p_pw == 0 || s_pw == 0) return 0;
+  const unsigned __int128 magnitude =
+      (unsigned __int128)(p_pw < 0 ? -p_pw : p_pw);
+  unsigned __int128 ratio = magnitude * 1000000u / s_pw;
+  if (ratio > 1000000u) ratio = 1000000u;
+  return p_pw < 0 ? -(long long)ratio : (long long)ratio;
+}
+static unsigned long long golden_crest_e4(long long minimum, long long maximum,
+                                          unsigned long long rms_q16) {
+  if (rms_q16 == 0) return 0;
+  const unsigned long long lo = (unsigned long long)(minimum < 0 ? -minimum : minimum);
+  const unsigned long long hi = (unsigned long long)(maximum < 0 ? -maximum : maximum);
+  const unsigned long long peak = lo > hi ? lo : hi;
+  unsigned __int128 ratio = (unsigned __int128)peak * 10000u / rms_q16;
+  if (ratio > 0xFFFFFFFFu) ratio = 0xFFFFFFFFu;
+  return (unsigned long long)ratio;
+}
+
 struct CycleSpec {
+  unsigned zero_lanes = 0;  // bitmask: force these lanes' samples to 0
   unsigned sequence = 1;
   unsigned cycle_sequence = 100;
   unsigned generation = 1;
@@ -89,7 +128,10 @@ struct CycleSpec {
   unsigned valid_mask = 0x7F;
   unsigned freq_mhz = 60012;
   unsigned freq_valid = 1;
-  int seed = 1;  // varies the synthetic sample values
+  /* Q16 micro-unit scale: real 120 V lanes sit near 8e12; a ~5e8 base
+   * keeps every derived quantity (S = rms*rms >> 32, PF, crest) nonzero
+   * and non-trivial while all goldens stay exact in __int128. */
+  long long seed = 500000001;  // varies the synthetic sample values
 };
 
 // Build one whole cycle: sample s of lane l is
@@ -102,14 +144,18 @@ static single_cycle_result_t make_cycle(const CycleSpec &c, GoldenBlock &g) {
   long long raw_sum[MET_ACTIVE_CHANNELS] = {};
   unsigned __int128 raw_square[MET_ACTIVE_CHANNELS] = {};
   unsigned __int128 vll_square[MET_VLL_PAIRS] = {};
+  __int128 power[MET_POWER_PHASES] = {};
+  long long lane_min[MET_ACTIVE_CHANNELS] = {};
+  long long lane_max[MET_ACTIVE_CHANNELS] = {};
   const int minuend[MET_VLL_PAIRS] = {MET_LANE_VA, MET_LANE_VB, MET_LANE_VC};
   const int subtrahend[MET_VLL_PAIRS] = {MET_LANE_VB, MET_LANE_VC,
                                          MET_LANE_VA};
   for (unsigned s = 0; s < c.samples; ++s) {
     long long lane_value[MET_ACTIVE_CHANNELS];
     for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
-      const long long value = ((s % 2 == 0) ? 1 : -1) *
-                              (long long)c.seed * (lane + 1) * (long long)(s + 1);
+      long long value = ((s % 2 == 0) ? 1 : -1) *
+                        c.seed * (lane + 1) * (long long)(s + 1);
+      if (c.zero_lanes & (1u << lane)) value = 0;
       lane_value[lane] = value;
       sum[lane] += value;
       square[lane] += (unsigned __int128)((__int128)value * value);
@@ -122,6 +168,30 @@ static single_cycle_result_t make_cycle(const CycleSpec &c, GoldenBlock &g) {
           lane_value[minuend[pair]] - lane_value[subtrahend[pair]];
       vll_square[pair] += (unsigned __int128)((__int128)diff * diff);
     }
+    static const int pv[MET_POWER_PHASES] = {MET_LANE_VA, MET_LANE_VB,
+                                             MET_LANE_VC};
+    static const int pi_[MET_POWER_PHASES] = {MET_LANE_IA, MET_LANE_IB,
+                                              MET_LANE_IC};
+    for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
+      const __int128 product =
+          (__int128)lane_value[pv[phase]] * lane_value[pi_[phase]];
+      power[phase] += product;
+      g.power[phase] += product;
+    }
+    for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+      if (s == 0 || lane_value[lane] < lane_min[lane])
+        lane_min[lane] = lane_value[lane];
+      if (s == 0 || lane_value[lane] > lane_max[lane])
+        lane_max[lane] = lane_value[lane];
+      if (!g.extrema_seeded) {
+        g.minimum[lane] = lane_value[lane];
+        g.maximum[lane] = lane_value[lane];
+      } else {
+        if (lane_value[lane] < g.minimum[lane]) g.minimum[lane] = lane_value[lane];
+        if (lane_value[lane] > g.maximum[lane]) g.maximum[lane] = lane_value[lane];
+      }
+    }
+    g.extrema_seeded = true;
   }
   for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
     // Two's-complement image transfers exactly through the 128-bit fields.
@@ -140,6 +210,16 @@ static single_cycle_result_t make_cycle(const CycleSpec &c, GoldenBlock &g) {
     g.square[lane] += square[lane];
     g.raw_sum[lane] += raw_sum[lane];
     g.raw_square[lane] += raw_square[lane];
+  }
+  for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
+    unsigned __int128 image = (unsigned __int128)power[phase];
+    r.power_sum[phase].range(63, 0) = ap_uint<64>((unsigned long long)image);
+    r.power_sum[phase].range(127, 64) =
+        ap_uint<64>((unsigned long long)(image >> 64));
+  }
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+    r.minimum[lane] = ap_int<64>(lane_min[lane]);
+    r.maximum[lane] = ap_int<64>(lane_max[lane]);
   }
   for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
     unsigned __int128 vsq = vll_square[pair];
@@ -219,6 +299,14 @@ static void take_record(Bench &b, ap_uint<32> (&words)[MREC_WORDS]) {
     ++beats;
   }
   CHECK(beats == MREC_WORDS, "record must be exactly 64 beats, got %d", beats);
+}
+
+// Drain the POWER record that follows every BASIC record on the stream.
+static void take_power_record(Bench &b, ap_uint<32> (&words)[MREC_WORDS]) {
+  take_record(b, words);
+  CHECK(words[MREC_FORMAT_WORD] == MREC_FORMAT_POWER_V1,
+        "paired power record format, got %08x",
+        (unsigned)words[MREC_FORMAT_WORD]);
 }
 
 // Drive one whole block of `cycles` cycles; returns via out-params.
@@ -314,6 +402,64 @@ int main() {
               words[MTR1_FIFO_OVERFLOWS_WORD] == 2 &&
               words[MTR1_ADC_ALERTS_WORD] == 3,
           "capture context words");
+
+    // ---- POWER-v1 companion record: exact goldens. ----------------------
+    ap_uint<32> pw[MREC_WORDS];
+    take_power_record(b, pw);
+    CHECK(pw[MREC_SEQUENCE_WORD] == 1 && pw[MREC_SAMPLE_COUNT_WORD] == g.count &&
+              pw[MREC_FIRST_SAMPLE_LOW_WORD] == 1000 &&
+              pw[MREC_STATUS_WORD] == words[MREC_STATUS_WORD] &&
+              pw[MTR1_TIMING_WORD] == words[MTR1_TIMING_WORD] &&
+              pw[BASIC_LAST_SAMPLE_LOW_WORD] ==
+                  words[BASIC_LAST_SAMPLE_LOW_WORD],
+          "power record shares the block's envelope");
+    static const int pv[3] = {MET_LANE_VA, MET_LANE_VB, MET_LANE_VC};
+    static const int pi_[3] = {MET_LANE_IA, MET_LANE_IB, MET_LANE_IC};
+    long long g_total_p = 0;
+    unsigned long long g_total_s = 0;
+    for (int phase = 0; phase < 3; ++phase) {
+      const long long p_pw = golden_p_pw(g.power[phase], g.count);
+      const unsigned long long s_pw = golden_s_pw(
+          golden_rms_q16(g.square[pv[phase]], g.sum[pv[phase]], g.count, true),
+          golden_rms_q16(g.square[pi_[phase]], g.sum[pi_[phase]], g.count,
+                         true));
+      const long long pf = golden_pf_e6(p_pw, s_pw);
+      g_total_p += p_pw;
+      g_total_s += s_pw;
+      const int base = POWER_PHASE_BASE_WORD + phase * POWER_PHASE_STRIDE;
+      const long long got_p =
+          (long long)((unsigned long long)pw[base + POWER_PHASE_P_LOW] |
+                      ((unsigned long long)pw[base + POWER_PHASE_P_HIGH]
+                       << 32));
+      const unsigned long long got_s =
+          (unsigned long long)pw[base + POWER_PHASE_S_LOW] |
+          ((unsigned long long)pw[base + POWER_PHASE_S_HIGH] << 32);
+      const long long got_pf = (int)pw[base + POWER_PHASE_PF];
+      CHECK(got_p == p_pw, "phase %d P exact: got %lld expected %lld", phase,
+            got_p, p_pw);
+      CHECK(got_s == s_pw, "phase %d S exact: got %llu expected %llu", phase,
+            got_s, s_pw);
+      CHECK(got_pf == pf, "phase %d PF exact: got %lld expected %lld", phase,
+            got_pf, pf);
+    }
+    const long long got_total_p =
+        (long long)((unsigned long long)pw[POWER_TOTAL_P_LOW_WORD] |
+                    ((unsigned long long)pw[POWER_TOTAL_P_HIGH_WORD] << 32));
+    const unsigned long long got_total_s =
+        (unsigned long long)pw[POWER_TOTAL_S_LOW_WORD] |
+        ((unsigned long long)pw[POWER_TOTAL_S_HIGH_WORD] << 32);
+    CHECK(got_total_p == g_total_p && got_total_s == g_total_s,
+          "totals are arithmetic sums");
+    CHECK((int)pw[POWER_TOTAL_PF_WORD] ==
+              golden_pf_e6(g_total_p, g_total_s),
+          "total PF = P_total / S_total");
+    for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+      const unsigned long long crest = golden_crest_e4(
+          g.minimum[lane], g.maximum[lane],
+          golden_rms_q16(g.square[lane], g.sum[lane], g.count, true));
+      CHECK((unsigned long long)pw[POWER_CREST_BASE_WORD + lane] == crest,
+            "lane %d crest exact", lane);
+    }
   }
 
   // --- Second block: clean status, sequences chain. -----------------------
@@ -322,6 +468,7 @@ int main() {
     run_block(b, c, 12, g);
     const basic_result_t r = unpack_basic_result(b.m_result.read());
     take_record(b, words);
+    take_power_record(b, words);
     CHECK(r.sequence == 2 && (r.status & 0x5u) == 0,
           "second block is clean (status 0x%x)", (unsigned)r.status);
     CHECK((r.flags & 0x4u) == 0, "first-block flag clears");
@@ -343,6 +490,7 @@ int main() {
     CHECK(b.m_result.size() == 1, "gap restart: 12 cycles from the mark");
     const basic_result_t r = unpack_basic_result(b.m_result.read());
     take_record(b, words);
+    take_power_record(b, words);
     CHECK(r.first_sample == block_start,
           "block anchors at the gap-marked cycle");
     CHECK((r.status & 0x4u) == 0x4u, "block after a gap carries the mark");
@@ -362,6 +510,7 @@ int main() {
     CHECK(b.m_result.size() == 1, "10 cycles at 50 Hz close one block");
     const basic_result_t r = unpack_basic_result(b.m_result.read());
     take_record(b, words);
+    take_power_record(b, words);
     CHECK(r.cycle_count == 10 && r.nominal_hz == 50,
           "50 Hz block closes at 10 cycles");
     CHECK((r.status & 0x4u) == 0x4u, "sequence break marks the next block");
@@ -396,6 +545,7 @@ int main() {
     CHECK(b.m_result.size() == 1, "fallback block still closes");
     const basic_result_t r = unpack_basic_result(b.m_result.read());
     take_record(b, words);
+    take_power_record(b, words);
     CHECK((r.flags & 0x1u) == 0 && (r.flags & 0x2u) == 0x2u,
           "one unlocked cycle clears LOCKED and sets FALLBACK, got 0x%x",
           (unsigned)r.flags);
@@ -416,6 +566,7 @@ int main() {
     }
     const basic_result_t r = unpack_basic_result(b.m_result.read());
     take_record(b, words);
+    take_power_record(b, words);
     CHECK((r.status & 0x1u) == 0x1u,
           "upstream saturation folds into the sticky flag");
     CHECK((r.rms_q16[0] == ap_int<64>(ap_uint<64>(~ap_uint<64>(0)))) ||
@@ -428,8 +579,42 @@ int main() {
     run_block(b, c, 10, g2, /*apply_on_first=*/true);
     const basic_result_t r2 = unpack_basic_result(b.m_result.read());
     take_record(b, words);
+    take_power_record(b, words);
     CHECK((r2.status & 0x1u) == 0, "APPLY clears the sticky flag");
     CHECK((r2.status & 0x4u) == 0x4u, "post-APPLY block carries the mark");
+  }
+
+  // --- Zero current: S and PF must be exactly 0, never garbage. ----------
+  {
+    GoldenBlock g;
+    CycleSpec z = c;
+    z.zero_lanes = 1u << MET_LANE_IA;
+    for (unsigned i = 0; i < 10; ++i) {
+      const single_cycle_result_t r = make_cycle(z, g);
+      b.send(r);
+      z.sequence += 1; z.cycle_sequence += 1; z.first_sample += z.samples;
+    }
+    (void)unpack_basic_result(b.m_result.read());
+    take_record(b, words);
+    ap_uint<32> pw[MREC_WORDS];
+    take_power_record(b, pw);
+    const int base = POWER_PHASE_BASE_WORD;  // phase A
+    CHECK(pw[base + POWER_PHASE_P_LOW] == 0 &&
+              pw[base + POWER_PHASE_P_HIGH] == 0,
+          "zero current: P_A is 0");
+    CHECK(pw[base + POWER_PHASE_S_LOW] == 0 &&
+              pw[base + POWER_PHASE_S_HIGH] == 0,
+          "zero current: S_A is 0");
+    CHECK(pw[base + POWER_PHASE_PF] == 0,
+          "zero current: PF_A is 0 (undefined, gated on S)");
+    CHECK(pw[POWER_CREST_BASE_WORD + MET_LANE_IA] == 0,
+          "zero current: crest of a silent lane is 0");
+    // Phase B stays live and its PF is meaningful.
+    const int base_b = POWER_PHASE_BASE_WORD + POWER_PHASE_STRIDE;
+    CHECK(pw[base_b + POWER_PHASE_S_LOW] != 0 ||
+              pw[base_b + POWER_PHASE_S_HIGH] != 0,
+          "zero current on A leaves B's S alone");
+    c = z;
   }
 
   // --- Disable stops everything. ------------------------------------------

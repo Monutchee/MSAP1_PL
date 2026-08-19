@@ -12,8 +12,9 @@
 // stands in for grid_cycle_timing, driving cycle boundaries explicitly.
 //
 // Checks, per the verification plan:
-//   INV-1  exactly-once conservation: 160 whole cycles -> 16 BASIC
-//          records with sequences 1..16; 15 eligible blocks -> exactly
+//   INV-1  exactly-once conservation: 160 whole cycles -> 16 BASIC and
+//          16 POWER records with sequences 1..16 (POWER shares its
+//          sibling's sequence by design); 15 eligible blocks -> exactly
 //          one MTR2 record with sequence 1; nothing extra.
 //   INV-2  framing: every record is exactly 64 beats, TLAST only on beat
 //          63, TKEEP full — checked beat-by-beat here and independently
@@ -219,8 +220,12 @@ module meter_record_stream_tb;
 
   // --- record collectors ---------------------------------------------------
   int basic_records = 0;
+  int power_records = 0;
   int basic_beat = 0;
   logic [31:0] basic_word [0:63];
+  // Completed-record snapshot: BASIC and POWER stream back-to-back, so
+  // the collector array starts refilling before a checker fires.
+  logic [31:0] done_word [0:63];
   int mtr2_records = 0;
   int mtr2_beat = 0;
   logic [31:0] mtr2_word [0:63];
@@ -291,9 +296,57 @@ module meter_record_stream_tb;
           end
         end
       endcase
-      assert (basic_word[i] == expected)
+      assert (done_word[i] == expected)
         else $fatal(1, "BASIC record %0d word %0d: got %08h expected %08h",
-                    w, i, basic_word[i], expected);
+                    w, i, done_word[i], expected);
+    end
+  endtask
+
+  // POWER-v1 companion: constant DC per lane makes every quantity exact.
+  // Lane value (lane+1).0 Q16, dc_remove off: RMS = the constant, so
+  // P = S = (v * i) in unit^2, PF = 1.0 exactly, crest = 1.0 exactly.
+  task automatic check_power_record();
+    int w = power_records;  // shares the basic sibling's sequence
+    logic [63:0] fs = block_first_sample(w);
+    logic [63:0] ls = block_first_sample(w + 1) - 1;
+    logic [31:0] expected;
+    for (int i = 0; i < 64; ++i) begin
+      expected = 32'h0;
+      case (i)
+        0: expected = 32'h3152_544D;
+        1: expected = 32'h0007_0001;
+        2: expected = 32'd256;
+        3: expected = 32'(w);
+        4: expected = GENERATION;
+        5: expected = SAMPLE_RATE;
+        6: expected = 32'(FRAMES_PER_CYCLE * CYCLES_PER_BLOCK);
+        7: expected = {24'h0, VALID_MASK};
+        8: expected = (w == 1) ? 32'h4 : 32'h0;
+        9: expected = fs[31:0];
+        10: expected = fs[63:32];
+        13: expected = (w == 1) ? (TIMING_WORD_BASE | (32'h1 << 18))
+                                : TIMING_WORD_BASE;
+        14: expected = ls[31:0];
+        15: expected = ls[63:32];
+        16: expected = 32'd7;   // P_A = Va(7) x Ia(1)
+        18: expected = 32'd7;   // S_A
+        20: expected = 32'd1000000;
+        21: expected = 32'd12;  // P_B = Vb(6) x Ib(2)
+        23: expected = 32'd12;
+        25: expected = 32'd1000000;
+        26: expected = 32'd15;  // P_C = Vc(5) x Ic(3)
+        28: expected = 32'd15;
+        30: expected = 32'd1000000;
+        31: expected = 32'd34;  // totals
+        33: expected = 32'd34;
+        35: expected = 32'd1000000;
+        default: begin
+          if (i >= 36 && i < 43) expected = 32'd10000;  // crest = 1.0
+        end
+      endcase
+      assert (done_word[i] == expected)
+        else $fatal(1, "POWER record %0d word %0d: got %08h expected %08h",
+                    w, i, done_word[i], expected);
     end
   endtask
 
@@ -349,7 +402,15 @@ module meter_record_stream_tb;
           else $fatal(1, "BASIC TLAST at beat %0d", basic_beat);
         if (basic_beat == 63) begin
           basic_beat <= 0;
-          basic_records <= basic_records + 1;
+          for (int i = 0; i < 63; ++i)
+            done_word[i] <= basic_word[i];
+          done_word[63] <= basic_tdata;
+          // The stream interleaves BASIC-v4 and POWER-v1: word 1 (written
+          // 62 beats ago) routes the completed record to its checker.
+          if (basic_word[1] == 32'h0007_0001)
+            power_records <= power_records + 1;
+          else
+            basic_records <= basic_records + 1;
         end else begin
           basic_beat <= basic_beat + 1;
         end
@@ -375,11 +436,16 @@ module meter_record_stream_tb;
   // Content checks run right after a record completes (the collector
   // arrays are written with nonblocking assignments, so wait one cycle).
   int basic_checked = 0;
+  int power_checked = 0;
   int mtr2_checked = 0;
   always @(posedge clock) begin
     if (basic_records > basic_checked) begin
       check_basic_record();
       basic_checked <= basic_records;
+    end
+    if (power_records > power_checked) begin
+      check_power_record();
+      power_checked <= power_records;
     end
     if (mtr2_records > mtr2_checked) begin
       check_mtr2_record();
@@ -453,9 +519,12 @@ module meter_record_stream_tb;
 
     assert (basic_records == BLOCKS)
       else $fatal(1, "BASIC records %0d, expected %0d", basic_records, BLOCKS);
+    assert (power_records == BLOCKS)
+      else $fatal(1, "POWER records %0d, expected %0d", power_records, BLOCKS);
     assert (mtr2_records == 1)
       else $fatal(1, "MTR2 records %0d, expected 1", mtr2_records);
-    assert (basic_checked == BLOCKS && mtr2_checked == 1)
+    assert (basic_checked == BLOCKS && power_checked == BLOCKS &&
+            mtr2_checked == 1)
       else $fatal(1, "content checks incomplete");
     assert (scyc_drop_count == 0)
       else $fatal(1, "single-cycle shim dropped %0d beats", scyc_drop_count);

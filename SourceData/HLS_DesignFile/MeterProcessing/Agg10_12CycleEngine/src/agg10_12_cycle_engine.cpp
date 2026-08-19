@@ -94,6 +94,12 @@ void hls_agg10_12_cycle_engine(hls::stream<agg10_12_input_beat_t> &s_result,
 #pragma HLS BIND_STORAGE variable=acc_raw_square type=ram_s2p impl=lutram
   static ap_uint<128> acc_vll_square[MET_VLL_PAIRS];
 #pragma HLS BIND_STORAGE variable=acc_vll_square type=ram_s2p impl=lutram
+  static ap_int<128> acc_power[MET_POWER_PHASES];
+#pragma HLS BIND_STORAGE variable=acc_power type=ram_s2p impl=lutram
+  static ap_int<64> acc_minimum[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=acc_minimum type=ram_s2p impl=lutram
+  static ap_int<64> acc_maximum[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=acc_maximum type=ram_s2p impl=lutram
 
   if (s_result.empty()) {
     return;
@@ -183,6 +189,20 @@ merge_lanes:
     const ap_uint<96> raw_square_base =
         first_cycle ? ap_uint<96>(0) : acc_raw_square[lane];
     acc_raw_square[lane] = raw_square_base + cycle.raw_square[lane];
+    if (first_cycle || cycle.minimum[lane] < acc_minimum[lane]) {
+      acc_minimum[lane] = cycle.minimum[lane];
+    }
+    if (first_cycle || cycle.maximum[lane] > acc_maximum[lane]) {
+      acc_maximum[lane] = cycle.maximum[lane];
+    }
+  }
+merge_power:
+  for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
+#pragma HLS PIPELINE off
+    const ap_int<128> power_base =
+        first_cycle ? ap_int<128>(0) : acc_power[phase];
+    acc_power[phase] = met_add_signed_saturating<128>(
+        power_base, cycle.power_sum[phase], arithmetic_overflow);
   }
 merge_pairs:
   for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
@@ -231,6 +251,61 @@ finalize_pairs:
     vll_rms[pair] = met_rms_from_accumulators<128, 128>(
         acc_vll_square[pair], ap_int<128>(0), count_now, ap_uint<1>(0),
         arithmetic_overflow);
+  }
+
+  // ---- Power finalization (M8): P, S = Vrms*Irms, true PF ------------
+  static const int power_v[MET_POWER_PHASES] = {MET_LANE_VA, MET_LANE_VB,
+                                                MET_LANE_VC};
+  static const int power_i[MET_POWER_PHASES] = {MET_LANE_IA, MET_LANE_IB,
+                                                MET_LANE_IC};
+  ap_int<64> phase_p_pw[MET_POWER_PHASES];
+#pragma HLS ARRAY_PARTITION variable=phase_p_pw complete
+  ap_uint<64> phase_s_pw[MET_POWER_PHASES];
+#pragma HLS ARRAY_PARTITION variable=phase_s_pw complete
+  ap_int<32> phase_pf_e6[MET_POWER_PHASES];
+#pragma HLS ARRAY_PARTITION variable=phase_pf_e6 complete
+finalize_power:
+  for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
+#pragma HLS PIPELINE off
+    const ap_int<128> mean_q32 =
+        met_floor_mean_signed<128, 128>(acc_power[phase], count_now);
+    phase_p_pw[phase] = ap_int<64>((mean_q32 >> 32).range(63, 0));
+    const ap_uint<128> s_product =
+        ap_uint<128>(rms_q16[power_v[phase]]) * rms_q16[power_i[phase]];
+    phase_s_pw[phase] = ap_uint<64>((s_product >> 32).range(63, 0));
+    phase_pf_e6[phase] = met_power_factor_e6(phase_p_pw[phase],
+                                             phase_s_pw[phase]);
+  }
+  ap_int<64> total_p_pw = 0;
+  ap_uint<64> total_s_pw = 0;
+total_power:
+  for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
+#pragma HLS PIPELINE off
+    total_p_pw += phase_p_pw[phase];
+    total_s_pw += phase_s_pw[phase];
+  }
+  const ap_int<32> total_pf_e6 = met_power_factor_e6(total_p_pw, total_s_pw);
+
+  // Crest factors: peak / finalized RMS per lane, ten-thousandths.
+  ap_uint<32> crest_e4[MET_ACTIVE_CHANNELS];
+#pragma HLS ARRAY_PARTITION variable=crest_e4 complete
+finalize_crest:
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+#pragma HLS PIPELINE off
+    const ap_uint<64> magnitude_min = met_abs<64>(acc_minimum[lane]);
+    const ap_uint<64> magnitude_max = met_abs<64>(acc_maximum[lane]);
+    const ap_uint<64> peak =
+        magnitude_min > magnitude_max ? magnitude_min : magnitude_max;
+    if (rms_q16[lane] == 0) {
+      crest_e4[lane] = 0;
+    } else {
+      const ap_uint<128> scaled = ap_uint<128>(peak) * ap_uint<128>(10000);
+      const ap_uint<128> ratio =
+          floor_div<128>(scaled, ap_uint<128>(rms_q16[lane]));
+      crest_e4[lane] = ratio > ap_uint<128>(0xFFFFFFFFu)
+                           ? ap_uint<32>(0xFFFFFFFFu)
+                           : ap_uint<32>(ratio.range(31, 0));
+    }
   }
 
   const ap_uint<1> first_block = disc_pending;
@@ -317,4 +392,43 @@ record_pairs:
       beat.range(AGG_IN_CAP_ALERTS_LSB + 31, AGG_IN_CAP_ALERTS_LSB);
 
   serialize_record<MREC_FORMAT_BASIC_V4>(image, m_axis);
+
+  // POWER-v1 record on the same stream, describing the same block (same
+  // sequence, generation, anchors, status).
+  record_image_t power_image;
+  clear_record(power_image);
+  fill_envelope(power_image, sequence, active_generation, active_sample_rate,
+                count_now, result_mask, status, block_first_sample);
+  power_image.word[MTR1_TIMING_WORD] = image.word[MTR1_TIMING_WORD];
+  power_image.word[BASIC_LAST_SAMPLE_LOW_WORD] =
+      image.word[BASIC_LAST_SAMPLE_LOW_WORD];
+  power_image.word[BASIC_LAST_SAMPLE_HIGH_WORD] =
+      image.word[BASIC_LAST_SAMPLE_HIGH_WORD];
+power_record_phases:
+  for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
+#pragma HLS PIPELINE off
+    const int base = POWER_PHASE_BASE_WORD + phase * POWER_PHASE_STRIDE;
+    const ap_uint<64> p_bits = ap_uint<64>(phase_p_pw[phase]);
+    power_image.word[base + POWER_PHASE_P_LOW] = p_bits.range(31, 0);
+    power_image.word[base + POWER_PHASE_P_HIGH] = p_bits.range(63, 32);
+    power_image.word[base + POWER_PHASE_S_LOW] =
+        phase_s_pw[phase].range(31, 0);
+    power_image.word[base + POWER_PHASE_S_HIGH] =
+        phase_s_pw[phase].range(63, 32);
+    power_image.word[base + POWER_PHASE_PF] =
+        ap_uint<32>(ap_int<32>(phase_pf_e6[phase]));
+  }
+  const ap_uint<64> total_p_bits = ap_uint<64>(total_p_pw);
+  power_image.word[POWER_TOTAL_P_LOW_WORD] = total_p_bits.range(31, 0);
+  power_image.word[POWER_TOTAL_P_HIGH_WORD] = total_p_bits.range(63, 32);
+  power_image.word[POWER_TOTAL_S_LOW_WORD] = total_s_pw.range(31, 0);
+  power_image.word[POWER_TOTAL_S_HIGH_WORD] = total_s_pw.range(63, 32);
+  power_image.word[POWER_TOTAL_PF_WORD] =
+      ap_uint<32>(ap_int<32>(total_pf_e6));
+power_record_crest:
+  for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+#pragma HLS PIPELINE off
+    power_image.word[POWER_CREST_BASE_WORD + lane] = crest_e4[lane];
+  }
+  serialize_record<MREC_FORMAT_POWER_V1>(power_image, m_axis);
 }

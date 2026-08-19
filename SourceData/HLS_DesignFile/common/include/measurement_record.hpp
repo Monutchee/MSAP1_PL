@@ -71,6 +71,18 @@ static const uint32_t MREC_FORMAT_SCYC_V5 = 0x000A0005u;  // single-cycle diagno
 //   status word bit 2: first block after a discontinuity (upstream gap,
 //                      APPLY, or reset), mirroring the SCYC-v5 contract
 static const uint32_t MREC_FORMAT_BASIC_V4 = 0x00010004u;  // 10/12-cycle basic
+// POWER v1 (M8): emitted by Agg10_12CycleEngine on the SAME stream as
+// BASIC-v4, immediately after it, describing the same block (same
+// sequence, generation, first/last sample, status). Per phase: active
+// power P (signed, picowatts, import positive), apparent power S
+// (unsigned, pico-VA, S = Vrms x Irms), true power factor PF (signed,
+// millionths, sign follows P, 0 when S is 0 -- consumers must treat
+// S == 0 as PF-undefined). Totals: P and S are arithmetic sums over the
+// three phases; PF_total = P_total / S_total (never an average of phase
+// PFs). Crest factors: per lane, peak/RMS in ten-thousandths, peak =
+// max(|min|, |max|) of the merged per-cycle extrema, RMS as finalized
+// under the committed dc_remove; 0 when the RMS is 0.
+static const uint32_t MREC_FORMAT_POWER_V1 = 0x00070001u;  // 10/12-cycle power
 
 // ---------------------------------------------------------------------------
 // Common envelope — words 0..12 mean the same thing in EVERY format, so
@@ -128,6 +140,22 @@ static const int MTR1_FREQUENCY_PERIOD_WORD   = 58;  // averaged Q16 period
 static const int MTR1_FREQUENCY_SEQUENCE_WORD = 59;  // measurement sequence
 
 // Words 60..63: capture diagnostics, latched at block close.
+// POWER-v1 interior (envelope words 0..12 shared; timing word 13 and the
+// last-sample anchor 14/15 mirror BASIC-v4).
+static const int POWER_PHASE_BASE_WORD   = 16;  // A, then B, C
+static const int POWER_PHASE_STRIDE      = 5;
+static const int POWER_PHASE_P_LOW       = 0;   // s64 picowatts
+static const int POWER_PHASE_P_HIGH      = 1;
+static const int POWER_PHASE_S_LOW       = 2;   // u64 pico-VA
+static const int POWER_PHASE_S_HIGH      = 3;
+static const int POWER_PHASE_PF          = 4;   // s32 millionths
+static const int POWER_TOTAL_P_LOW_WORD  = 31;
+static const int POWER_TOTAL_P_HIGH_WORD = 32;
+static const int POWER_TOTAL_S_LOW_WORD  = 33;
+static const int POWER_TOTAL_S_HIGH_WORD = 34;
+static const int POWER_TOTAL_PF_WORD     = 35;
+static const int POWER_CREST_BASE_WORD   = 36;  // 7 x u32, crest x 1e4
+
 // BASIC-v4 additions on top of the MTR1 map (see the format note above).
 static const int BASIC_LAST_SAMPLE_LOW_WORD  = 14;
 static const int BASIC_LAST_SAMPLE_HIGH_WORD = 15;

@@ -576,6 +576,41 @@ module meter_core_tb;
     end
   endtask
 
+  // Every BASIC-v4 record is followed on the same stream by its POWER-v1
+  // companion (same sequence). Word-exact power content is pinned by the
+  // HLS bench and the record-stream bench; here the framing, format, and
+  // shared envelope are verified and the record is drained so the stream
+  // stays aligned for the next block.
+  task automatic drain_power_record(input integer expected_sequence);
+    integer word_index;
+    begin
+      @(negedge clock);
+      mtr1_tready = 1'b1;
+      word_index = 0;
+      while (word_index < 64) begin
+        @(posedge clock);
+        if (mtr1_tvalid && mtr1_tready) begin
+          assert (mtr1_tkeep == 4'hf) else $fatal(1, "bad POWER TKEEP");
+          assert (mtr1_tlast == (word_index == 63))
+            else $fatal(1, "POWER TLAST at word %0d", word_index);
+          case (word_index)
+            0: assert (mtr1_tdata == 32'h3152_544d)
+              else $fatal(1, "bad POWER magic");
+            1: assert (mtr1_tdata == 32'h0007_0001)
+              else $fatal(1, "bad POWER format: %08h", mtr1_tdata);
+            3: assert (mtr1_tdata == expected_sequence)
+              else $fatal(1, "POWER sequence %0d, expected %0d",
+                          mtr1_tdata, expected_sequence);
+            default: ;
+          endcase
+          word_index = word_index + 1;
+        end
+      end
+      @(negedge clock);
+      mtr1_tready = 1'b0;
+    end
+  endtask
+
   task automatic consume_record(input integer expected_sequence,
                                 input integer expected_generation,
                                 input logic [31:0] expected_count,
@@ -612,6 +647,7 @@ module meter_core_tb;
       end
       @(negedge clock);
       mtr1_tready = 1'b0;
+      drain_power_record(expected_sequence);
     end
   endtask
 
@@ -661,6 +697,7 @@ module meter_core_tb;
       end
       @(negedge clock);
       mtr1_tready = 1'b0;
+      drain_power_record(expected_sequence);
     end
   endtask
 
