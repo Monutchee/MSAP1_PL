@@ -15,14 +15,14 @@ if {![file isdirectory $hls_mtr2_hdl]} {
 set hls_mtr2_verilog [concat \
   [lsort [glob -directory $hls_mtr2_hdl *.v]] \
   [list [file join $design_root MeterProcessing tb hls_mtr2_engine_ip.v]]]
-set hls_mtr1_hdl [file join $project_root SourceData HLS_DesignFile \
-  ip_repo Mtr1Engine hdl verilog]
-if {![file isdirectory $hls_mtr1_hdl]} {
-  error "missing $hls_mtr1_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+set hls_agg1012_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo Agg10_12CycleEngine hdl verilog]
+if {![file isdirectory $hls_agg1012_hdl]} {
+  error "missing $hls_agg1012_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
 }
-set hls_mtr1_verilog [concat \
-  [lsort [glob -directory $hls_mtr1_hdl *.v]] \
-  [list [file join $design_root MeterProcessing tb hls_mtr1_engine_ip.v]]]
+set hls_agg1012_verilog [concat \
+  [lsort [glob -directory $hls_agg1012_hdl *.v]] \
+  [list [file join $design_root MeterProcessing tb hls_agg10_12_cycle_engine_ip.v]]]
 set hls_sim_wave_hdl [file join $project_root SourceData HLS_DesignFile \
   ip_repo SimWaveEngine hdl verilog]
 if {![file isdirectory $hls_sim_wave_hdl]} {
@@ -71,7 +71,7 @@ set vhdl2008_sources [list \
   [file join $design_root MeterProcessing meter_frequency.vhd] \
   [file join $design_root MeterProcessing grid_cycle_timing.vhd] \
   [file join $design_root MeterProcessing record_word_tap.vhd] \
-  [file join $design_root MeterProcessing meter_mtr1_hls_shim.vhd] \
+  [file join $design_root MeterProcessing meter_agg10_12_cycle_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_mtr2_hls_shim.vhd] \
   [file join $design_root MeterCore adc_simulator_pkg.vhd] \
@@ -98,7 +98,7 @@ cd $work_root
 
 puts [exec $xvhdl --2008 {*}$vhdl2008_sources 2>@1]
 puts [exec $xvlog -i $hls_mtr2_hdl {*}$hls_mtr2_verilog 2>@1]
-puts [exec $xvlog -i $hls_mtr1_hdl {*}$hls_mtr1_verilog 2>@1]
+puts [exec $xvlog -i $hls_agg1012_hdl {*}$hls_agg1012_verilog 2>@1]
 puts [exec $xvlog -i $hls_sim_wave_hdl {*}$hls_sim_wave_verilog 2>@1]
 puts [exec $xvlog -i $hls_scyc_hdl {*}$hls_scyc_verilog 2>@1]
 puts [exec $xvhdl --2008 {*}$core_vhdl2008_sources 2>@1]

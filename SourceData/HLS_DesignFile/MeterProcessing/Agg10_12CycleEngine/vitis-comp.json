@@ -1,5 +1,5 @@
 {
-  "name": "Mtr1Engine",
+  "name": "Agg10_12CycleEngine",
   "type": "HLS",
   "configuration": {
     "componentType": "HLS",

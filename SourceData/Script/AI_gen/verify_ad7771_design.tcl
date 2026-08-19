@@ -47,7 +47,7 @@ set vhdl2008_sources [list \
     [file join $design_dir MeterProcessing meter_frequency.vhd] \
     [file join $design_dir MeterProcessing grid_cycle_timing.vhd] \
     [file join $design_dir MeterProcessing record_word_tap.vhd] \
-    [file join $design_dir MeterProcessing meter_mtr1_hls_shim.vhd] \
+    [file join $design_dir MeterProcessing meter_agg10_12_cycle_hls_shim.vhd] \
     [file join $design_dir MeterProcessing meter_mtr2_hls_shim.vhd] \
     [file join $design_dir MeterCore adc_simulator_pkg.vhd] \
     [file join $design_dir MeterCore adc_simulator.vhd] \

@@ -213,17 +213,20 @@ architecture structural of meter_core is
   signal apply_seen        : std_logic;
   signal processing_status : std_logic_vector(31 downto 0);
 
-  -- Both record producers are Vitis HLS engines that build and serialize
+  -- All record producers are Vitis HLS engines that build and serialize
   -- their own 256-byte records (normative contracts:
   -- HLS_DesignFile/common/include/measurement_record.hpp plus each
-  -- engine's header). meter_mtr1_hls_shim packs one sample beat per
-  -- accepted frame for the MTR1 engine; the engine's basic-result stream
-  -- feeds the 150/180-cycle aggregator directly (HLS-to-HLS AXIS, no
-  -- event conversion anywhere). Engine health counters ride inside the
+  -- engine's header). The single-cycle shim packs one sample beat per
+  -- accepted frame; the 10/12-cycle merge tier consumes its result beats
+  -- and its basic-result stream feeds the 150/180-cycle aggregator
+  -- directly (HLS-to-HLS AXIS, no event conversion anywhere). Engine
+  -- health counters ride inside the
   -- records; record_word_tap republishes them to the register file, "as
   -- of the last emitted record".
-  signal mtr1_shim_drop_count : std_logic_vector(31 downto 0);
   signal scyc_shim_drop_count : std_logic_vector(31 downto 0);
+  signal grid_cycle_locked    : std_logic;
+  signal grid_cycle_fallback  : std_logic;
+  signal scyc_result_tready   : std_logic;
   signal grid_cycle_boundary  : std_logic;
   signal grid_cycle_sequence  : std_logic_vector(31 downto 0);
   -- Single-cycle result beats: consumed by the 10/12-cycle tier from M7;
@@ -615,7 +618,9 @@ begin
       agg_drop_count_i => mtr2_tap_emit_drops,
       hls_agg_record_count_i => mtr2_tap_sequence,
       hls_agg_mismatch_count_i => (others => '0'),
-      hls_agg_drop_count_i => mtr1_shim_drop_count,
+      -- The sample-domain loss point is now the single-cycle shim's FIFO
+      -- (the retired Mtr1 shim's counter died with it).
+      hls_agg_drop_count_i => scyc_shim_drop_count,
       active_generation_i => active_generation,
       result_sequence_i => mtr1_tap_sequence,
       result_drop_count_i => mtr1_tap_result_drops,
@@ -680,6 +685,7 @@ begin
       cycle_mode_o => grid_cycle_mode,
       cycle_boundary_o => grid_cycle_boundary,
       half_cycle_boundary_o => open,
+      cycle_locked_o => grid_cycle_locked,
       cycle_sequence_o => grid_cycle_sequence,
       block_first_sample_o => block_first_sample,
       block_cycle_count_o => block_cycle_count,
@@ -687,31 +693,29 @@ begin
       block_flags_o => block_flags
     );
 
-  -- MTR1 producer: sample-beat shim + HLS engine (accumulation, block
-  -- finalization, MTR1-v3 record construction and serialization in one
-  -- IP). The engine's basic-result stream feeds the aggregator directly.
-  mtr1_producer : entity work.meter_mtr1_hls_shim
+  -- Live fallback view: enabled but running on synthetic boundaries.
+  grid_cycle_fallback <= grid_cycle_mode and not grid_cycle_locked;
+
+  -- 10/12-cycle basic producer (M7, replaces the retired Mtr1 pair): the
+  -- merge tier consumes the single-cycle engine's result beats, finalizes
+  -- BASIC-v4 records onto the retired producer's exported boundary, and
+  -- keeps emitting the unchanged basic-result beat for the 150/180-cycle
+  -- aggregator until M11 replaces it.
+  agg10_12_cycle_producer : entity work.meter_agg10_12_cycle_hls_shim
     port map (
       aclk => aclk,
       aresetn => aresetn,
-      frame_accept_i => engine_valid,
-      frame_data_i => converted_fifo.data,
-      frame_keep_i => converted_fifo.keep,
-      frame_user_i => converted_fifo.user,
-      frame_closes_block_i => grid_frame_closes_block,
-      cycle_mode_i => grid_cycle_mode,
-      block_first_sample_i => block_first_sample,
-      block_cycle_count_i => block_cycle_count,
-      block_nominal_hz_i => block_nominal_hz,
-      block_flags_i => block_flags,
+      s_result_tdata => scyc_result_tdata,
+      s_result_tvalid => scyc_result_tvalid,
+      s_result_tready => scyc_result_tready,
+      cycle_locked_i => grid_cycle_locked,
+      cycle_fallback_i => grid_cycle_fallback,
       shadow_generation_i => shadow_generation,
       shadow_sample_rate_i => shadow_sample_rate,
-      shadow_window_samples_i => shadow_window_samples,
       shadow_valid_mask_i => shadow_valid_mask,
       shadow_enable_i => shadow_enable,
       shadow_dc_remove_i => shadow_dc_remove,
       config_apply_toggle_i => apply_toggle,
-      frequency_millihz_i => frequency_millihz,
       frequency_status_i => frequency_status,
       frequency_period_i => frequency_period_q16,
       frequency_sequence_i => frequency_sequence,
@@ -719,18 +723,17 @@ begin
       capture_header_errors_i => capture_headers,
       capture_overflows_i => capture_overflows,
       capture_alerts_i => capture_alerts,
-      m_axis_mtr1_tdata => mtr1_axis_tdata,
-      m_axis_mtr1_tkeep => mtr1_axis_tkeep,
-      m_axis_mtr1_tvalid => mtr1_axis_tvalid,
-      m_axis_mtr1_tready => m_axis_mtr1_tready,
-      m_axis_mtr1_tlast => mtr1_axis_tlast,
+      m_axis_basic_tdata => mtr1_axis_tdata,
+      m_axis_basic_tkeep => mtr1_axis_tkeep,
+      m_axis_basic_tvalid => mtr1_axis_tvalid,
+      m_axis_basic_tready => m_axis_mtr1_tready,
+      m_axis_basic_tlast => mtr1_axis_tlast,
       m_result_tdata => mtr1_result_tdata,
       m_result_tvalid => mtr1_result_tvalid,
       m_result_tready => mtr1_result_tready,
       active_generation_o => active_generation,
       active_enable_o => active_enable,
-      apply_seen_o => apply_seen,
-      drop_count_o => mtr1_shim_drop_count
+      apply_seen_o => apply_seen
     );
 
   m_axis_mtr1_tdata <= mtr1_axis_tdata;
@@ -770,8 +773,7 @@ begin
   -- record"); strictly observational.
   -- Single-cycle producer: sample-beat shim + HLS engine (per-cycle
   -- provenance in M2; statistics/power/phasor accumulate here from M3).
-  -- Its result stream feeds the 10/12-cycle tier from M7 and is drained
-  -- until then.
+  -- Its result stream feeds the 10/12-cycle merge tier (M7).
   scyc_producer : entity work.meter_single_cycle_hls_shim
     port map (
       aclk => aclk,
@@ -801,7 +803,7 @@ begin
       m_axis_scyc_tlast => m_axis_scyc_tlast,
       m_result_tdata => scyc_result_tdata,
       m_result_tvalid => scyc_result_tvalid,
-      m_result_tready => '1',
+      m_result_tready => scyc_result_tready,
       drop_count_o => scyc_shim_drop_count
     );
 

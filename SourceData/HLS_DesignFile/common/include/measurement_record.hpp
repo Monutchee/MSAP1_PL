@@ -57,6 +57,20 @@ static const uint32_t MREC_FORMAT_SCYC_V4 = 0x000A0004u;  // single-cycle diagno
 // causes) and every emitted result is a whole cycle (partial windows
 // after reset/APPLY/abort are suppressed, not emitted).
 static const uint32_t MREC_FORMAT_SCYC_V5 = 0x000A0005u;  // single-cycle diagnostic
+// BASIC v4 (M7): the 10/12-cycle tier record emitted by
+// Agg10_12MeasurementEngine, which merges SingleCycleResults and retires
+// Mtr1Engine. Interior identical to MTR1-v3 for the envelope, timing
+// word, the 7 active per-lane slots, and words 56..63 (the retirement
+// proof); the differences are additive:
+//   words 14/15      : block last-sample index (low/high) -- the tier's
+//                      own measurement-span anchor (was zero in MTR1-v3)
+//   words 51/52/53   : VAB/VBC/VCA RMS, micro-units, 32-bit (the unused
+//                      lane-7 slot; line-line stats merge from the
+//                      single-cycle difference accumulators)
+//   words 54/55      : reserved zero
+//   status word bit 2: first block after a discontinuity (upstream gap,
+//                      APPLY, or reset), mirroring the SCYC-v5 contract
+static const uint32_t MREC_FORMAT_BASIC_V4 = 0x00010004u;  // 10/12-cycle basic
 
 // ---------------------------------------------------------------------------
 // Common envelope — words 0..12 mean the same thing in EVERY format, so
@@ -114,6 +128,11 @@ static const int MTR1_FREQUENCY_PERIOD_WORD   = 58;  // averaged Q16 period
 static const int MTR1_FREQUENCY_SEQUENCE_WORD = 59;  // measurement sequence
 
 // Words 60..63: capture diagnostics, latched at block close.
+// BASIC-v4 additions on top of the MTR1 map (see the format note above).
+static const int BASIC_LAST_SAMPLE_LOW_WORD  = 14;
+static const int BASIC_LAST_SAMPLE_HIGH_WORD = 15;
+static const int BASIC_VLL_BASE_WORD         = 51;  // 3 x 32-bit micro-units
+
 static const int MTR1_CAPTURE_FRAMES_WORD  = 60;
 static const int MTR1_HEADER_ERRORS_WORD   = 61;
 static const int MTR1_FIFO_OVERFLOWS_WORD  = 62;
