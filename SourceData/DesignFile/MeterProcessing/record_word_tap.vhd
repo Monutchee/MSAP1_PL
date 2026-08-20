@@ -33,7 +33,20 @@ entity record_word_tap is
     -- live event state, which lives in the record's format-header word
     -- rather than the shared diagnostics slots.
     G_AUX0_WORD : natural range 0 to MEASUREMENT_RECORD_WORDS - 1 := 0;
-    G_AUX1_WORD : natural range 0 to MEASUREMENT_RECORD_WORDS - 1 := 0
+    G_AUX1_WORD : natural range 0 to MEASUREMENT_RECORD_WORDS - 1 := 0;
+    -- Aux publish gate: the aux registers refresh only on a record whose
+    -- AUX0 word ANDed with this mask is non-zero. All-zeros (the default)
+    -- refreshes on every record, which is what every non-PQ instance
+    -- wants.
+    --
+    -- The PQ producer sets the kind byte (0x000000FF) so its periodic
+    -- HEARTBEATS -- kind 0, and outnumbering event edges ~100:1 -- cannot
+    -- wipe the live event state between a poller's reads. Gating by
+    -- FORMAT (G_DIAG_FORMAT) is not enough here: three record KINDS share
+    -- the one PQEVT format, so the discriminator has to be a payload
+    -- value, not the format word. With the gate the register becomes a
+    -- proper most-recent-EVENT latch instead of a most-recent-RECORD one.
+    G_AUX_UPDATE_MASK : std_logic_vector(31 downto 0) := (others => '0')
   );
   port (
     aclk    : in std_logic;
@@ -166,8 +179,12 @@ begin
             published_reset <= shadow_reset;
             published_ineligible <= shadow_ineligible;
             published_continuity <= shadow_continuity;
-            published_aux0 <= shadow_aux0;
-            published_aux1 <= shadow_aux1;
+            if G_AUX_UPDATE_MASK = (G_AUX_UPDATE_MASK'range => '0') or
+               (shadow_aux0 and G_AUX_UPDATE_MASK) /=
+                 (G_AUX_UPDATE_MASK'range => '0') then
+              published_aux0 <= shadow_aux0;
+              published_aux1 <= shadow_aux1;
+            end if;
           else
             framing_error <= '1';
             framing_error_count <= framing_error_count + 1;

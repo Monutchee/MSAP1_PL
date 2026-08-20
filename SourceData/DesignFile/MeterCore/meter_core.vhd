@@ -962,7 +962,12 @@ begin
       -- The PQ producer emits one format, and its live event state lives
       -- in the format-header word (13) and the event sequence (28).
       G_AUX0_WORD => 13,
-      G_AUX1_WORD => 28
+      G_AUX1_WORD => 28,
+      -- Kind byte: refresh the PQ status register only on an event edge,
+      -- never on a periodic heartbeat (measured on target 2026-08-20 --
+      -- without this the register reads 0 outside the ~0.83 s window
+      -- between an edge record and the next heartbeat).
+      G_AUX_UPDATE_MASK => x"000000FF"
     )
     port map (
       aclk => aclk,
