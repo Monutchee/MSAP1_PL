@@ -150,9 +150,11 @@ ap_uint<64> met_rms_from_accumulators(const ap_uint<SQUARE_WIDTH> square,
 
 // Mean phasor component in signed Q16 counts: floor mean of the Q1.37
 // correlation sum (phasor_core.hpp), then the single >> 37 trig-domain
-// floor. Truncation to 64 bits is exact under the sample contract
-// (components stay below 2^40); a saturated flagged sum can exceed it,
-// and that divergence is confined to overflow-flagged results.
+// floor. A mean phasor component cannot exceed the sample magnitude,
+// which adc_conversion already saturates into signed 64 bits, so the
+// truncation is exact for every real input; a saturated flagged sum can
+// exceed it, and that divergence stays confined to results the
+// arithmetic flag already marks.
 inline ap_int<64> met_phasor_counts(const ap_int<128> sum,
                                     const ap_uint<32> count) {
 #pragma HLS INLINE off
@@ -187,7 +189,7 @@ static const ap_int<31> MET_SQRT3_HALF_Q30 = 929887697;
 // Rotate a mean-phasor vector by +120 degrees (the 'a' operator):
 // re' = -re/2 - im*sqrt(3)/2, im' = re*sqrt(3)/2 - im/2, floor semantics
 // via one arithmetic >> 30. Components stay below 2^41 for contract-max
-// inputs (<= 2^40), so the 64-bit outputs cannot wrap outside
+// inputs, so the 64-bit outputs cannot wrap outside
 // already-flagged results.
 inline void met_rotate_a(const ap_int<64> re, const ap_int<64> im,
                          ap_int<64> &out_re, ap_int<64> &out_im) {

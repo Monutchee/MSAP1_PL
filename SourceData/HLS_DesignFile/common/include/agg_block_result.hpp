@@ -19,7 +19,7 @@
 // sufficient statistics by pure addition, they never re-derive and never
 // average finalized values. The width analysis is inherited from
 // single_cycle_result.hpp and holds with 15x block sums:
-//   square u128: 96000 samples x (2^40)^2 products < 2^97 (saturating);
+//   square u128: saturating with the sticky flag, as at every tier;
 //   power  s128: < 2^97 real, saturating at contract-max;
 //   phasor s128: < 2^94 real, saturating at contract-max.
 //

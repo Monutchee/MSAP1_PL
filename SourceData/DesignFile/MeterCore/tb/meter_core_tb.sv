@@ -102,6 +102,15 @@ module meter_core_tb;
   logic mtr1_tready = 1'b0;
   wire mtr1_tlast;
 
+  // PQ event stream (M12): drained continuously so the producer can
+  // never stall; a passive monitor checks framing and format.
+  wire [31:0] pq_tdata;
+  wire [3:0] pq_tkeep;
+  wire pq_tvalid;
+  wire pq_tlast;
+  int pq_beats = 0;
+  int pq_records = 0;
+
   wire [31:0] mtr2_tdata;
   wire [3:0] mtr2_tkeep;
   wire mtr2_tvalid;
@@ -235,6 +244,11 @@ module meter_core_tb;
     .m_axis_mtr1_tvalid(mtr1_tvalid),
     .m_axis_mtr1_tready(mtr1_tready),
     .m_axis_mtr1_tlast(mtr1_tlast),
+    .m_axis_pq_tdata(pq_tdata),
+    .m_axis_pq_tkeep(pq_tkeep),
+    .m_axis_pq_tvalid(pq_tvalid),
+    .m_axis_pq_tready(1'b1),
+    .m_axis_pq_tlast(pq_tlast),
     .m_axis_mtr2_tdata(mtr2_tdata),
     .m_axis_mtr2_tkeep(mtr2_tkeep),
     .m_axis_mtr2_tvalid(mtr2_tvalid),
@@ -1222,6 +1236,26 @@ module meter_core_tb;
   final begin
     assert (scyc_records > 0)
       else $fatal(1, "no single-cycle diagnostic record was produced");
+  end
+
+
+  // PQ stream monitor: every record is 64 beats with TLAST on the last,
+  // TKEEP full, and carries the PQEVT-v1 format word.
+  always @(posedge clock) begin
+    if (resetn && pq_tvalid) begin
+      assert (pq_tkeep == 4'hf) else $fatal(1, "PQ TKEEP not full");
+      if (pq_beats == 1)
+        assert (pq_tdata == 32'h000B_0001)
+          else $fatal(1, "bad PQ format %08h", pq_tdata);
+      assert (pq_tlast == (pq_beats == 63))
+        else $fatal(1, "PQ TLAST at beat %0d", pq_beats);
+      if (pq_beats == 63) begin
+        pq_beats <= 0;
+        pq_records <= pq_records + 1;
+      end else begin
+        pq_beats <= pq_beats + 1;
+      end
+    end
   end
 
 endmodule

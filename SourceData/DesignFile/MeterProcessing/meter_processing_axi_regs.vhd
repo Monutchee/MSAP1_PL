@@ -5,6 +5,7 @@ use ieee.numeric_std.all;
 library work;
 use work.meter_frequency_pkg.all;
 use work.grid_timing_pkg.all;
+use work.pq_event_pkg.all;
 use work.measurement_record_bus_pkg.all;
 use work.metering_pkg.all;
 
@@ -61,6 +62,14 @@ entity meter_processing_axi_regs is
     grid_active_config_i               : in  word32_t;
     grid_status_i                      : in  word32_t;
 
+    -- Power-quality (Urms(1/2)) event configuration. The shadows commit
+    -- on the same APPLY toggle as everything else, so one half-cycle
+    -- evaluation can never straddle two configuration generations.
+    pq_shadow_reference_o              : out word32_t;
+    pq_shadow_threshold_o              : out word32_t;
+    pq_shadow_limits_o                 : out word32_t;
+    pq_status_i                        : in  word32_t;
+
     -- 150/180-cycle aggregation health (read-only).
     agg_status_i                       : in  word32_t;
     agg_record_count_i                 : in  word32_t;
@@ -104,6 +113,9 @@ architecture rtl of meter_processing_axi_regs is
   signal frequency_shadow_hysteresis_uv   : word32_t :=
     std_logic_vector(to_unsigned(1000000, 32));
   signal grid_shadow_config    : word32_t := GRID_CONFIG_DEFAULT;
+  signal pq_shadow_reference   : word32_t := (others => '0');
+  signal pq_shadow_threshold   : word32_t := PQ_THRESHOLD_DEFAULT;
+  signal pq_shadow_limits      : word32_t := PQ_LIMITS_DEFAULT;
   signal apply_toggle          : std_logic := '0';
   signal bvalid                : std_logic := '0';
   signal rvalid                : std_logic := '0';
@@ -135,6 +147,9 @@ begin
   frequency_shadow_maximum_millihz_o <= frequency_shadow_maximum_millihz;
   frequency_shadow_hysteresis_uv_o <= frequency_shadow_hysteresis_uv;
   grid_shadow_config_o <= grid_shadow_config;
+  pq_shadow_reference_o <= pq_shadow_reference;
+  pq_shadow_threshold_o <= pq_shadow_threshold;
+  pq_shadow_limits_o <= pq_shadow_limits;
 
   process (aclk)
     variable address_word : natural range 0 to 63;
@@ -159,6 +174,12 @@ begin
         frequency_shadow_hysteresis_uv <=
           std_logic_vector(to_unsigned(1000000, 32));
         grid_shadow_config <= GRID_CONFIG_DEFAULT;
+        -- Reference 0 leaves event detection DISARMED until software
+        -- declares the reference voltage: an unconfigured meter must
+        -- never invent dips (pq_event_pkg).
+        pq_shadow_reference <= (others => '0');
+        pq_shadow_threshold <= PQ_THRESHOLD_DEFAULT;
+        pq_shadow_limits <= PQ_LIMITS_DEFAULT;
         apply_toggle <= '0';
         bvalid <= '0';
         rvalid <= '0';
@@ -213,6 +234,15 @@ begin
             when GRID_REG_SHADOW_CONFIG / 4 =>
               grid_shadow_config <= apply_write_strobes(
                 grid_shadow_config, s_axi_wdata, s_axi_wstrb);
+            when PQ_REG_SHADOW_REFERENCE / 4 =>
+              pq_shadow_reference <= apply_write_strobes(
+                pq_shadow_reference, s_axi_wdata, s_axi_wstrb);
+            when PQ_REG_SHADOW_THRESHOLD / 4 =>
+              pq_shadow_threshold <= apply_write_strobes(
+                pq_shadow_threshold, s_axi_wdata, s_axi_wstrb);
+            when PQ_REG_SHADOW_LIMITS / 4 =>
+              pq_shadow_limits <= apply_write_strobes(
+                pq_shadow_limits, s_axi_wdata, s_axi_wstrb);
             when others => null;
           end case;
           bvalid <= '1';
@@ -273,6 +303,10 @@ begin
             when GRID_REG_SHADOW_CONFIG / 4 => rdata <= grid_shadow_config;
             when GRID_REG_ACTIVE_CONFIG / 4 => rdata <= grid_active_config_i;
             when GRID_REG_STATUS / 4 => rdata <= grid_status_i;
+            when PQ_REG_SHADOW_REFERENCE / 4 => rdata <= pq_shadow_reference;
+            when PQ_REG_SHADOW_THRESHOLD / 4 => rdata <= pq_shadow_threshold;
+            when PQ_REG_SHADOW_LIMITS / 4 => rdata <= pq_shadow_limits;
+            when PQ_REG_STATUS / 4 => rdata <= pq_status_i;
             when AGG_REG_STATUS / 4 => rdata <= agg_status_i;
             when AGG_REG_RECORD_COUNT / 4 => rdata <= agg_record_count_i;
             when AGG_REG_RESET_COUNT / 4 => rdata <= agg_reset_count_i;

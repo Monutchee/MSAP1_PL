@@ -1,5 +1,8 @@
 library ieee;
 use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+use work.pq_event_pkg.all;
 
 library xpm;
 use xpm.vcomponents.all;
@@ -127,6 +130,14 @@ entity meter_core is
     m_axis_mtr2_tready : in  std_logic;
     m_axis_mtr2_tlast  : out std_logic;
 
+    -- PQEVT-v1 record stream: the sliding Urms(1/2) / event tier's own
+    -- producer port (metrology M12).
+    m_axis_pq_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_pq_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_pq_tvalid : out std_logic;
+    m_axis_pq_tready : in  std_logic;
+    m_axis_pq_tlast  : out std_logic;
+
     -- Single-cycle diagnostic record stream (SCYC-v1, one per grid cycle
     -- while cycle timing is locked; metrology roadmap M2).
     m_axis_scyc_tdata  : out std_logic_vector(31 downto 0);
@@ -250,6 +261,22 @@ architecture structural of meter_core is
   signal mtr1_axis_tkeep  : std_logic_vector(3 downto 0);
   signal mtr1_axis_tvalid : std_logic;
   signal mtr1_axis_tlast  : std_logic;
+  -- Sliding Urms(1/2) / PQ event producer (M12). Its shim observes the
+  -- same accepted-frame fan-out the single-cycle shim does.
+  signal pq_axis_tdata      : std_logic_vector(31 downto 0);
+  signal pq_axis_tkeep      : std_logic_vector(3 downto 0);
+  signal pq_axis_tvalid     : std_logic;
+  signal pq_axis_tlast      : std_logic;
+  signal pq_shim_drop_count : std_logic_vector(31 downto 0);
+  signal grid_half_boundary : std_logic;
+  signal pq_shadow_reference : std_logic_vector(31 downto 0);
+  signal pq_shadow_threshold : std_logic_vector(31 downto 0);
+  signal pq_shadow_limits    : std_logic_vector(31 downto 0);
+  signal pq_tap_kind         : std_logic_vector(31 downto 0);
+  signal pq_tap_event_seq    : std_logic_vector(31 downto 0);
+  signal pq_status           : std_logic_vector(31 downto 0);
+  signal pq_event_active     : std_logic;
+
   signal mtr2_axis_tdata  : std_logic_vector(31 downto 0);
   signal mtr2_axis_tkeep  : std_logic_vector(3 downto 0);
   signal mtr2_axis_tvalid : std_logic;
@@ -681,6 +708,10 @@ begin
       frequency_measurement_sequence_i => frequency_sequence,
       frequency_rejected_count_i => frequency_rejected,
       grid_shadow_config_o => grid_shadow_config,
+      pq_shadow_reference_o => pq_shadow_reference,
+      pq_shadow_threshold_o => pq_shadow_threshold,
+      pq_shadow_limits_o => pq_shadow_limits,
+      pq_status_i => pq_status,
       grid_active_config_i => grid_active_config,
       grid_status_i => grid_status,
       -- Aggregation health from the MTR2 record tap ("as of the last
@@ -764,7 +795,7 @@ begin
       frame_closes_block_o => grid_frame_closes_block,
       cycle_mode_o => grid_cycle_mode,
       cycle_boundary_o => grid_cycle_boundary,
-      half_cycle_boundary_o => open,
+      half_cycle_boundary_o => grid_half_boundary,
       cycle_locked_o => grid_cycle_locked,
       cycle_sequence_o => grid_cycle_sequence,
       block_first_sample_o => block_first_sample,
@@ -889,6 +920,82 @@ begin
       drop_count_o => scyc_shim_drop_count
     );
 
+  -- Sliding Urms(1/2) / PQ event producer (M12). It observes the same
+  -- accepted-frame fan-out as the single-cycle producer -- frames are
+  -- broadcast signals, so the two observers never arbitrate -- and drives
+  -- its own exported record stream.
+  pq_producer : entity work.meter_sliding_rms_hls_shim
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      frame_accept_i => engine_valid,
+      frame_data_i => converted_fifo.data,
+      frame_keep_i => converted_fifo.keep,
+      frame_user_i => converted_fifo.user,
+      half_cycle_boundary_i => grid_half_boundary,
+      cycle_locked_i => grid_cycle_locked,
+      cycle_fallback_i => grid_cycle_fallback,
+      shadow_generation_i => shadow_generation,
+      shadow_sample_rate_i => shadow_sample_rate,
+      shadow_valid_mask_i => shadow_valid_mask,
+      shadow_enable_i => shadow_enable,
+      config_apply_toggle_i => apply_toggle,
+      shadow_pq_reference_i => pq_shadow_reference,
+      shadow_pq_threshold_i => pq_shadow_threshold,
+      shadow_pq_limits_i => pq_shadow_limits,
+      pl_tick_i => waveform_tick,
+      m_axis_pq_tdata => pq_axis_tdata,
+      m_axis_pq_tkeep => pq_axis_tkeep,
+      m_axis_pq_tvalid => pq_axis_tvalid,
+      m_axis_pq_tready => m_axis_pq_tready,
+      m_axis_pq_tlast => pq_axis_tlast,
+      drop_count_o => pq_shim_drop_count
+    );
+
+  m_axis_pq_tdata <= pq_axis_tdata;
+  m_axis_pq_tkeep <= pq_axis_tkeep;
+  m_axis_pq_tvalid <= pq_axis_tvalid;
+  m_axis_pq_tlast <= pq_axis_tlast;
+
+  pq_tap : entity work.record_word_tap
+    generic map (
+      -- The PQ producer emits one format, and its live event state lives
+      -- in the format-header word (13) and the event sequence (28).
+      G_AUX0_WORD => 13,
+      G_AUX1_WORD => 28
+    )
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      tdata_i => pq_axis_tdata,
+      tvalid_i => pq_axis_tvalid,
+      tready_i => m_axis_pq_tready,
+      tlast_i => pq_axis_tlast,
+      sequence_o => open,
+      status_o => open,
+      emit_drops_o => open,
+      result_drops_o => open,
+      reset_count_o => open,
+      ineligible_count_o => open,
+      continuity_count_o => open,
+      aux0_o => pq_tap_kind,
+      aux1_o => pq_tap_event_seq,
+      framing_error_o => open,
+      framing_error_count_o => open
+    );
+
+  -- PQ_STATUS (pq_event_pkg layout), composed from the last emitted
+  -- record: an event is "in progress" exactly when the newest record was
+  -- an event START, since an END always follows the same event.
+  pq_event_active <= '1'
+    when unsigned(pq_tap_kind(7 downto 0)) = PQ_KIND_EVENT_START else '0';
+  pq_status <= pq_tap_event_seq(15 downto 0) &  -- [31:16] completed events
+               "00000" &                        -- [15:11] reserved
+               pq_tap_kind(18 downto 16) &      -- [10:8]  affected phases
+               "0000" &                         -- [7:4]   reserved
+               pq_tap_kind(10 downto 8) &       -- [3:1]   event type
+               pq_event_active;                 -- [0]     event in progress
+
   mtr1_tap : entity work.record_word_tap
     port map (
       aclk => aclk,
@@ -904,6 +1011,8 @@ begin
       reset_count_o => open,
       ineligible_count_o => open,
       continuity_count_o => open,
+      aux0_o => open,
+      aux1_o => open,
       framing_error_o => open,
       framing_error_count_o => open
     );
@@ -928,6 +1037,8 @@ begin
       reset_count_o => mtr2_tap_reset,
       ineligible_count_o => mtr2_tap_ineligible,
       continuity_count_o => mtr2_tap_continuity,
+      aux0_o => open,
+      aux1_o => open,
       framing_error_o => open,
       framing_error_count_o => open
     );

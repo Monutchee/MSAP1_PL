@@ -23,6 +23,14 @@ if {![file isdirectory $hls_agg1012_hdl]} {
 set hls_agg1012_verilog [concat \
   [lsort [glob -directory $hls_agg1012_hdl *.v]] \
   [list [file join $design_root MeterProcessing tb hls_agg10_12_cycle_engine_ip.v]]]
+set hls_pq_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo SlidingOneCycleRmsEngine hdl verilog]
+if {![file isdirectory $hls_pq_hdl]} {
+  error "missing $hls_pq_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+}
+set hls_pq_verilog [concat \
+  [lsort [glob -directory $hls_pq_hdl *.v]] \
+  [list [file join $design_root MeterProcessing tb hls_sliding_one_cycle_rms_engine_ip.v]]]
 set hls_sim_wave_hdl [file join $project_root SourceData HLS_DesignFile \
   ip_repo SimWaveEngine hdl verilog]
 if {![file isdirectory $hls_sim_wave_hdl]} {
@@ -56,6 +64,7 @@ if {[info exists ::env(LD_LIBRARY_PATH)] && $::env(LD_LIBRARY_PATH) ne ""} {
 set vhdl2008_sources [list \
   [file join $design_root MeterCommon metering_pkg.vhd] \
   [file join $design_root MeterCommon grid_timing_pkg.vhd] \
+  [file join $design_root MeterCommon pq_event_pkg.vhd] \
   [file join $design_root MeterCommon measurement_record_bus_pkg.vhd] \
   [file join $design_root Ad7771Capture ad7771_receiver.vhd] \
   [file join $design_root Ad7771Capture ad7771_axi_regs.vhd] \
@@ -73,6 +82,7 @@ set vhdl2008_sources [list \
   [file join $design_root MeterProcessing record_word_tap.vhd] \
   [file join $design_root MeterProcessing meter_agg10_12_cycle_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd] \
+  [file join $design_root MeterProcessing meter_sliding_rms_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_agg150_180_hls_shim.vhd] \
   [file join $design_root MeterCore adc_simulator_pkg.vhd] \
   [file join $design_root MeterCore adc_simulator.vhd] \
@@ -93,7 +103,7 @@ file mkdir $work_root
 # packaged engine (sim-wave sine LUT, single-cycle trig LUT, the M9
 # CORDIC atan table, anything future).
 foreach hdl_dir [list $hls_sim_wave_hdl $hls_scyc_hdl $hls_agg1012_hdl \
-                     $hls_mtr2_hdl] {
+                     $hls_mtr2_hdl $hls_pq_hdl] {
   foreach rom_image [glob -nocomplain -directory $hdl_dir *.dat] {
     file copy -force $rom_image $work_root
   }
@@ -106,6 +116,7 @@ puts [exec $xvlog -i $hls_mtr2_hdl {*}$hls_mtr2_verilog 2>@1]
 puts [exec $xvlog -i $hls_agg1012_hdl {*}$hls_agg1012_verilog 2>@1]
 puts [exec $xvlog -i $hls_sim_wave_hdl {*}$hls_sim_wave_verilog 2>@1]
 puts [exec $xvlog -i $hls_scyc_hdl {*}$hls_scyc_verilog 2>@1]
+puts [exec $xvlog -i $hls_pq_hdl {*}$hls_pq_verilog 2>@1]
 puts [exec $xvhdl --2008 {*}$core_vhdl2008_sources 2>@1]
 puts [exec $xvhdl $boundary_wrapper 2>@1]
 puts [exec $xvlog --sv $testbench 2>@1]

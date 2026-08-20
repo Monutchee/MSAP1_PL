@@ -26,6 +26,16 @@ use work.adc_simulator_pkg.all;
 -- across APPLY (seamless reconfiguration for scenario changes).  Shadow
 -- values are committed by writing bit 0 to APPLY.  A commit occurs only
 -- between eight-channel frames, so a frame never mixes generations.
+--
+-- The event sequencer (metrology M12) is the deterministic half of the
+-- sag/swell/interruption feature: it owns a second shadow bank with its
+-- own trigger -- so a burst launches against a steady configuration
+-- without committing anything else -- and starts and ends the burst on
+-- the generator's OWN half-cycle boundaries (the phase accumulator's MSB
+-- flip).  The envelope is therefore phase-continuous by construction: no
+-- APPLY, no accumulator reset, no discontinuity to be mistaken for the
+-- event under test.  Only the amplitude multiply travels to the HLS
+-- engine, as the request's event word.
 entity adc_simulator is
   generic (
     G_ACLK_HZ       : positive := 99999001;
@@ -110,6 +120,26 @@ architecture rtl of adc_simulator is
   signal active_noise       : word_array_t := (others => (others => '0'));
   signal active_harmonic    : word_array_t := (others => (others => '0'));
 
+  -- Event sequencer bank and state.  ARMED waits for the next half-cycle
+  -- boundary, RUNNING applies the envelope for the committed duration,
+  -- HOLD counts out the remainder of a repeating burst's period.
+  signal shadow_event_control : std_logic_vector(31 downto 0) := (others => '0');
+  signal shadow_event_scale   : std_logic_vector(31 downto 0) :=
+    std_logic_vector(to_unsigned(ADC_SIM_EVENT_SCALE_UNITY, 32));
+  signal shadow_event_timing  : std_logic_vector(31 downto 0) := (others => '0');
+  signal active_event_control : std_logic_vector(31 downto 0) := (others => '0');
+  signal active_event_scale   : std_logic_vector(31 downto 0) :=
+    std_logic_vector(to_unsigned(ADC_SIM_EVENT_SCALE_UNITY, 32));
+  signal active_event_timing  : std_logic_vector(31 downto 0) := (others => '0');
+
+  type event_state_t is (EVT_IDLE, EVT_ARMED, EVT_RUNNING, EVT_HOLD);
+  signal event_state     : event_state_t := EVT_IDLE;
+  signal event_remaining : unsigned(15 downto 0) := (others => '0');
+  signal event_period    : unsigned(15 downto 0) := (others => '0');
+  signal event_count     : unsigned(15 downto 0) := (others => '0');
+  signal event_scale_now : std_logic_vector(18 downto 0);
+  signal event_mask_now  : std_logic_vector(7 downto 0);
+
   signal apply_pending : std_logic := '0';
   signal sample_accumulator : unsigned(32 downto 0) := (others => '0');
   signal sample_pending     : std_logic := '0';
@@ -169,7 +199,9 @@ architecture rtl of adc_simulator is
     phase_v       : word_array_t;
     dc_v          : word_array_t;
     noise_v       : word_array_t;
-    harmonic_v    : word_array_t) return std_logic_vector is
+    harmonic_v    : word_array_t;
+    event_scale_v : std_logic_vector(18 downto 0);
+    event_mask_v  : std_logic_vector(7 downto 0)) return std_logic_vector is
     variable beat : std_logic_vector(SIM_WAVE_REQ_BITS - 1 downto 0) := (others => '0');
   begin
     beat(SIM_WAVE_REQ_BASE_PHASE_LSB + 31 downto SIM_WAVE_REQ_BASE_PHASE_LSB) :=
@@ -191,6 +223,10 @@ architecture rtl of adc_simulator is
       beat(SIM_WAVE_REQ_HARMONIC_LSB + (word * 32) + 31 downto
            SIM_WAVE_REQ_HARMONIC_LSB + (word * 32)) := harmonic_v(word);
     end loop;
+    beat(SIM_WAVE_REQ_EVENT_SCALE_LSB + 18 downto SIM_WAVE_REQ_EVENT_SCALE_LSB) :=
+      event_scale_v;
+    beat(SIM_WAVE_REQ_EVENT_MASK_LSB + 7 downto SIM_WAVE_REQ_EVENT_MASK_LSB) :=
+      event_mask_v;
     return beat;
   end function;
 
@@ -226,6 +262,14 @@ begin
                         active_control(ADC_SIM_CONTROL_ENABLE_BIT);
   saturation_count_o <= std_logic_vector(saturation_count);
 
+  -- Only a RUNNING burst reaches the engine; everything else is the
+  -- inert unity envelope, which the engine treats as a bit-exact no-op.
+  event_scale_now <= active_event_scale(18 downto 0) when event_state = EVT_RUNNING
+                     else std_logic_vector(to_unsigned(ADC_SIM_EVENT_SCALE_UNITY, 19));
+  event_mask_now <= active_event_control(ADC_SIM_EVENT_MASK_LSB + 7 downto
+                                         ADC_SIM_EVENT_MASK_LSB)
+                    when event_state = EVT_RUNNING else (others => '0');
+
   waveform_engine : hls_sim_wave_engine_ip
     port map (
       ap_clk           => aclk,
@@ -246,6 +290,11 @@ begin
     variable array_index   : natural range 0 to 7;
     variable next_accumulator : unsigned(32 downto 0);
     variable start_frame      : boolean;
+    variable next_phase       : unsigned(31 downto 0);
+    variable start_burst      : boolean;
+    variable burst_duration   : unsigned(15 downto 0);
+    variable burst_period     : unsigned(15 downto 0);
+    variable event_scale_v    : unsigned(31 downto 0);
   begin
     if rising_edge(aclk) then
       if aresetn = '0' then
@@ -271,6 +320,18 @@ begin
         active_dc <= (others => (others => '0'));
         active_noise <= (others => (others => '0'));
         active_harmonic <= (others => (others => '0'));
+        shadow_event_control <= (others => '0');
+        shadow_event_scale <=
+          std_logic_vector(to_unsigned(ADC_SIM_EVENT_SCALE_UNITY, 32));
+        shadow_event_timing <= (others => '0');
+        active_event_control <= (others => '0');
+        active_event_scale <=
+          std_logic_vector(to_unsigned(ADC_SIM_EVENT_SCALE_UNITY, 32));
+        active_event_timing <= (others => '0');
+        event_state <= EVT_IDLE;
+        event_remaining <= (others => '0');
+        event_period <= (others => '0');
+        event_count <= (others => '0');
         apply_pending <= '0';
         sample_accumulator <= (others => '0');
         sample_pending <= '0';
@@ -317,6 +378,12 @@ begin
             base_phase <= (others => '0');
             channel_index <= 0;
             packet_frame_index <= 0;
+            -- The phase restarts from zero, so a burst timed against the
+            -- old accumulator has no meaning: cancel it rather than let
+            -- it run out against a discontinuous waveform.  A
+            -- preserve-phase APPLY leaves the burst untouched, which is
+            -- what makes a mid-event reconfiguration testable.
+            event_state <= EVT_IDLE;
           end if;
         elsif active_control(ADC_SIM_CONTROL_SOURCE_BIT) = '1' and
               active_control(ADC_SIM_CONTROL_ENABLE_BIT) = '1' then
@@ -351,7 +418,8 @@ begin
             -- from the observable frame counter.
             req_data <= pack_request(base_phase, frame_count, active_valid_mask,
                                      active_peak, active_phase, active_dc,
-                                     active_noise, active_harmonic);
+                                     active_noise, active_harmonic,
+                                     event_scale_now, event_mask_now);
             req_valid <= '1';
             gen_state <= GEN_REQUEST;
           end if;
@@ -388,7 +456,64 @@ begin
                 axis_last <= '0';
                 if channel_index = 7 then
                   frame_count <= frame_count + 1;
-                  base_phase <= base_phase + unsigned(active_phase_step);
+                  next_phase := base_phase + unsigned(active_phase_step);
+                  base_phase <= next_phase;
+
+                  -- Event sequencer.  A half-cycle boundary is the MSB of
+                  -- the Q0.32 phase accumulator flipping -- the same
+                  -- instant the grid-timing block would see a zero
+                  -- crossing on the generated waveform, and the only
+                  -- instant the envelope is allowed to change.  Timing is
+                  -- counted in boundaries, never in samples, so an
+                  -- off-nominal or fractional sample rate never skews an
+                  -- event's programmed length.
+                  if next_phase(31) /= base_phase(31) then
+                    start_burst := false;
+                    burst_duration := unsigned(active_event_timing(
+                      ADC_SIM_EVENT_DURATION_LSB + 15 downto
+                      ADC_SIM_EVENT_DURATION_LSB));
+                    burst_period := unsigned(active_event_timing(
+                      ADC_SIM_EVENT_PERIOD_LSB + 15 downto
+                      ADC_SIM_EVENT_PERIOD_LSB));
+                    -- Back-to-back bursts when the programmed period does
+                    -- not clear the duration.
+                    if burst_period <= burst_duration then
+                      burst_period := burst_duration + 1;
+                    end if;
+                    case event_state is
+                      when EVT_ARMED =>
+                        start_burst := true;
+                      when EVT_RUNNING =>
+                        if event_remaining = 0 then
+                          event_count <= event_count + 1;
+                          if active_event_control(ADC_SIM_EVENT_REPEAT_BIT) = '1' then
+                            if event_period = 0 then
+                              start_burst := true;
+                            else
+                              event_state <= EVT_HOLD;
+                            end if;
+                          else
+                            event_state <= EVT_IDLE;
+                          end if;
+                        else
+                          event_remaining <= event_remaining - 1;
+                        end if;
+                      when EVT_HOLD =>
+                        if event_period = 0 then
+                          start_burst := true;
+                        end if;
+                      when EVT_IDLE =>
+                        null;
+                    end case;
+                    if start_burst then
+                      event_state <= EVT_RUNNING;
+                      event_remaining <= burst_duration - 1;
+                      event_period <= burst_period - 1;
+                    elsif event_state /= EVT_IDLE and event_period /= 0 then
+                      event_period <= event_period - 1;
+                    end if;
+                  end if;
+
                   if packet_frame_index = G_PACKET_FRAMES - 1 then
                     packet_frame_index <= 0;
                   else
@@ -469,6 +594,39 @@ begin
               if wdata(ADC_SIM_CLEAR_FRAME_BIT) = '1' then
                 frame_count <= (others => '0');
               end if;
+            when ADC_SIM_REG_SHADOW_EVENT_CONTROL =>
+              shadow_event_control <= merge_strobes(shadow_event_control, wdata, wstrb);
+            when ADC_SIM_REG_SHADOW_EVENT_SCALE =>
+              shadow_event_scale <= merge_strobes(shadow_event_scale, wdata, wstrb);
+            when ADC_SIM_REG_SHADOW_EVENT_TIMING =>
+              shadow_event_timing <= merge_strobes(shadow_event_timing, wdata, wstrb);
+            when ADC_SIM_REG_EVENT_TRIGGER =>
+              -- Write-only strobes, evaluated in order: CANCEL then CLEAR
+              -- then ARM, so a single word that both cancels and arms
+              -- restarts cleanly instead of racing itself.  Like
+              -- COUNTER_CLEAR this branch runs after the generation
+              -- logic, so a strobe coincident with a sequencer update
+              -- wins and the register is always observably obeyed.
+              if wdata(ADC_SIM_EVENT_TRIGGER_CANCEL_BIT) = '1' then
+                event_state <= EVT_IDLE;
+              end if;
+              if wdata(ADC_SIM_EVENT_TRIGGER_CLEAR_BIT) = '1' then
+                event_count <= (others => '0');
+              end if;
+              -- A zero duration has no burst to run: the arm is ignored
+              -- rather than committed as a zero-length event.
+              if wdata(ADC_SIM_EVENT_TRIGGER_ARM_BIT) = '1' and
+                 unsigned(shadow_event_timing(ADC_SIM_EVENT_DURATION_LSB + 15 downto
+                                              ADC_SIM_EVENT_DURATION_LSB)) /= 0 then
+                active_event_control <= shadow_event_control;
+                event_scale_v := unsigned(shadow_event_scale);
+                if event_scale_v > to_unsigned(ADC_SIM_EVENT_SCALE_MAX, 32) then
+                  event_scale_v := to_unsigned(ADC_SIM_EVENT_SCALE_MAX, 32);
+                end if;
+                active_event_scale <= std_logic_vector(event_scale_v);
+                active_event_timing <= shadow_event_timing;
+                event_state <= EVT_ARMED;
+              end if;
             when others =>
               if write_address >= ADC_SIM_REG_SHADOW_PEAK_BASE and
                  write_address < ADC_SIM_REG_SHADOW_PEAK_BASE + 32 and
@@ -540,6 +698,30 @@ begin
             when ADC_SIM_REG_SHADOW_PHASE_STEP => rdata <= shadow_phase_step;
             when ADC_SIM_REG_ACTIVE_CONTROL => rdata <= active_control;
             when ADC_SIM_REG_ACTIVE_PHASE_STEP => rdata <= active_phase_step;
+            when ADC_SIM_REG_SHADOW_EVENT_CONTROL => rdata <= shadow_event_control;
+            when ADC_SIM_REG_SHADOW_EVENT_SCALE => rdata <= shadow_event_scale;
+            when ADC_SIM_REG_SHADOW_EVENT_TIMING => rdata <= shadow_event_timing;
+            when ADC_SIM_REG_ACTIVE_EVENT_CONTROL => rdata <= active_event_control;
+            when ADC_SIM_REG_ACTIVE_EVENT_SCALE => rdata <= active_event_scale;
+            when ADC_SIM_REG_ACTIVE_EVENT_TIMING => rdata <= active_event_timing;
+            when ADC_SIM_REG_EVENT_STATUS =>
+              rdata <= (others => '0');
+              if event_state = EVT_ARMED then
+                rdata(ADC_SIM_EVENT_STATUS_ARMED_BIT) <= '1';
+              end if;
+              if event_state = EVT_RUNNING then
+                rdata(ADC_SIM_EVENT_STATUS_RUNNING_BIT) <= '1';
+              end if;
+              if event_state = EVT_HOLD then
+                rdata(ADC_SIM_EVENT_STATUS_HOLDING_BIT) <= '1';
+              end if;
+              rdata(ADC_SIM_EVENT_STATUS_COUNT_LSB + 15 downto
+                    ADC_SIM_EVENT_STATUS_COUNT_LSB) <= std_logic_vector(event_count);
+            when ADC_SIM_REG_EVENT_REMAINING =>
+              -- Half cycles left in the burst [15:0] and until the next
+              -- repeat [31:16]: the live view a scenario procedure polls.
+              rdata <= std_logic_vector(event_period) &
+                       std_logic_vector(event_remaining);
             when others =>
               rdata <= (others => '0');
               if read_address >= ADC_SIM_REG_SHADOW_PEAK_BASE and

@@ -27,7 +27,13 @@ entity record_word_tap is
     -- map, and latching those words from its siblings would wipe the
     -- registers with payload or reserved zeros. All-zeros (the default)
     -- matches every record — the envelope words are format-invariant.
-    G_DIAG_FORMAT : std_logic_vector(31 downto 0) := (others => '0')
+    G_DIAG_FORMAT : std_logic_vector(31 downto 0) := (others => '0');
+    -- Two extra record words to republish, chosen per producer (0 =
+    -- unused, which reads back zero). The PQ producer uses these for its
+    -- live event state, which lives in the record's format-header word
+    -- rather than the shared diagnostics slots.
+    G_AUX0_WORD : natural range 0 to MEASUREMENT_RECORD_WORDS - 1 := 0;
+    G_AUX1_WORD : natural range 0 to MEASUREMENT_RECORD_WORDS - 1 := 0
   );
   port (
     aclk    : in std_logic;
@@ -49,6 +55,11 @@ entity record_word_tap is
     reset_count_o      : out std_logic_vector(31 downto 0);
     ineligible_count_o : out std_logic_vector(31 downto 0);
     continuity_count_o : out std_logic_vector(31 downto 0);
+
+    -- Aux words selected by G_AUX0_WORD / G_AUX1_WORD, published with
+    -- the same atomic-at-TLAST discipline as everything else.
+    aux0_o : out std_logic_vector(31 downto 0);
+    aux1_o : out std_logic_vector(31 downto 0);
 
     -- Framing watchdog: sticky flag plus counter for any TLAST not on
     -- beat 63 or any packet running past 64 beats — the DMA-ring
@@ -73,6 +84,8 @@ architecture rtl of record_word_tap is
   signal shadow_reset        : std_logic_vector(31 downto 0) := (others => '0');
   signal shadow_ineligible   : std_logic_vector(31 downto 0) := (others => '0');
   signal shadow_continuity   : std_logic_vector(31 downto 0) := (others => '0');
+  signal shadow_aux0         : std_logic_vector(31 downto 0) := (others => '0');
+  signal shadow_aux1         : std_logic_vector(31 downto 0) := (others => '0');
 
   signal published_sequence     : std_logic_vector(31 downto 0) := (others => '0');
   signal published_status       : std_logic_vector(31 downto 0) := (others => '0');
@@ -81,6 +94,8 @@ architecture rtl of record_word_tap is
   signal published_reset        : std_logic_vector(31 downto 0) := (others => '0');
   signal published_ineligible   : std_logic_vector(31 downto 0) := (others => '0');
   signal published_continuity   : std_logic_vector(31 downto 0) := (others => '0');
+  signal published_aux0         : std_logic_vector(31 downto 0) := (others => '0');
+  signal published_aux1         : std_logic_vector(31 downto 0) := (others => '0');
 
   signal framing_error       : std_logic := '0';
   signal framing_error_count : unsigned(31 downto 0) := (others => '0');
@@ -92,6 +107,8 @@ begin
   reset_count_o <= published_reset;
   ineligible_count_o <= published_ineligible;
   continuity_count_o <= published_continuity;
+  aux0_o <= published_aux0;
+  aux1_o <= published_aux1;
   framing_error_o <= framing_error;
   framing_error_count_o <= std_logic_vector(framing_error_count);
 
@@ -107,6 +124,8 @@ begin
         published_reset <= (others => '0');
         published_ineligible <= (others => '0');
         published_continuity <= (others => '0');
+        published_aux0 <= (others => '0');
+        published_aux1 <= (others => '0');
         framing_error <= '0';
         framing_error_count <= (others => '0');
       elsif tvalid_i = '1' and tready_i = '1' then
@@ -130,6 +149,12 @@ begin
             if diag_owner = '1' then shadow_continuity <= tdata_i; end if;
           when others => null;
         end case;
+        if G_AUX0_WORD /= 0 and beat_index = G_AUX0_WORD then
+          shadow_aux0 <= tdata_i;
+        end if;
+        if G_AUX1_WORD /= 0 and beat_index = G_AUX1_WORD then
+          shadow_aux1 <= tdata_i;
+        end if;
 
         if tlast_i = '1' then
           if beat_index = MEASUREMENT_RECORD_WORDS - 1 then
@@ -141,6 +166,8 @@ begin
             published_reset <= shadow_reset;
             published_ineligible <= shadow_ineligible;
             published_continuity <= shadow_continuity;
+            published_aux0 <= shadow_aux0;
+            published_aux1 <= shadow_aux1;
           else
             framing_error <= '1';
             framing_error_count <= framing_error_count + 1;

@@ -31,6 +31,14 @@ if {![file isdirectory $hls_agg1012_hdl]} {
 set hls_agg1012_verilog [concat \
   [lsort [glob -directory $hls_agg1012_hdl *.v]] \
   [list [file join $design_root MeterProcessing tb hls_agg10_12_cycle_engine_ip.v]]]
+set hls_pq_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo SlidingOneCycleRmsEngine hdl verilog]
+if {![file isdirectory $hls_pq_hdl]} {
+  error "missing $hls_pq_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+}
+set hls_pq_verilog [concat \
+  [lsort [glob -directory $hls_pq_hdl *.v]] \
+  [list [file join $design_root MeterProcessing tb hls_sliding_one_cycle_rms_engine_ip.v]]]
 
 set xvlog [lindex [auto_execok xvlog] 0]
 set xvhdl [lindex [auto_execok xvhdl] 0]
@@ -51,6 +59,7 @@ file mkdir $work_root
 set common_vhdl [list \
   [file join $design_root MeterCommon metering_pkg.vhd] \
   [file join $design_root MeterCommon grid_timing_pkg.vhd] \
+  [file join $design_root MeterCommon pq_event_pkg.vhd] \
   [file join $design_root MeterCommon measurement_record_bus_pkg.vhd] \
   [file join $design_root AdcConversion adc_conversion_axi_regs.vhd] \
   [file join $design_root AdcConversion adc_conversion.vhd] \
@@ -63,6 +72,7 @@ set common_vhdl [list \
   [file join $design_root MeterProcessing grid_cycle_timing.vhd] \
   [file join $design_root MeterProcessing record_word_tap.vhd] \
   [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd] \
+  [file join $design_root MeterProcessing meter_sliding_rms_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_agg10_12_cycle_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_agg150_180_hls_shim.vhd]]
 
@@ -71,7 +81,7 @@ set wrapper_vhdl [list \
 
 proc run_test {work_root test_name common_vhdl wrapper_vhdl testbench xvhdl xvlog xelab simulator_libraries} {
   global hls_mtr2_hdl hls_mtr2_verilog hls_agg1012_hdl hls_agg1012_verilog
-  global hls_scyc_hdl hls_scyc_verilog
+  global hls_scyc_hdl hls_scyc_verilog hls_pq_hdl hls_pq_verilog
   set test_dir [file join $work_root $test_name]
   file mkdir $test_dir
   set original_dir [pwd]
@@ -81,10 +91,11 @@ proc run_test {work_root test_name common_vhdl wrapper_vhdl testbench xvhdl xvlo
   puts [exec $xvlog -i $hls_mtr2_hdl {*}$hls_mtr2_verilog 2>@1]
   puts [exec $xvlog -i $hls_agg1012_hdl {*}$hls_agg1012_verilog 2>@1]
   puts [exec $xvlog -i $hls_scyc_hdl {*}$hls_scyc_verilog 2>@1]
+  puts [exec $xvlog -i $hls_pq_hdl {*}$hls_pq_verilog 2>@1]
   # HLS ROMs (the single-cycle trig LUT, the M9 CORDIC atan table, any
   # future table) initialize from .dat images that xsim resolves relative
   # to the working directory — copy them from EVERY packaged engine.
-  foreach hdl_dir [list $hls_scyc_hdl $hls_agg1012_hdl $hls_mtr2_hdl] {
+  foreach hdl_dir [list $hls_scyc_hdl $hls_agg1012_hdl $hls_mtr2_hdl $hls_pq_hdl] {
     foreach rom_image [glob -nocomplain -directory $hdl_dir *.dat] {
       file copy -force $rom_image [file join $test_dir [file tail $rom_image]]
     }

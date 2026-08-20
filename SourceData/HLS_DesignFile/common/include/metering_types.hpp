@@ -128,6 +128,40 @@ static const int MET_POWER_PHASES = 3;
 // picowatts / picovars / pico-VA.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Power-quality event conventions (M12, IEC 61000-4-30 section 5.4/5.5 —
+// normative here, mirrored by pq_event_pkg.vhd and the APU decoder):
+//
+//   * Urms(1/2) is the RMS over ONE grid cycle refreshed every HALF cycle,
+//     resynchronized to half-cycle boundaries. It is a DETECTION quantity,
+//     never an aggregation input: the 10/12 and 150/180 tiers keep using
+//     their own whole-cycle accumulators and are unaffected by events.
+//   * Thresholds are fractions of a DECLARED reference voltage (Udin) in
+//     units of 1e-4 (9000 = 90.00 %). A reference of 0 DISABLES detection:
+//     periodic snapshots keep flowing but no event is ever declared, so an
+//     unconfigured system cannot invent dips.
+//   * Polyphase rule: an event BEGINS on the half-cycle update where ANY
+//     monitored phase crosses its threshold, and ENDS only when EVERY
+//     phase has recovered past the threshold plus the hysteresis. The
+//     event carries the union of the phases it ever affected.
+//   * Severity: a single event keeps the MOST SEVERE type it reached
+//     (interruption outranks sag; swell is disjoint), so a dip that
+//     deepens into an interruption is reported once, as an interruption.
+//   * Residual/peak: a sag or interruption reports the MINIMUM Urms(1/2)
+//     reached on any affected phase; a swell reports the MAXIMUM. Duration
+//     is measured in the sample domain (first affected update to the first
+//     fully recovered update), so it is exact, not a wall-clock estimate.
+// ---------------------------------------------------------------------------
+static const int MET_PQ_EVENT_NONE         = 0;
+static const int MET_PQ_EVENT_SAG          = 1;
+static const int MET_PQ_EVENT_SWELL        = 2;
+static const int MET_PQ_EVENT_INTERRUPTION = 3;
+
+// Record kinds carried in the PQ record's format-header word.
+static const int MET_PQ_KIND_PERIODIC    = 0;  // heartbeat snapshot
+static const int MET_PQ_KIND_EVENT_START = 1;  // event declared
+static const int MET_PQ_KIND_EVENT_END   = 2;  // event characterized
+
 // Load-nature codes (M9, record word values — APU mirror).
 static const int MET_NATURE_UNDEFINED = 0;  // S1 = 0, nothing to classify
 static const int MET_NATURE_UNITY     = 1;  // Q1 = 0 exactly

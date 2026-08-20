@@ -9,7 +9,9 @@
 // pacing with the engine in the loop, AXIS framing/TLAST across packets,
 // backpressure hold, missed-sample accounting, DC offset, noise
 // liveness/bounds, preserve-phase APPLY versus restarting APPLY, rail
-// clamping with saturation counting, and the COUNTER_CLEAR strobes.
+// clamping with saturation counting, the COUNTER_CLEAR strobes, and the
+// event sequencer (half-cycle alignment, duration, channel mask, repeat,
+// cancel, scale clamp).
 module adc_simulator_tb;
   // 10 kHz virtual clock rate with a 100 frame/s configuration: one frame
   // tick every 100 clocks, comfortably above the engine's compute latency
@@ -131,6 +133,29 @@ module adc_simulator_tb;
     end
   endtask
 
+  // Consume one frame and hand CH0 and CH1 back (event mask checks).
+  task automatic consume_frame_pair(output integer ch0, output integer ch1,
+                                    input bit expected_packet_last);
+    integer beat;
+    begin
+      beat = 0;
+      while (beat < 8) begin
+        axis_ready = 1'b0;
+        wait (axis_valid);
+        #1ps;
+        if (beat == 0) ch0 = $signed(axis_data);
+        if (beat == 1) ch1 = $signed(axis_data);
+        assert (axis_last == (expected_packet_last && beat == 7))
+          else $fatal(1, "simulator TLAST mismatch at beat %0d", beat);
+        @(negedge clock);
+        axis_ready = 1'b1;
+        @(negedge clock);
+        axis_ready = 1'b0;
+        beat++;
+      end
+    end
+  endtask
+
   // Consume one frame and hand CH0 back to the caller (noise checks).
   task automatic consume_frame_ch0(output integer ch0,
                                    input bit expected_packet_last);
@@ -176,6 +201,16 @@ module adc_simulator_tb;
     end
   endfunction
 
+  // The golden helper rounds to nearest; the engine floors after its
+  // single peak multiply, so exact-value checks carry a small tolerance
+  // exactly like the pre-existing consume_frame() comparisons.
+  function automatic bit near(input integer got, input integer want,
+                              input integer tol);
+    near = (got >= want - tol) && (got <= want + tol);
+  endfunction
+
+  integer event_ch0;
+  integer event_ch1;
   integer noise_sample;
   integer noise_min;
   integer noise_max;
@@ -194,7 +229,7 @@ module adc_simulator_tb;
     read_reg(12'h000, value);
     assert (value == 32'h5349_4d31) else $fatal(1, "bad simulator identifier");
     read_reg(12'h004, value);
-    assert (value == 32'h0001_0002) else $fatal(1, "bad simulator version");
+    assert (value == 32'h0001_0003) else $fatal(1, "bad simulator version");
 
     // --- Cardinal sine values, banking, framing, backpressure. ----------
     // CH0 is a 1000-count sine; phase advances by 90 degrees per frame.
@@ -369,6 +404,135 @@ module adc_simulator_tb;
     read_reg(12'h020, value);
     assert (!value[3] && !value[4])
       else $fatal(1, "sticky status bits survived the counter clear");
+
+    // --- Event sequencer (M12). -----------------------------------------
+    // Geometry: a 90-degree-per-frame phase step puts a half-cycle
+    // boundary (the accumulator MSB flipping) after every second frame,
+    // and a 45-degree channel offset keeps every sample off a zero
+    // crossing so an amplitude change is unambiguous.
+    //
+    // Arming happens while generation is STOPPED -- no frames, so no
+    // boundaries, so the armed state is guaranteed to survive to the
+    // start -- and the start is a preserve-phase APPLY, which is exactly
+    // the case the sequencer must not have cancelled.
+    stop_and_apply_idle;
+    write_reg(12'h014, 32'h0000_0003);   // CH0 and CH1 enabled
+    write_reg(12'h040, 32'd1000);        // CH0 peak
+    write_reg(12'h044, 32'd1000);        // CH1 peak
+    write_reg(12'h060, 32'h2000_0000);   // CH0 +45 degrees
+    write_reg(12'h064, 32'h2000_0000);   // CH1 +45 degrees
+    write_reg(12'h080, 32'h4000_0000);   // 90 degrees per frame
+    write_reg(12'h008, 32'h0000_0007);   // source + enable + preserve
+    // Event: half amplitude on CH0 only, two half cycles, no repeat.
+    write_reg(12'h300, 32'h0000_0001);   // channel mask CH0
+    write_reg(12'h304, 32'h0000_8000);   // 0.5 in Q16
+    write_reg(12'h308, 32'h0000_0002);   // duration 2 half cycles
+    read_reg(12'h31c, value);
+    assert (value == 32'h0001_0000)
+      else $fatal(1, "event scale must stay unity before the trigger");
+    read_reg(12'h310, value);
+    assert (value == 32'h0000_0000) else $fatal(1, "event active before arming");
+    write_reg(12'h30c, 32'h0000_0001);   // ARM
+    read_reg(12'h310, value);
+    assert (value[0] && !value[1])
+      else $fatal(1, "arming must leave the sequencer armed, not running");
+    read_reg(12'h318, value);
+    assert (value == 32'h0000_0001) else $fatal(1, "active event control mismatch");
+    read_reg(12'h31c, value);
+    assert (value == 32'h0000_8000) else $fatal(1, "active event scale mismatch");
+
+    axis_ready = 1'b0;
+    write_reg(12'h01c, 32'h0000_0001);   // preserve-phase APPLY starts it
+    // Frames 0/1 precede the first boundary: full amplitude on both lanes.
+    consume_frame_pair(event_ch0, event_ch1, 1'b0);
+    assert (near(event_ch0, expected_sine(1000, 0.125), 2) && event_ch1 == event_ch0)
+      else $fatal(1, "pre-event frame 0 mismatch: %0d / %0d", event_ch0, event_ch1);
+    consume_frame_pair(event_ch0, event_ch1, 1'b1);
+    assert (near(event_ch0, expected_sine(1000, 0.375), 2))
+      else $fatal(1, "pre-event frame 1 mismatch: %0d", event_ch0);
+    // The boundary after frame 1 starts the burst: CH0 halves, CH1 --
+    // outside the event mask -- does not move.
+    consume_frame_pair(event_ch0, event_ch1, 1'b0);
+    assert (near(event_ch0, expected_sine(500, 0.625), 2))
+      else $fatal(1, "sag frame 2 mismatch: %0d", event_ch0);
+    assert (near(event_ch1, expected_sine(1000, 0.625), 2))
+      else $fatal(1, "CH1 is off the event mask and must not dip: %0d", event_ch1);
+    read_reg(12'h310, value);
+    assert (value[1] && !value[0])
+      else $fatal(1, "sequencer must report running during the burst");
+    consume_frame_pair(event_ch0, event_ch1, 1'b1);
+    assert (near(event_ch0, expected_sine(500, 0.875), 2))
+      else $fatal(1, "sag frame 3 mismatch: %0d", event_ch0);
+    // Second programmed half cycle.
+    consume_frame_pair(event_ch0, event_ch1, 1'b0);
+    assert (near(event_ch0, expected_sine(500, 0.125), 2))
+      else $fatal(1, "sag frame 4 mismatch: %0d", event_ch0);
+    consume_frame_pair(event_ch0, event_ch1, 1'b1);
+    assert (near(event_ch0, expected_sine(500, 0.375), 2))
+      else $fatal(1, "sag frame 5 mismatch: %0d", event_ch0);
+    // The boundary after frame 5 ends it: full amplitude returns and the
+    // completed-burst counter advances exactly once.
+    consume_frame_pair(event_ch0, event_ch1, 1'b0);
+    assert (near(event_ch0, expected_sine(1000, 0.625), 2))
+      else $fatal(1, "post-event frame 6 mismatch: %0d", event_ch0);
+    read_reg(12'h310, value);
+    assert (value[2:0] == 3'b000 && value[31:16] == 16'd1)
+      else $fatal(1, "one completed burst expected, status %08x", value);
+
+    // --- Repeat: the burst comes back on its programmed period. ---------
+    // Duration 2 half cycles, period 4 half cycles -- two half cycles on,
+    // two off. Arming again while stopped keeps the geometry exact.
+    stop_and_apply_idle;
+    write_reg(12'h008, 32'h0000_0007);
+    write_reg(12'h300, 32'h0000_0101);   // CH0 mask + repeat
+    write_reg(12'h308, 32'h0004_0002);   // period 4, duration 2
+    write_reg(12'h30c, 32'h0000_0005);   // ARM + clear the burst counter
+    axis_ready = 1'b0;
+    write_reg(12'h01c, 32'h0000_0001);
+    consume_frame_pair(event_ch0, event_ch1, 1'b0);  // frame 0, full
+    consume_frame_pair(event_ch0, event_ch1, 1'b1);  // frame 1, full
+    consume_frame_pair(event_ch0, event_ch1, 1'b0);  // frames 2..5 sag
+    assert (near(event_ch0, expected_sine(500, 0.625), 2))
+      else $fatal(1, "repeat burst 1 did not start: %0d", event_ch0);
+    consume_frame_pair(event_ch0, event_ch1, 1'b1);
+    consume_frame_pair(event_ch0, event_ch1, 1'b0);
+    consume_frame_pair(event_ch0, event_ch1, 1'b1);
+    consume_frame_pair(event_ch0, event_ch1, 1'b0);  // frames 6..9 clear
+    assert (near(event_ch0, expected_sine(1000, 0.625), 2))
+      else $fatal(1, "repeat gap did not restore amplitude: %0d", event_ch0);
+    consume_frame_pair(event_ch0, event_ch1, 1'b1);
+    consume_frame_pair(event_ch0, event_ch1, 1'b0);
+    consume_frame_pair(event_ch0, event_ch1, 1'b1);
+    consume_frame_pair(event_ch0, event_ch1, 1'b0);  // frames 10.. sag again
+    assert (near(event_ch0, expected_sine(500, 0.625), 2))
+      else $fatal(1, "repeat burst 2 did not fire: %0d", event_ch0);
+    read_reg(12'h310, value);
+    assert (value[31:16] == 16'd1)
+      else $fatal(1, "exactly one burst should have completed, status %08x", value);
+
+    // --- CANCEL drops the envelope and does not count a burst. ----------
+    write_reg(12'h30c, 32'h0000_0002);
+    consume_frame_pair(event_ch0, event_ch1, 1'b1);
+    assert (near(event_ch0, expected_sine(1000, 0.875), 2))
+      else $fatal(1, "cancel did not restore amplitude: %0d", event_ch0);
+    read_reg(12'h310, value);
+    assert (value[2:0] == 3'b000 && value[31:16] == 16'd1)
+      else $fatal(1, "cancel must not complete a burst, status %08x", value);
+
+    // --- Scale clamp and the zero-duration guard. -----------------------
+    stop_and_apply_idle;
+    write_reg(12'h304, 32'h0010_0000);   // 16.0, past the 4.0 cap
+    write_reg(12'h308, 32'h0000_0002);
+    write_reg(12'h30c, 32'h0000_0001);
+    read_reg(12'h31c, value);
+    assert (value == 32'h0004_0000)
+      else $fatal(1, "event scale must clamp at 4.0, got %08x", value);
+    write_reg(12'h30c, 32'h0000_0002);   // cancel before the guard check
+    write_reg(12'h308, 32'h0000_0000);   // zero duration
+    write_reg(12'h30c, 32'h0000_0001);
+    read_reg(12'h310, value);
+    assert (value[2:0] == 3'b000)
+      else $fatal(1, "a zero-duration arm must be ignored, status %08x", value);
 
     $display("PASS: adc_simulator_tb");
     $finish;

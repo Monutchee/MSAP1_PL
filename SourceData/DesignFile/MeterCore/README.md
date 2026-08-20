@@ -81,7 +81,7 @@ decode is 12 bits wide (4 KB window). The current register contract is:
 | Offset | Register |
 | ---: | --- |
 | `0x00` | Identifier (`SIM1`) |
-| `0x04` | Version (`0x00010001`) |
+| `0x04` | Version (`0x00010003`) |
 | `0x08` | Shadow control |
 | `0x0C` | Shadow sample rate, frame/s |
 | `0x10` | Shadow signal frequency, mHz |
@@ -106,6 +106,15 @@ decode is 12 bits wide (4 KB window). The current register contract is:
 | `0xB0`-`0xCC` | Eight active DC-offset readbacks |
 | `0xD0`-`0xEC` | Eight unsigned noise-amplitude shadow registers, counts |
 | `0x100`-`0x11C` | Eight active noise-amplitude readbacks |
+| `0x200`-`0x21C` | Four harmonic slots, two words each (shadow) |
+| `0x220`-`0x23C` | Four harmonic slots, two words each (active readback) |
+| `0x300` | Shadow event control: channel mask `[7:0]`, repeat `[8]` |
+| `0x304` | Shadow event scale, unsigned Q16 (`0x10000` unity, cap 4.0) |
+| `0x308` | Shadow event timing: duration `[15:0]`, period `[31:16]`, half cycles |
+| `0x30C` | Event trigger (W1: `0` arm, `1` cancel, `2` clear count) |
+| `0x310` | Event status: armed, running, holding, completed count `[31:16]` |
+| `0x314` | Event remaining: burst `[15:0]`, until repeat `[31:16]`, half cycles |
+| `0x318`-`0x320` | Active event control / scale / timing readbacks |
 
 Peak counts outside the signed 24-bit range saturate and increment the
 saturation counter, as does any sine + DC + noise sum that crosses a rail.
@@ -113,6 +122,36 @@ The noise amplitude is the half-width of a uniform distribution (RMS =
 amplitude / sqrt(3)); zero disables the path. If downstream backpressure consumes the single pending
 sample slot before another scheduled frame can be emitted, the simulator
 increments the missed-sample counter rather than silently changing time.
+
+### Event sequencer
+
+The event sequencer (metrology M12) is what makes sag, swell, and
+interruption scenarios testable without a physical source. It owns a
+SECOND shadow bank with its own trigger register, deliberately apart from
+the waveform APPLY: a burst launches against a steady configuration
+without committing anything else, and starts and ends on the generator's
+OWN half-cycle boundaries (the Q0.32 phase accumulator's MSB flipping).
+The envelope is therefore phase-continuous by construction -- no APPLY,
+no accumulator reset, no discontinuity that could be mistaken for the
+event under test.
+
+Only the amplitude multiply travels to the HLS engine, as the request's
+event word: a Q16 scale on the PEAK of every masked channel, applied
+before the sine and before the harmonic slots. Injected distortion
+therefore rides the dip the way it does on a real grid, while the DC
+offset and the noise -- ADC artifacts, not grid quantities -- are
+untouched. A unity scale or an empty mask leaves the frame bit-identical
+to the pre-event datapath.
+
+Timing is counted in HALF CYCLES, matching the resolution of the
+Urms(1/2) detector downstream, and never in samples, so an off-nominal or
+fractional sample rate cannot skew a burst's programmed length. Writing
+ARM with a zero duration is ignored rather than committed as a
+zero-length event; a repeat period at or below the duration runs the
+bursts back to back (effective period = duration + 1). CANCEL drops the
+envelope immediately and does not count the aborted burst. An APPLY that
+does not preserve the phase cancels a running burst, since the waveform
+it was timed against has restarted.
 
 `M_AXIS_WAVEFORM` continuously emits raw, signed 24-bit ADC samples in
 32-bit storage. A WFM1 block is exactly 32,832 bytes:

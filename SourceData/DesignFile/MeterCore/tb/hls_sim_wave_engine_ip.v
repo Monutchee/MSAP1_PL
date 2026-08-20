@@ -14,7 +14,7 @@
 module hls_sim_wave_engine_ip (
     input           ap_clk,
     input           ap_rst_n,
-    input  [1407:0] s_request_TDATA,
+    input  [1439:0] s_request_TDATA,
     input           s_request_TVALID,
     output          s_request_TREADY,
     output [263:0]  m_frame_TDATA,

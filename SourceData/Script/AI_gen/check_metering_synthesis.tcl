@@ -27,6 +27,11 @@ set hls_agg1012_hdl [file join $project_root SourceData HLS_DesignFile \
 if {![file isdirectory $hls_agg1012_hdl]} {
   error "missing $hls_agg1012_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
 }
+set hls_pq_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo SlidingOneCycleRmsEngine hdl verilog]
+if {![file isdirectory $hls_pq_hdl]} {
+  error "missing $hls_pq_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+}
 set hls_scyc_hdl [file join $project_root SourceData HLS_DesignFile \
   ip_repo SingleCycleEngine hdl verilog]
 if {![file isdirectory $hls_scyc_hdl]} {
@@ -44,6 +49,7 @@ set_param general.maxThreads 2
 
 read_vhdl -vhdl2008 [file join $design_root MeterCommon metering_pkg.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCommon grid_timing_pkg.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterCommon pq_event_pkg.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCommon measurement_record_bus_pkg.vhd]
 read_vhdl -vhdl2008 [file join $design_root Ad7771Capture ad7771_receiver.vhd]
 read_vhdl -vhdl2008 [file join $design_root Ad7771Capture ad7771_axi_regs.vhd]
@@ -62,14 +68,17 @@ read_vhdl -vhdl2008 [file join $design_root MeterProcessing record_word_tap.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_agg10_12_cycle_hls_shim.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_agg150_180_hls_shim.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_sliding_rms_hls_shim.vhd]
 read_verilog [lsort [glob -directory $hls_mtr2_hdl *.v]]
 read_verilog [lsort [glob -directory $hls_agg1012_hdl *.v]]
 read_verilog [lsort [glob -directory $hls_scyc_hdl *.v]]
+read_verilog [lsort [glob -directory $hls_pq_hdl *.v]]
 read_verilog [lsort [glob -directory $hls_sim_wave_hdl *.v]]
 # Bind the IP-customization module names over the packaged RTL for this
 # non-project flow (the project gets the same modules from the XCIs).
 read_verilog [file join $design_root MeterProcessing tb hls_agg150_180_cycle_engine_ip.v]
 read_verilog [file join $design_root MeterProcessing tb hls_agg10_12_cycle_engine_ip.v]
+read_verilog [file join $design_root MeterProcessing tb hls_sliding_one_cycle_rms_engine_ip.v]
 read_verilog [file join $design_root MeterProcessing tb hls_single_cycle_engine_ip.v]
 read_verilog [file join $design_root MeterCore tb hls_sim_wave_engine_ip.v]
 read_vhdl -vhdl2008 [file join $design_root MeterCore adc_simulator_pkg.vhd]

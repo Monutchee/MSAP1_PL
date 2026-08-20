@@ -18,9 +18,14 @@ use ieee.numeric_std.all;
 --               fraction of the fundamental, phase); harmonic angles
 --               scale the lane offset by the order (physical 3-phase
 --               relationship)
+--   0x00010003  hardware event sequencer: a timed amplitude envelope on a
+--               channel mask, armed by its own trigger register and
+--               started/stopped on the generator's own half-cycle
+--               boundaries, so sag/swell/interruption scenarios are
+--               phase-continuous by construction (metrology M12)
 package adc_simulator_pkg is
   constant ADC_SIMULATOR_ID      : std_logic_vector(31 downto 0) := x"53494D31"; -- SIM1
-  constant ADC_SIMULATOR_VERSION : std_logic_vector(31 downto 0) := x"00010002";
+  constant ADC_SIMULATOR_VERSION : std_logic_vector(31 downto 0) := x"00010003";
 
   constant ADC_SIM_REG_ID                 : natural := 16#00#;
   constant ADC_SIM_REG_VERSION            : natural := 16#04#;
@@ -54,6 +59,19 @@ package adc_simulator_pkg is
   constant ADC_SIM_REG_SHADOW_HARMONIC_BASE : natural := 16#200#;
   constant ADC_SIM_REG_ACTIVE_HARMONIC_BASE : natural := 16#220#;
 
+  -- Event sequencer (M12). Its own shadow bank and its own trigger, held
+  -- apart from the waveform APPLY on purpose: an event must be launchable
+  -- against a steady configuration without committing anything else.
+  constant ADC_SIM_REG_SHADOW_EVENT_CONTROL : natural := 16#300#;
+  constant ADC_SIM_REG_SHADOW_EVENT_SCALE   : natural := 16#304#;
+  constant ADC_SIM_REG_SHADOW_EVENT_TIMING  : natural := 16#308#;
+  constant ADC_SIM_REG_EVENT_TRIGGER        : natural := 16#30C#;
+  constant ADC_SIM_REG_EVENT_STATUS         : natural := 16#310#;
+  constant ADC_SIM_REG_EVENT_REMAINING      : natural := 16#314#;
+  constant ADC_SIM_REG_ACTIVE_EVENT_CONTROL : natural := 16#318#;
+  constant ADC_SIM_REG_ACTIVE_EVENT_SCALE   : natural := 16#31C#;
+  constant ADC_SIM_REG_ACTIVE_EVENT_TIMING  : natural := 16#320#;
+
   -- CONTROL register bits (shadow and active banks share the layout).
   constant ADC_SIM_CONTROL_SOURCE_BIT         : natural := 0;
   constant ADC_SIM_CONTROL_ENABLE_BIT         : natural := 1;
@@ -63,6 +81,47 @@ package adc_simulator_pkg is
   -- packet frame 0. Prerequisite for runtime scenario changes (sag/swell
   -- events) that must not inject phase discontinuities.
   constant ADC_SIM_CONTROL_PRESERVE_PHASE_BIT : natural := 2;
+
+  -- EVENT_CONTROL layout: which channels the envelope multiplies, and
+  -- whether the burst repeats on its programmed period.
+  constant ADC_SIM_EVENT_MASK_LSB   : natural := 0;   -- [7:0]
+  constant ADC_SIM_EVENT_REPEAT_BIT : natural := 8;
+
+  -- EVENT_SCALE: unsigned Q16 amplitude multiplier applied to the peak of
+  -- every masked channel while the burst runs. 0x00010000 is unity (a
+  -- no-op envelope), 0 is a full interruption, 0x0000E666 a 10 % sag,
+  -- 0x00011999 a 10 % swell. Clamped at 4.0 on commit; the scale rides on
+  -- the PEAK, so injected harmonics (a fraction of the peak) scale with
+  -- the fundamental exactly as a real dip scales a distorted waveform,
+  -- while DC offset and noise -- ADC artifacts, not grid quantities --
+  -- do not.
+  constant ADC_SIM_EVENT_SCALE_UNITY : natural := 16#10000#;
+  constant ADC_SIM_EVENT_SCALE_MAX   : natural := 16#40000#;
+
+  -- EVENT_TIMING: burst duration in HALF CYCLES [15:0] (0 disarms the
+  -- trigger; half-cycle resolution because Urms(1/2) refreshes every half
+  -- cycle) and, for a repeating burst, the period in half cycles [31:16]
+  -- measured from one burst's start to the next. A period at or below the
+  -- duration runs the bursts back to back (effective period =
+  -- duration + 1).
+  constant ADC_SIM_EVENT_DURATION_LSB : natural := 0;
+  constant ADC_SIM_EVENT_PERIOD_LSB   : natural := 16;
+
+  -- EVENT_TRIGGER write-only strobes (the register reads back zero).
+  -- ARM latches the shadow event bank and starts the burst at the next
+  -- half-cycle boundary of the generator's own phase accumulator, so the
+  -- envelope never injects a phase discontinuity. CANCEL drops the
+  -- envelope immediately -- an operator abort, not a scheduled end.
+  constant ADC_SIM_EVENT_TRIGGER_ARM_BIT    : natural := 0;
+  constant ADC_SIM_EVENT_TRIGGER_CANCEL_BIT : natural := 1;
+  constant ADC_SIM_EVENT_TRIGGER_CLEAR_BIT  : natural := 2;
+
+  -- EVENT_STATUS: bit 0 armed (waiting for the boundary), bit 1 running,
+  -- bit 2 holding between repeats, [31:16] bursts completed.
+  constant ADC_SIM_EVENT_STATUS_ARMED_BIT   : natural := 0;
+  constant ADC_SIM_EVENT_STATUS_RUNNING_BIT : natural := 1;
+  constant ADC_SIM_EVENT_STATUS_HOLDING_BIT : natural := 2;
+  constant ADC_SIM_EVENT_STATUS_COUNT_LSB   : natural := 16;
 
   -- COUNTER_CLEAR write-1-to-clear strobes. A clear coincident with the
   -- same counter's increment discards that one event; the register exists
@@ -86,7 +145,11 @@ package adc_simulator_pkg is
   constant SIM_WAVE_REQ_NOISE_LSB       : natural := 896;
   constant SIM_WAVE_REQ_HARMONIC_LSB    : natural := 1152;
   constant SIM_WAVE_HARMONIC_WORDS      : natural := 8;
-  constant SIM_WAVE_REQ_BITS            : natural := 1408;
+  -- Event envelope word: [18:0] Q16 scale, [31:24] channel mask.
+  constant SIM_WAVE_REQ_EVENT_LSB       : natural := 1408;
+  constant SIM_WAVE_REQ_EVENT_SCALE_LSB : natural := 1408;
+  constant SIM_WAVE_REQ_EVENT_MASK_LSB  : natural := 1432;
+  constant SIM_WAVE_REQ_BITS            : natural := 1440;
   constant SIM_WAVE_RSP_SAMPLE_LSB      : natural := 0;
   constant SIM_WAVE_RSP_SATURATED_LSB   : natural := 256;
   constant SIM_WAVE_RSP_BITS            : natural := 264;

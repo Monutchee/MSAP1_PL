@@ -141,6 +141,16 @@ static const uint32_t MREC_FORMAT_AGG_V3 = 0x00020003u;  // 150/180-cycle basic
 static const uint32_t MREC_FORMAT_AGG_POWER_V1  = 0x00100001u;
 static const uint32_t MREC_FORMAT_AGG_PHASOR_V2 = 0x00110002u;
 static const uint32_t MREC_FORMAT_AGG_UNBAL_V2  = 0x00120002u;
+// PQEVT v1 (M12): the sliding Urms(1/2) tier's record, emitted by
+// SlidingOneCycleRmsEngine on its OWN producer port (M_AXIS_PQ). Three
+// kinds share the format, distinguished by the format-header word 13:
+// a periodic heartbeat snapshot, an event-start record (emitted the
+// moment an event is declared, so a long interruption is visible while
+// it is still happening), and an event-end record carrying the finished
+// event's duration and residual/peak. Conventions — threshold units,
+// the polyphase begin/end rule, severity, and residual/peak selection —
+// are normative in metering_types.hpp.
+static const uint32_t MREC_FORMAT_PQEVT_V1 = 0x000B0001u;
 
 // ---------------------------------------------------------------------------
 // Common envelope — words 0..12 mean the same thing in EVERY format, so
@@ -269,6 +279,44 @@ static const int UNBAL_FLAGS_REF_VALID_BIT = 8;  // VA angle reference usable
 
 // UNBALANCE-v1 status bit (word 8), mirroring the PHASOR record.
 static const int UNBAL_STATUS_INVALID_BIT = 1;
+
+// ---------------------------------------------------------------------------
+// PQEVT-v1 interior. Envelope words 0..12 as always; the envelope
+// first-sample (9/10) is the WINDOW start for a periodic record and the
+// EVENT start for both event kinds, so every record self-describes its
+// measurement span with words 14/15.
+// ---------------------------------------------------------------------------
+static const int PQ_KIND_WORD = 13;
+static const int PQ_KIND_LSB          = 0;   // [7:0]   MET_PQ_KIND_*
+static const int PQ_KIND_EVENT_LSB    = 8;   // [15:8]  MET_PQ_EVENT_*
+static const int PQ_KIND_PHASES_LSB   = 16;  // [18:16] affected phase mask A/B/C
+static const int PQ_KIND_LOCKED_BIT   = 24;  // grid lock at the last update
+static const int PQ_KIND_FALLBACK_BIT = 25;  // half-cycle strobe was synthetic
+static const int PQ_KIND_ARMED_BIT    = 26;  // detection enabled (reference != 0)
+static const int PQ_LAST_SAMPLE_LOW_WORD  = 14;
+static const int PQ_LAST_SAMPLE_HIGH_WORD = 15;
+// Latest Urms(1/2) and the window/event extremes, per voltage phase
+// (A/B/C), 32-bit micro-volts. The extremes span the periodic window for
+// a heartbeat and the whole event for an event-end record.
+static const int PQ_URMS_BASE_WORD     = 16;  // 3 x u32
+static const int PQ_URMS_MIN_BASE_WORD = 19;  // 3 x u32
+static const int PQ_URMS_MAX_BASE_WORD = 22;  // 3 x u32
+// Latest Irms(1/2) per phase, micro-amperes: the companion quantity for
+// inrush and fault-current context alongside a voltage event.
+static const int PQ_IRMS_BASE_WORD     = 25;  // 3 x u32
+static const int PQ_EVENT_SEQ_WORD     = 28;  // ties START to END; 0 = periodic
+static const int PQ_DURATION_LOW_WORD  = 29;  // event duration, SAMPLES (u64)
+static const int PQ_DURATION_HIGH_WORD = 30;
+static const int PQ_UPDATES_WORD       = 31;  // half-cycle updates in the span
+// Configuration echo: the thresholds this record was evaluated against,
+// so a stored event stays interpretable without the settings of the day.
+static const int PQ_REFERENCE_WORD     = 32;  // Udin, micro-volts (0 = disarmed)
+static const int PQ_SAG_THRESHOLD_WORD = 33;  // 1e-4 fraction of Udin
+static const int PQ_SWELL_THRESHOLD_WORD     = 34;
+static const int PQ_INTERRUPT_THRESHOLD_WORD = 35;
+static const int PQ_HYSTERESIS_WORD          = 36;
+// Words 37..63 reserved zero.
+
 
 static const int MTR1_CAPTURE_FRAMES_WORD  = 60;
 static const int MTR1_HEADER_ERRORS_WORD   = 61;

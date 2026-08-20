@@ -1,7 +1,7 @@
 #ifndef SIM_WAVE_ENGINE_HPP
 #define SIM_WAVE_ENGINE_HPP
 
-// The request beat is 1152 bits, past ap_int's 1024 default; raise the
+// The request beat is 1440 bits, past ap_int's 1024 default; raise the
 // ceiling before the first ap_int.h include in every translation unit
 // (the build also passes -DAP_INT_MAX_W as belt and braces).
 #ifndef AP_INT_MAX_W
@@ -49,6 +49,16 @@
 //             lanes its channel mask selects (layout below). Harmonic
 //             phase offsets scale with the lane's fundamental offset by
 //             the order — the physical 3-phase relationship.
+//   event   : a timed amplitude envelope from the VHDL event sequencer.
+//             The Q16 scale multiplies the PEAK of every channel the
+//             event mask selects, before the sine and before the
+//             harmonic slots -- so injected distortion rides the dip the
+//             way it does on a real grid, while DC offset and noise (ADC
+//             artifacts, not grid quantities) are untouched. Unity scale
+//             or an empty mask is exactly the pre-event datapath. The
+//             sequencing (arm, half-cycle alignment, duration, repeat)
+//             is deterministic infrastructure and stays in
+//             adc_simulator.vhd; only the multiply is here.
 //   noise   : uniform white fluctuation of +/- noise_level counts, so
 //             simulated readings jitter like a real grid input instead of
 //             sitting bit-flat. The noise word is a splitmix-style hash
@@ -98,7 +108,17 @@ static const int SIM_WAVE_REQ_NOISE_LSB       = 896;  // [1151:896] 8 x u24 in u
 // phase) exactly as on a real grid.
 static const int SIM_WAVE_REQ_HARMONIC_LSB    = 1152;
 static const int SIM_WAVE_HARMONIC_SLOTS      = 4;
-static const int SIM_WAVE_REQ_BITS            = 1408; // 176 bytes on AXIS
+// Event envelope (M12), one word:
+//   [18:0]  unsigned Q16 amplitude scale, 0x10000 = unity, capped at 4.0
+//   [23:19] reserved zero
+//   [31:24] channel mask (which lanes the envelope multiplies)
+// A unity scale or an empty mask leaves the frame bit-identical to the
+// pre-event datapath, so a quiet simulator is unaffected by this field.
+static const int SIM_WAVE_REQ_EVENT_LSB       = 1408;
+static const int SIM_WAVE_REQ_EVENT_SCALE_LSB = 1408;
+static const int SIM_WAVE_REQ_EVENT_MASK_LSB  = 1432;
+static const int SIM_WAVE_EVENT_SCALE_UNITY   = 0x10000;
+static const int SIM_WAVE_REQ_BITS            = 1440; // 180 bytes on AXIS
 
 // Response beat: one converted frame.
 static const int SIM_WAVE_RSP_SAMPLE_LSB     = 0;    // [255:0]   8 x s24 in s32

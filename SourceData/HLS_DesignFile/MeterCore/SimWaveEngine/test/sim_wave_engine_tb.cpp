@@ -53,6 +53,20 @@ struct HarmonicSpec {
 };
 static HarmonicSpec g_harmonics[SIM_WAVE_HARMONIC_SLOTS];
 
+// Event envelope for the request under test. Unity scale with an empty
+// mask is the quiet default, and every pre-event scenario runs under it.
+static unsigned long g_event_scale = SIM_WAVE_EVENT_SCALE_UNITY;
+static unsigned g_event_mask = 0;
+
+// The envelope the engine applies to a lane's peak: one floor after the
+// Q16 multiply, and an exact no-op off the mask or at unity.
+static long enveloped_peak(int lane, long peak) {
+  if (((g_event_mask >> lane) & 1u) == 0 ||
+      g_event_scale == (unsigned long)SIM_WAVE_EVENT_SCALE_UNITY)
+    return peak;
+  return (long)(((long long)peak * (long long)g_event_scale) >> 16);
+}
+
 static sim_wave_request_t pack_request(unsigned long base_phase,
                                        unsigned long frame_index,
                                        const ChannelSpec (&ch)[SIM_WAVE_CHANNELS]) {
@@ -81,6 +95,10 @@ static sim_wave_request_t pack_request(unsigned long base_phase,
     request.range(lsb + 31, lsb + 16) = g_harmonics[slot].fraction_q16;
     request.range(lsb + 63, lsb + 32) = ap_uint<32>(g_harmonics[slot].phase);
   }
+  request.range(SIM_WAVE_REQ_EVENT_SCALE_LSB + 18, SIM_WAVE_REQ_EVENT_SCALE_LSB) =
+      ap_uint<19>(g_event_scale);
+  request.range(SIM_WAVE_REQ_EVENT_MASK_LSB + 7, SIM_WAVE_REQ_EVENT_MASK_LSB) =
+      ap_uint<8>(g_event_mask);
   return request;
 }
 
@@ -131,7 +149,10 @@ static double golden_unclamped(unsigned long base_phase, unsigned long frame_ind
   const unsigned long angle = (base_phase + ch.phase) & 0xFFFFFFFFul;
   const double turns = (double)angle / 4294967296.0;
   const double sine = std::sin(2.0 * M_PI * turns) * (131071.0 / 131072.0);
-  double value = (double)ch.peak * sine + (double)ch.dc +
+  // The envelope multiplies the peak, so it carries the harmonics with
+  // it; DC and noise are untouched by design.
+  const long peak = enveloped_peak(lane, ch.peak);
+  double value = (double)peak * sine + (double)ch.dc +
                  (double)noise_counts_model(frame_index, lane, ch.noise);
   for (int slot = 0; slot < SIM_WAVE_HARMONIC_SLOTS; ++slot) {
     const HarmonicSpec &h = g_harmonics[slot];
@@ -141,7 +162,7 @@ static double golden_unclamped(unsigned long base_phase, unsigned long frame_ind
         (unsigned long)(((unsigned long long)h.order * angle + h.phase) &
                         0xFFFFFFFFull);
     const double harmonic_turns = (double)harmonic_angle / 4294967296.0;
-    value += (double)ch.peak * ((double)h.fraction_q16 / 65536.0) *
+    value += (double)peak * ((double)h.fraction_q16 / 65536.0) *
              std::sin(2.0 * M_PI * harmonic_turns) * (131071.0 / 131072.0);
   }
   return value;
@@ -189,8 +210,8 @@ static void check_frame(const char *what, unsigned long base_phase,
       continue;
     }
     const double ideal = golden_unclamped(base_phase, frame_index, lane, ch[lane]);
-    const double tol =
-        tolerance_counts(ch[lane].peak) + harmonic_tolerance(lane, ch[lane].peak);
+    const long peak = enveloped_peak(lane, ch[lane].peak);
+    const double tol = tolerance_counts(peak) + harmonic_tolerance(lane, peak);
     if (ideal > (double)SIM_WAVE_SAMPLE_MAX + tol) {
       CHECK(got == SIM_WAVE_SAMPLE_MAX && saturated,
             "%s: lane %d should clamp high, got %ld (sat %d)", what, lane, got,
@@ -218,13 +239,17 @@ static void check_frame(const char *what, unsigned long base_phase,
 }
 
 int main() {
-  static_assert(SIM_WAVE_REQ_BITS == 1408, "request beat width is normative");
+  static_assert(SIM_WAVE_REQ_BITS == 1440, "request beat width is normative");
   static_assert(SIM_WAVE_RSP_BITS == 264, "response beat width is normative");
   static_assert(SIM_WAVE_REQ_FRAME_INDEX_LSB == 64 &&
                     SIM_WAVE_REQ_PEAK_LSB == 128 &&
                     SIM_WAVE_REQ_PHASE_LSB == 384 &&
                     SIM_WAVE_REQ_DC_LSB == 640 && SIM_WAVE_REQ_NOISE_LSB == 896,
                 "request lane bases are normative");
+  static_assert(SIM_WAVE_REQ_HARMONIC_LSB == 1152 &&
+                    SIM_WAVE_REQ_EVENT_SCALE_LSB == 1408 &&
+                    SIM_WAVE_REQ_EVENT_MASK_LSB == 1432,
+                "request harmonic and event bases are normative");
 
   // --- Zero request: all lanes zero, no flags. --------------------------
   {
@@ -392,6 +417,108 @@ int main() {
     CHECK(std::fabs((double)delta - ideal_delta) <= tolerance_counts(8388607),
           "0.01-degree step off golden: delta %ld ideal %.3f", delta,
           ideal_delta);
+  }
+
+  // --- Event envelope (M12). --------------------------------------------
+  // A unity scale over every lane must leave the frame bit-identical to
+  // the quiet datapath: the event field is inert until a burst runs.
+  {
+    ChannelSpec ch[SIM_WAVE_CHANNELS] = {};
+    for (int lane = 0; lane < 7; ++lane) {
+      ch[lane] = {2000000 + lane * 1000, 0x11111111ul * (lane + 1), lane * 3,
+                  (unsigned long)(lane * 100), true};
+    }
+    const sim_wave_response_t quiet = run_beat(pack_request(0x1234ABCDul, 9, ch));
+    g_event_scale = SIM_WAVE_EVENT_SCALE_UNITY;
+    g_event_mask = 0xFF;
+    const sim_wave_response_t unity = run_beat(pack_request(0x1234ABCDul, 9, ch));
+    CHECK(quiet == unity, "a unity envelope must be bit-identical to none");
+    g_event_mask = 0;
+  }
+
+  // A 10 % sag on the voltage lanes only: the mask must gate exactly the
+  // lanes it names, and the untouched lanes must be unchanged.
+  {
+    ChannelSpec ch[SIM_WAVE_CHANNELS] = {};
+    for (int lane = 0; lane < 7; ++lane)
+      ch[lane] = {4000000, 0x20000000ul * (lane % 3), 0, 0, true};
+    const sim_wave_response_t before = run_beat(pack_request(0x0A0A0A0Aul, 3, ch));
+    g_event_scale = 0x0E666;  // 0.9 in Q16
+    g_event_mask = 0x70;      // lanes 4/5/6 = Vc/Vb/Va
+    check_frame("10 % sag on the voltage lanes", 0x0A0A0A0Aul, 3, ch);
+    const sim_wave_response_t during = run_beat(pack_request(0x0A0A0A0Aul, 3, ch));
+    for (int lane = 0; lane < 4; ++lane)
+      CHECK(response_sample(during, lane) == response_sample(before, lane),
+            "lane %d is off the event mask and must be unchanged", lane);
+    for (int lane = 4; lane < 7; ++lane)
+      CHECK(std::labs(response_sample(during, lane)) <
+                std::labs(response_sample(before, lane)),
+            "lane %d must dip under a 10 %% sag", lane);
+    g_event_scale = SIM_WAVE_EVENT_SCALE_UNITY;
+    g_event_mask = 0;
+  }
+
+  // A full interruption zeroes the AC content of the masked lanes while
+  // leaving the DC offset and the noise — ADC artifacts, not grid
+  // quantities — exactly where they were.
+  {
+    ChannelSpec ch[SIM_WAVE_CHANNELS] = {};
+    ch[0] = {4000000, 0x30000000ul, 250, 0, true};
+    ch[1] = {4000000, 0x30000000ul, 0, 4096, true};
+    ch[2] = {4000000, 0x30000000ul, 0, 0, true};  // off the mask
+    g_event_scale = 0;
+    g_event_mask = 0x03;
+    const sim_wave_response_t response = run_beat(pack_request(0x55555555ul, 11, ch));
+    CHECK(response_sample(response, 0) == 250,
+          "an interrupted lane keeps its DC offset, got %ld",
+          response_sample(response, 0));
+    CHECK(response_sample(response, 1) == noise_counts_model(11, 1, 4096),
+          "an interrupted lane keeps its noise, got %ld",
+          response_sample(response, 1));
+    CHECK(response_sample(response, 2) != 0,
+          "a lane off the event mask must still generate");
+    check_frame("full interruption", 0x55555555ul, 11, ch);
+    g_event_scale = SIM_WAVE_EVENT_SCALE_UNITY;
+    g_event_mask = 0;
+  }
+
+  // A swell past the rails must flat-top and flag, exactly as an
+  // over-range peak register does — the envelope scales the peak, it does
+  // not bypass the clamp. A negative peak proves the floor direction
+  // survives the extra multiply.
+  {
+    ChannelSpec ch[SIM_WAVE_CHANNELS] = {};
+    ch[0] = {6000000, 0x40000000ul, 0, 0, true};
+    ch[1] = {-6000000, 0x40000000ul, 0, 0, true};
+    g_event_scale = 0x20000;  // 2.0
+    g_event_mask = 0x03;
+    const sim_wave_response_t response = run_beat(pack_request(0, 0, ch));
+    CHECK(response_sample(response, 0) == SIM_WAVE_SAMPLE_MAX &&
+              response_saturated(response, 0),
+          "a 2x swell at the positive peak must clamp, got %ld",
+          response_sample(response, 0));
+    CHECK(response_sample(response, 1) == SIM_WAVE_SAMPLE_MIN &&
+              response_saturated(response, 1),
+          "a 2x swell on a negated peak must clamp low, got %ld",
+          response_sample(response, 1));
+    g_event_scale = 0x18000;  // 1.5, comfortably inside the rails
+    check_frame("1.5x swell inside the rails", 0x08000000ul, 5, ch);
+    g_event_scale = SIM_WAVE_EVENT_SCALE_UNITY;
+    g_event_mask = 0;
+  }
+
+  // The envelope multiplies the peak, so injected distortion rides the
+  // dip with the fundamental rather than growing relative to it.
+  {
+    ChannelSpec ch[SIM_WAVE_CHANNELS] = {};
+    ch[0] = {4000000, 0, 0, 0, true};
+    g_harmonics[0] = {3, 0x01, 6554, 0};  // 10 % third harmonic
+    g_event_scale = 0x08000;              // 0.5
+    g_event_mask = 0x01;
+    check_frame("half-scale sag under a 10 % third harmonic", 0x01234567ul, 7, ch);
+    g_harmonics[0] = HarmonicSpec();
+    g_event_scale = SIM_WAVE_EVENT_SCALE_UNITY;
+    g_event_mask = 0;
   }
 
   if (failures != 0) {
