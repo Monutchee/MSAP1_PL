@@ -38,12 +38,20 @@ entity meter_waveform_axi_regs is
     status_i     : in std_logic_vector(31 downto 0);
 
     enable_o      : out std_logic;
-    clear_stats_o : out std_logic
+    clear_stats_o : out std_logic;
+
+    -- M13 absolute-time boundary. Linux maps the next UTC ten-minute mark
+    -- to the conversion-domain sample counter using the correlation ioctl,
+    -- writes the 64-bit target, then toggles UPDATE.  The aggregation path
+    -- observes the committed tuple with the next single-cycle result beat.
+    ten_minute_target_sample_o : out std_logic_vector(63 downto 0);
+    ten_minute_target_valid_o  : out std_logic;
+    ten_minute_target_update_o : out std_logic
   );
 end entity;
 
 architecture rtl of meter_waveform_axi_regs is
-  constant VERSION_VALUE     : std_logic_vector(31 downto 0) := x"00010000";
+  constant VERSION_VALUE     : std_logic_vector(31 downto 0) := x"00010001";
   constant IDENTIFIER_VALUE  : std_logic_vector(31 downto 0) := x"31434657"; -- "WFC1"
   constant BLOCK_BYTES_VALUE : std_logic_vector(31 downto 0) := x"00008040"; -- 32,832
 
@@ -51,6 +59,9 @@ architecture rtl of meter_waveform_axi_regs is
   signal clear_stats     : std_logic := '0';
   signal latched_tick    : std_logic_vector(63 downto 0) := (others => '0');
   signal latched_sequence: std_logic_vector(63 downto 0) := (others => '0');
+  signal ten_minute_target : std_logic_vector(63 downto 0) := (others => '0');
+  signal ten_minute_valid  : std_logic := '0';
+  signal ten_minute_update : std_logic := '0';
   signal bvalid          : std_logic := '0';
   signal rvalid          : std_logic := '0';
   signal rdata           : std_logic_vector(31 downto 0) := (others => '0');
@@ -69,6 +80,9 @@ begin
 
   enable_o <= enabled;
   clear_stats_o <= clear_stats;
+  ten_minute_target_sample_o <= ten_minute_target;
+  ten_minute_target_valid_o <= ten_minute_valid;
+  ten_minute_target_update_o <= ten_minute_update;
 
   process (aclk)
     variable address_word : natural range 0 to 63;
@@ -82,6 +96,9 @@ begin
         clear_stats <= '0';
         latched_tick <= (others => '0');
         latched_sequence <= (others => '0');
+        ten_minute_target <= (others => '0');
+        ten_minute_valid <= '0';
+        ten_minute_update <= '0';
         bvalid <= '0';
         rvalid <= '0';
         rdata <= (others => '0');
@@ -109,6 +126,26 @@ begin
             if control_word(2) = '1' then
               clear_stats <= '1';
             end if;
+          elsif address_word = 16 then
+            for byte_index in 0 to 3 loop
+              if s_axi_wstrb(byte_index) = '1' then
+                ten_minute_target((byte_index * 8) + 7 downto byte_index * 8) <=
+                  s_axi_wdata((byte_index * 8) + 7 downto byte_index * 8);
+              end if;
+            end loop;
+          elsif address_word = 17 then
+            for byte_index in 0 to 3 loop
+              if s_axi_wstrb(byte_index) = '1' then
+                ten_minute_target(32 + (byte_index * 8) + 7 downto
+                                  32 + byte_index * 8) <=
+                  s_axi_wdata((byte_index * 8) + 7 downto byte_index * 8);
+              end if;
+            end loop;
+          elsif address_word = 18 and s_axi_wstrb(0) = '1' then
+            ten_minute_valid <= s_axi_wdata(0);
+            if s_axi_wdata(1) = '1' then
+              ten_minute_update <= not ten_minute_update;
+            end if;
           end if;
           bvalid <= '1';
         end if;
@@ -135,6 +172,10 @@ begin
             when 12 => rdata <= drop_count_i;
             when 13 => rdata <= block_count_i;
             when 14 => rdata <= BLOCK_BYTES_VALUE;
+            when 16 => rdata <= ten_minute_target(31 downto 0);
+            when 17 => rdata <= ten_minute_target(63 downto 32);
+            when 18 => rdata <= (31 downto 9 => '0') & ten_minute_update &
+                              (7 downto 1 => '0') & ten_minute_valid;
             when others => rdata <= (others => '0');
           end case;
           rvalid <= '1';

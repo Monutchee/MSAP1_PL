@@ -417,6 +417,9 @@ struct Bench {
   unsigned freq_period = 0x00010000;
   unsigned freq_seq = 42;
   unsigned cap_frames = 111, cap_hdrerr = 1, cap_overflow = 2, cap_alerts = 3;
+  unsigned long long ten_minute_target = 0;
+  bool ten_minute_valid = false;
+  bool ten_minute_update = false;
 
   void send(const single_cycle_result_t &r, bool apply_toggles = false) {
     if (apply_toggles) apply_level = !apply_level;
@@ -440,6 +443,10 @@ struct Bench {
     beat.range(AGG_IN_CAP_OVERFLOW_LSB + 31, AGG_IN_CAP_OVERFLOW_LSB) =
         cap_overflow;
     beat.range(AGG_IN_CAP_ALERTS_LSB + 31, AGG_IN_CAP_ALERTS_LSB) = cap_alerts;
+    beat.range(AGG_IN_TEN_MIN_TARGET_LSB + 63,
+               AGG_IN_TEN_MIN_TARGET_LSB) = ten_minute_target;
+    beat[AGG_IN_TEN_MIN_VALID_BIT] = ten_minute_valid ? 1 : 0;
+    beat[AGG_IN_TEN_MIN_UPDATE_BIT] = ten_minute_update ? 1 : 0;
     s_result.write(beat);
     // In hardware the engine is free-running, invoked every clock. Since A1
     // it may spend an invocation on a DEFERRED interval pass and consume no
@@ -586,7 +593,7 @@ static void take_agg(Bench &b, ap_uint<32> (&words)[MREC_WORDS],
 }
 
 int main() {
-  static_assert(AGG_IN_BITS == 7392, "input beat width is normative");
+  static_assert(AGG_IN_BITS == 7488, "input beat width is normative");
 
   Bench b;
   ap_uint<32> words[MREC_WORDS];
@@ -1345,6 +1352,131 @@ int main() {
     take_agg(b, aw, MREC_FORMAT_AGG_PHASOR_V2);
     take_agg(b, aw, MREC_FORMAT_AGG_UNBAL_V2);
     CHECK(b.m_agg.empty(), "exactly four aggregate records per interval");
+  }
+
+  // --- UTC-targeted ten-minute tier: close at the first full basic block
+  // ending at/after the programmed sample target.  A newly programmed
+  // target begins mid-interval, so that first result is deliberately marked
+  // contaminated; subsequent targets advance autonomously by 600 seconds.
+  {
+    b.enable = true; b.locked = true; b.fallback = false;
+    b.dc_remove = true;
+    while (!b.m_axis.empty()) b.m_axis.read();
+    while (!b.m_agg.empty()) b.m_agg.read();
+
+    CycleSpec tm;
+    tm.sequence = 20000; tm.cycle_sequence = 20000;
+    tm.first_sample = 2000000;
+    tm.nominal = 60; tm.samples = 5; tm.generation = b.cfg_generation;
+
+    const unsigned block_samples = 12u * tm.samples;
+    const unsigned long long first_clean_sample =
+        tm.first_sample + block_samples;
+    const unsigned long long target =
+        first_clean_sample + block_samples + 17u;
+    b.ten_minute_target = target;
+    b.ten_minute_valid = true;
+    b.ten_minute_update = !b.ten_minute_update;
+
+    // APPLY makes this block first-after-gap and therefore ineligible for
+    // every interval tier.  It also proves that target programming and a
+    // configuration boundary can safely occur together.
+    GoldenBlock priming;
+    run_block(b, tm, 12, priming, /*apply_on_first=*/true);
+    ap_uint<32> tw[MREC_WORDS];
+    take_record(b, tw);
+    take_power_record(b, tw);
+    take_phasor_record(b, tw);
+    take_unbalance_record(b, tw);
+    CHECK(b.m_agg.empty(), "priming block must not emit an interval");
+
+    GoldenAgg ten_minute_golden;
+    for (int block = 0; block < 2; ++block) {
+      GoldenBlock gb;
+      run_block(b, tm, 12, gb);
+      fold_block(ten_minute_golden, gb, 12, tm.freq_mhz);
+      take_record(b, tw);
+      take_power_record(b, tw);
+      take_phasor_record(b, tw);
+      take_unbalance_record(b, tw);
+      if (block == 0) {
+        CHECK(b.m_agg.empty(),
+              "ten-minute interval must wait for the target block");
+      }
+    }
+
+    // The interval finalize is deliberately deferred to a later free-running
+    // invocation so the basic and aggregate tiers share one arithmetic
+    // datapath without extending the block-close latency.  Plain C simulation
+    // observes the empty-input pump in Bench::send(), but Vitis' cosimulation
+    // transaction wrapper does not record top-level invocations which carry
+    // no input transaction (the top is ap_ctrl_none with nonblocking AXIS).
+    // Supply one real look-ahead cycle so both models exercise that deferred
+    // invocation identically.  The pending ten-minute pass runs first and
+    // leaves this cycle queued; the following invocation consumes it as the
+    // first cycle of the next basic block.  It is intentionally not folded
+    // into ten_minute_golden or the interval which just closed.
+    GoldenBlock look_ahead;
+    const single_cycle_result_t look_ahead_cycle = make_cycle(tm, look_ahead);
+    b.send(look_ahead_cycle);
+    tm.sequence += 1;
+    tm.cycle_sequence += 1;
+    tm.first_sample += tm.samples;
+    tm.seed += 1;
+
+    take_agg(b, tw, MREC_FORMAT_TEN_MINUTE_V1);
+    const unsigned long long actual_last =
+        (unsigned long long)tw[AGG_LAST_SAMPLE_LOW_WORD] |
+        ((unsigned long long)tw[AGG_LAST_SAMPLE_HIGH_WORD] << 32);
+    const unsigned long long recorded_target =
+        (unsigned long long)tw[TEN_MINUTE_TARGET_SAMPLE_LOW_WORD] |
+        ((unsigned long long)tw[TEN_MINUTE_TARGET_SAMPLE_HIGH_WORD] << 32);
+    CHECK(tw[MREC_SAMPLE_COUNT_WORD] == ten_minute_golden.count,
+          "ten-minute sample count %u, golden %u",
+          (unsigned)tw[MREC_SAMPLE_COUNT_WORD], ten_minute_golden.count);
+    CHECK((tw[MTR2_SHAPE_WORD] & 0xFFFFu) == 2u,
+          "ten-minute shape carries two folded blocks");
+    CHECK(((tw[MTR2_SHAPE_WORD] >> TEN_MINUTE_SHAPE_NOMINAL_LSB) & 0xFFu) ==
+              60u,
+          "ten-minute shape carries nominal frequency");
+    CHECK(((tw[MTR2_SHAPE_WORD] >> TEN_MINUTE_SHAPE_FLAGS_LSB) &
+           (1u << TEN_MINUTE_FLAG_CONTAMINATED_BIT)) != 0,
+          "first programmed interval is marked contaminated");
+    CHECK((tw[MREC_STATUS_WORD] &
+           (1u << TEN_MINUTE_STATUS_COMPLETE_BIT)) != 0,
+          "ten-minute record is complete");
+    CHECK((tw[MREC_STATUS_WORD] &
+           (1u << TEN_MINUTE_STATUS_CONTAMINATED_BIT)) != 0,
+          "ten-minute status repeats contamination");
+    CHECK((tw[MREC_STATUS_WORD] &
+           (1u << TEN_MINUTE_STATUS_BOUNDARY_VALID_BIT)) != 0,
+          "ten-minute record carries a valid UTC boundary");
+    CHECK(tw[MTR2_FREQUENCY_WORD] == 0,
+          "ten-minute frequency is unavailable by definition");
+    CHECK(tw[TEN_MINUTE_TOTAL_CYCLES_WORD] == 24u,
+          "ten-minute record carries complete cycle count");
+    CHECK(recorded_target == target,
+          "ten-minute target provenance %llu, expected %llu",
+          recorded_target, target);
+    CHECK(actual_last >= target &&
+              tw[TEN_MINUTE_OVERSHOOT_SAMPLES_WORD] == actual_last - target,
+          "ten-minute close overshoot is exact");
+
+    const unsigned ten_minute_sequence = tw[MREC_SEQUENCE_WORD];
+    take_agg(b, tw, MREC_FORMAT_TEN_MINUTE_POWER_V1);
+    CHECK(tw[MREC_SEQUENCE_WORD] == ten_minute_sequence,
+          "ten-minute power record shares interval sequence");
+    take_agg(b, tw, MREC_FORMAT_TEN_MINUTE_PHASOR_V2);
+    CHECK(tw[MREC_SEQUENCE_WORD] == ten_minute_sequence,
+          "ten-minute phasor record shares interval sequence");
+    take_agg(b, tw, MREC_FORMAT_TEN_MINUTE_UNBAL_V2);
+    CHECK(tw[MREC_SEQUENCE_WORD] == ten_minute_sequence,
+          "ten-minute unbalance record shares interval sequence");
+    CHECK(b.m_agg.empty(), "ten-minute close emits exactly one record quad");
+
+    // Do not let this short synthetic target influence the long soak.
+    b.ten_minute_valid = false;
+    b.ten_minute_update = !b.ten_minute_update;
   }
 
 

@@ -61,8 +61,9 @@
 // 268 s... i.e. ~9.3 hours at 128 kSPS, so any tier longer than 2 h
 // needs a 64-bit count.
 //
-// The finalize has exactly ONE call site — the two-pass loop in the
-// engine body, pass 0 closing a block and pass 1 closing an interval —
+// The finalize has exactly ONE call site — the three-pass loop in the
+// engine body, pass 0 closing a block, pass 1 closing the 150/180-cycle
+// interval, and pass 2 closing the clock-aligned 10-minute interval —
 // so it is one hardware instance whatever the inliner decides. The
 // accumulator set for the pass is selected by a ROLLED copy loop rather
 // than a parallel mux: ~1.3 kLUT of selection instead of ~9 k.
@@ -77,10 +78,12 @@
 //                PHASOR-v2 (0x00080002), UNBAL-v2  (0x00090002).
 //   m_agg    : the aggregate record quads on the same rules. The 150/180
 //              tier's quad today; the 10 min and 2 h quads join it on this
-//              same master when M13/M14 land (word 1 disambiguates, the
+//              same master (word 1 disambiguates, the
 //              house rule for multiple formats on one stream):
 //                AGG-v3        (0x00020003), AGG-POWER-v1  (0x00100001),
 //                AGG-PHASOR-v2 (0x00110002), AGG-UNBAL-v2  (0x00120002).
+//                TENMIN-v1     (0x000C0001), TENMIN-POWER  (0x00130001),
+//                TENMIN-PHASOR (0x00140002), TENMIN-UNBAL  (0x00150002).
 //              Emitted on every 15th eligible block, so ~1 quad per 3 s
 //              against the basic tier's ~5 quads per second.
 //
@@ -113,7 +116,10 @@ static const int AGG_IN_CAP_FRAMES_LSB   = 7264;  // [7295:7264] capture frame c
 static const int AGG_IN_CAP_HDRERR_LSB   = 7296;  // [7327:7296] capture header errors
 static const int AGG_IN_CAP_OVERFLOW_LSB = 7328;  // [7359:7328] capture FIFO overflows
 static const int AGG_IN_CAP_ALERTS_LSB   = 7360;  // [7391:7360] ADC alert count
-static const int AGG_IN_BITS             = 7392;  // 924 bytes on AXIS
+static const int AGG_IN_TEN_MIN_TARGET_LSB = 7392; // [7455:7392] UTC boundary sample
+static const int AGG_IN_TEN_MIN_VALID_BIT  = 7456; // boundary mapping is usable
+static const int AGG_IN_TEN_MIN_UPDATE_BIT = 7457; // boundary commit toggle
+static const int AGG_IN_BITS               = 7488; // 936 bytes on AXIS
 
 typedef ap_uint<AGG_IN_BITS> agg_input_beat_t;
 

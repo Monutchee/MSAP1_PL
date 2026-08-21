@@ -297,6 +297,9 @@ architecture structural of meter_core is
   signal waveform_drop_count  : std_logic_vector(31 downto 0);
   signal waveform_block_count : std_logic_vector(31 downto 0);
   signal waveform_status      : std_logic_vector(31 downto 0);
+  signal ten_minute_target_sample : std_logic_vector(63 downto 0);
+  signal ten_minute_target_valid  : std_logic;
+  signal ten_minute_target_update : std_logic;
   signal conversion_frame_accept : std_logic;
   signal waveform_sample_index   : std_logic_vector(63 downto 0);
 
@@ -565,7 +568,10 @@ begin
       block_count_i => waveform_block_count,
       status_i => waveform_status,
       enable_o => waveform_enable,
-      clear_stats_o => waveform_clear_stats
+      clear_stats_o => waveform_clear_stats,
+      ten_minute_target_sample_o => ten_minute_target_sample,
+      ten_minute_target_valid_o => ten_minute_target_valid,
+      ten_minute_target_update_o => ten_minute_target_update
     );
 
   waveform_stream : entity work.meter_waveform
@@ -832,6 +838,9 @@ begin
       capture_header_errors_i => capture_headers,
       capture_overflows_i => capture_overflows,
       capture_alerts_i => capture_alerts,
+      ten_minute_target_sample_i => ten_minute_target_sample,
+      ten_minute_target_valid_i => ten_minute_target_valid,
+      ten_minute_target_update_i => ten_minute_target_update,
       m_axis_basic_tdata => mtr1_axis_tdata,
       m_axis_basic_tkeep => mtr1_axis_tkeep,
       m_axis_basic_tvalid => mtr1_axis_tvalid,

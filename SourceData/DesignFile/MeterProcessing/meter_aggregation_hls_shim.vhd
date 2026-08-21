@@ -13,9 +13,10 @@ use ieee.std_logic_1164.all;
 -- The shim's only work is widening: each result beat is captured into
 -- the skid stage together with the configuration shadows and the live
 -- context sampled AT THAT MOMENT (grid lock view, frequency words,
--- capture counters), packed to the engine's 7392-bit input layout
+-- capture counters and the UTC ten-minute boundary), packed to the engine's
+-- 7488-bit input layout
 -- (normative in HLS_DesignFile/MeterProcessing/AggregationEngine/
--- src/agg10_12_engine.hpp) and held stable until the engine accepts it.
+-- src/aggregation_engine.hpp) and held stable until the engine accepts it.
 --
 -- The register-file mirror (active generation / enable / apply) commits
 -- immediately on the APPLY toggle, exactly like the retired shim: the
@@ -50,6 +51,10 @@ entity meter_aggregation_hls_shim is
     capture_header_errors_i : in std_logic_vector(31 downto 0);
     capture_overflows_i     : in std_logic_vector(31 downto 0);
     capture_alerts_i        : in std_logic_vector(31 downto 0);
+
+    ten_minute_target_sample_i : in std_logic_vector(63 downto 0);
+    ten_minute_target_valid_i  : in std_logic;
+    ten_minute_target_update_i : in std_logic;
 
     -- BASIC-v4 record stream (to the exported M_AXIS_MTR1 boundary).
     m_axis_basic_tdata  : out std_logic_vector(31 downto 0);
@@ -91,7 +96,10 @@ architecture rtl of meter_aggregation_hls_shim is
   constant IN_CAP_HDRERR_LSB   : natural := 7296;
   constant IN_CAP_OVERFLOW_LSB : natural := 7328;
   constant IN_CAP_ALERTS_LSB   : natural := 7360;
-  constant IN_BITS             : natural := 7392;
+  constant IN_TEN_MIN_TARGET_LSB : natural := 7392;
+  constant IN_TEN_MIN_VALID_BIT  : natural := 7456;
+  constant IN_TEN_MIN_UPDATE_BIT : natural := 7457;
+  constant IN_BITS               : natural := 7488;
 
   -- Bound to the packaged-IP customization (SourceData/IP/
   -- hls_aggregation_engine_ip) in the Vivado project; the non-project check
@@ -216,6 +224,10 @@ begin
             capture_overflows_i;
           stage_beat(IN_CAP_ALERTS_LSB + 31 downto IN_CAP_ALERTS_LSB) <=
             capture_alerts_i;
+          stage_beat(IN_TEN_MIN_TARGET_LSB + 63 downto
+                     IN_TEN_MIN_TARGET_LSB) <= ten_minute_target_sample_i;
+          stage_beat(IN_TEN_MIN_VALID_BIT) <= ten_minute_target_valid_i;
+          stage_beat(IN_TEN_MIN_UPDATE_BIT) <= ten_minute_target_update_i;
           stage_valid <= '1';
         elsif stage_valid = '1' and engine_ready = '1' then
           stage_valid <= '0';

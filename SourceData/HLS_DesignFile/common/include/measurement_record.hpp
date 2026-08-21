@@ -141,6 +141,16 @@ static const uint32_t MREC_FORMAT_AGG_V3 = 0x00020003u;  // 150/180-cycle basic
 static const uint32_t MREC_FORMAT_AGG_POWER_V1  = 0x00100001u;
 static const uint32_t MREC_FORMAT_AGG_PHASOR_V2 = 0x00110002u;
 static const uint32_t MREC_FORMAT_AGG_UNBAL_V2  = 0x00120002u;
+// TEN-MINUTE v1 (M13): clock-aligned IEC aggregation of consecutive
+// eligible 10/12-cycle blocks.  These four records share the aggregate
+// output stream with the 150/180-cycle family; the format word is the
+// period discriminator.  Frequency is deliberately unavailable here:
+// the standardized 10 s frequency product is a separate direct-cycle
+// calculation and must not be inferred from this interval.
+static const uint32_t MREC_FORMAT_TEN_MINUTE_V1        = 0x000C0001u;
+static const uint32_t MREC_FORMAT_TEN_MINUTE_POWER_V1  = 0x00130001u;
+static const uint32_t MREC_FORMAT_TEN_MINUTE_PHASOR_V2 = 0x00140002u;
+static const uint32_t MREC_FORMAT_TEN_MINUTE_UNBAL_V2  = 0x00150002u;
 // PQEVT v1 (M12): the sliding Urms(1/2) tier's record, emitted by
 // SlidingOneCycleRmsEngine on its OWN producer port (M_AXIS_PQ). Three
 // kinds share the format, distinguished by the format-header word 13:
@@ -366,6 +376,35 @@ static const int MTR2_CONTINUITY_COUNT_WORD = 35;
 static const int AGG_LAST_SAMPLE_LOW_WORD  = 36;
 static const int AGG_LAST_SAMPLE_HIGH_WORD = 37;
 static const int AGG_VLL_BASE_WORD         = 38;  // 3 x 32-bit micro-units
+
+// ---------------------------------------------------------------------------
+// TEN-MINUTE-v1 additions.  Words 13..40 retain the aggregate layout above
+// so generic aggregate decoders can reuse the RMS/VLL/diagnostic paths.
+// The shape word is widened semantically for this variable-length interval:
+//   [15:0]  number of complete 10/12-cycle blocks folded
+//   [23:16] nominal frequency
+//   [31:24] interval flags (see TEN_MINUTE_FLAG_* below)
+// Word 41 carries the complete-cycle count because a 10-minute interval can
+// contain 30,000/36,000 cycles and therefore no longer fits the old shape
+// field alongside the block count.
+// ---------------------------------------------------------------------------
+static const int TEN_MINUTE_SHAPE_BLOCKS_LSB  = 0;
+static const int TEN_MINUTE_SHAPE_NOMINAL_LSB = 16;
+static const int TEN_MINUTE_SHAPE_FLAGS_LSB   = 24;
+
+static const int TEN_MINUTE_FLAG_CONTAMINATED_BIT = 0;
+static const int TEN_MINUTE_FLAG_ALIGNED_BIT      = 1;
+
+static const int TEN_MINUTE_TOTAL_CYCLES_WORD       = 41;
+static const int TEN_MINUTE_TARGET_SAMPLE_LOW_WORD  = 42;
+static const int TEN_MINUTE_TARGET_SAMPLE_HIGH_WORD = 43;
+static const int TEN_MINUTE_OVERSHOOT_SAMPLES_WORD  = 44;
+
+// Fundamental-record status bits in addition to the common arithmetic bit.
+static const int TEN_MINUTE_STATUS_COMPLETE_BIT     = 1;
+static const int TEN_MINUTE_STATUS_TIME_ALIGNED_BIT = 2;
+static const int TEN_MINUTE_STATUS_CONTAMINATED_BIT = 3;
+static const int TEN_MINUTE_STATUS_BOUNDARY_VALID_BIT = 4;
 
 // ---------------------------------------------------------------------------
 // SCYC-v4 interior: the single-cycle diagnostic record. One record per

@@ -190,7 +190,10 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
   static ap_uint<1> apply_seen = 0;
   // Set when a block close also completes an interval; the interval
   // finalize then runs on the following invocation.
-  static ap_uint<1> interval_pending = 0;
+  // Bit 0 defers the 150/180-cycle finalize, bit 1 defers the ten-minute
+  // finalize.  Keeping both in this one engine is what lets all periods use
+  // one physical met_finalize_interval datapath.
+  static ap_uint<2> interval_pending = 0;
   static ap_uint<32> active_generation = 0;
   static ap_uint<32> active_sample_rate = 32000;
   static ap_uint<8> active_valid_mask = 0;
@@ -292,6 +295,59 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
   static ap_int<128> a3s_acc_phasor_im[MET_ACTIVE_CHANNELS];
 #pragma HLS BIND_STORAGE variable=a3s_acc_phasor_im type=ram_s2p impl=lutram
 
+  // M13 clock-aligned ten-minute tier.  It folds the same complete basic
+  // blocks as a3s, but closes on the externally mapped UTC sample boundary.
+  // The first interval after a target update is normally partial and is
+  // therefore marked contaminated; subsequent targets advance by exactly
+  // sample_rate * 600 samples inside PL.
+  static ap_uint<1> t10m_update_seen = 0;
+  static ap_uint<64> t10m_target_sample = 0;
+  static ap_uint<1> t10m_target_valid = 0;
+  static ap_uint<16> t10m_blocks_accumulated = 0;
+  static ap_uint<32> t10m_generation = 0;
+  static ap_uint<8> t10m_nominal = 0;
+  static ap_uint<32> t10m_sample_rate = 0;
+  static ap_uint<1> t10m_dc_remove = 1;
+  static ap_uint<64> t10m_first_sample = 0;
+  static ap_uint<64> t10m_last_sample = 0;
+  static ap_uint<32> t10m_first_seq = 0;
+  static ap_uint<32> t10m_last_seq = 0;
+  static ap_uint<32> t10m_total_samples = 0;
+  static ap_uint<32> t10m_total_cycles = 0;
+  static ap_uint<8> t10m_mask_and = 0;
+  static ap_uint<1> t10m_arithmetic_flag = 0;
+  static ap_uint<1> t10m_phasor_invalid_or = 0;
+  static ap_uint<1> t10m_contaminated = 1;
+  static ap_uint<32> t10m_expected_next_seq = 0;
+  static ap_uint<64> t10m_expected_next_first = 0;
+  static ap_uint<32> t10m_out_sequence = 0;
+  static ap_uint<32> t10m_reset_count = 0;
+  static ap_uint<32> t10m_ineligible_count = 0;
+  static ap_uint<32> t10m_continuity_count = 0;
+  static ap_uint<64> t10m_closed_target = 0;
+  static ap_uint<32> t10m_overshoot_samples = 0;
+
+  static ap_int<128> t10m_acc_sum[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=t10m_acc_sum type=ram_s2p impl=lutram
+  static ap_uint<128> t10m_acc_square[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=t10m_acc_square type=ram_s2p impl=lutram
+  static ap_int<64> t10m_acc_raw_sum[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=t10m_acc_raw_sum type=ram_s2p impl=lutram
+  static ap_uint<96> t10m_acc_raw_square[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=t10m_acc_raw_square type=ram_s2p impl=lutram
+  static ap_uint<128> t10m_acc_vll_square[MET_VLL_PAIRS];
+#pragma HLS BIND_STORAGE variable=t10m_acc_vll_square type=ram_s2p impl=lutram
+  static ap_int<128> t10m_acc_power[MET_POWER_PHASES];
+#pragma HLS BIND_STORAGE variable=t10m_acc_power type=ram_s2p impl=lutram
+  static ap_int<64> t10m_acc_minimum[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=t10m_acc_minimum type=ram_s2p impl=lutram
+  static ap_int<64> t10m_acc_maximum[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=t10m_acc_maximum type=ram_s2p impl=lutram
+  static ap_int<128> t10m_acc_phasor_re[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=t10m_acc_phasor_re type=ram_s2p impl=lutram
+  static ap_int<128> t10m_acc_phasor_im[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=t10m_acc_phasor_im type=ram_s2p impl=lutram
+
   // ---- One tier per invocation (A1 latency fix) -------------------------
   // A block close and an interval close used to happen in the SAME
   // invocation: two finalizes plus eight records, 22,935 clocks worst
@@ -312,14 +368,17 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
               ctx_cap_alerts = 0;
   ap_uint<8> result_mask = 0;
   ap_uint<32> count_now = 0;
-  ap_uint<2> pass_armed = 0;             // bit 0 block, bit 1 interval
+  ap_uint<3> pass_armed = 0;  // block, 150/180-cycle, ten-minute
 
-  if (interval_pending == 1) {
+  if (interval_pending.bit(0) == 1) {
     // Deferred interval pass: consume NO beat this invocation. The
     // interval accumulators are static and nothing touches them until the
     // next block closes, so they are stable across the gap.
-    interval_pending = 0;
+    interval_pending.bit(0) = 0;
     pass_armed = 2;
+  } else if (interval_pending.bit(1) == 1) {
+    interval_pending.bit(1) = 0;
+    pass_armed = 4;
   } else {
     if (s_result.empty()) {
       return;
@@ -338,6 +397,22 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
         beat.range(AGG_IN_CAP_OVERFLOW_LSB + 31, AGG_IN_CAP_OVERFLOW_LSB);
     ctx_cap_alerts =
         beat.range(AGG_IN_CAP_ALERTS_LSB + 31, AGG_IN_CAP_ALERTS_LSB);
+
+    const ap_uint<1> beat_t10m_update = beat.bit(AGG_IN_TEN_MIN_UPDATE_BIT);
+    if (beat_t10m_update != t10m_update_seen) {
+      t10m_update_seen = beat_t10m_update;
+      if (t10m_blocks_accumulated != 0) {
+        t10m_reset_count += 1;
+      }
+      t10m_blocks_accumulated = 0;
+      t10m_target_sample = beat.range(AGG_IN_TEN_MIN_TARGET_LSB + 63,
+                                      AGG_IN_TEN_MIN_TARGET_LSB);
+      t10m_target_valid = beat.bit(AGG_IN_TEN_MIN_VALID_BIT);
+      // Linux normally programs the next UTC mark while capture is already
+      // inside the interval, so the first emitted result is explicitly
+      // partial.  The following auto-advanced intervals are complete.
+      t10m_contaminated = 1;
+    }
 
     const ap_uint<1> beat_apply = beat.bit(AGG_IN_APPLY_BIT);
     if (beat_apply != apply_seen) {
@@ -470,7 +545,7 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
     }
     cycles_in_block = 0;
 
-    // ---- Shared finalize: ONE call site, up to two passes ----------------
+    // ---- Shared finalize: ONE call site, up to three passes --------------
     // pass 0 closes the 10/12-cycle block, pass 1 the 150/180-cycle
     // interval. Both tiers finalize through the SAME instance because there
     // is only one textual call, whatever the inliner decides. The pass's
@@ -509,7 +584,7 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
   static ap_uint<32> a3s_agg_last_seq = 0;
 
 finalize_passes:
-  for (int pass = 0; pass < 2; ++pass) {
+  for (int pass = 0; pass < 3; ++pass) {
 #pragma HLS PIPELINE off
     if (pass_armed.bit(pass) == 0) {
       continue;
@@ -523,34 +598,60 @@ finalize_passes:
       fin_dc = active_dc_remove;
       fin_mask = result_mask;
       fin_ovf = arithmetic_overflow;
-    } else {
+    } else if (pass == 1) {
       fin_count = a3s_agg_total_samples;
       fin_dc = a3s_agg_dc_remove;
       fin_mask = a3s_mask_and & ap_uint<8>(0x7F);
       fin_ovf = a3s_arithmetic_flag;
+    } else {
+      fin_count = t10m_total_samples;
+      fin_dc = t10m_dc_remove;
+      fin_mask = t10m_mask_and & ap_uint<8>(0x7F);
+      fin_ovf = t10m_arithmetic_flag;
     }
   fin_select_lanes:
     for (int i = 0; i < MET_ACTIVE_CHANNELS; ++i) {
 #pragma HLS PIPELINE off
-      fin_sum[i]        = (pass == 0) ? acc_sum[i]        : a3s_acc_sum[i];
-      fin_square[i]     = (pass == 0) ? acc_square[i]     : a3s_acc_square[i];
-      fin_raw_sum[i]    = (pass == 0) ? acc_raw_sum[i]    : a3s_acc_raw_sum[i];
-      fin_raw_square[i] = (pass == 0) ? acc_raw_square[i] : a3s_acc_raw_square[i];
-      fin_minimum[i]    = (pass == 0) ? acc_minimum[i]    : a3s_acc_minimum[i];
-      fin_maximum[i]    = (pass == 0) ? acc_maximum[i]    : a3s_acc_maximum[i];
-      fin_phasor_re[i]  = (pass == 0) ? acc_phasor_re[i]  : a3s_acc_phasor_re[i];
-      fin_phasor_im[i]  = (pass == 0) ? acc_phasor_im[i]  : a3s_acc_phasor_im[i];
+      fin_sum[i] = (pass == 0) ? acc_sum[i]
+                               : ((pass == 1) ? a3s_acc_sum[i]
+                                              : t10m_acc_sum[i]);
+      fin_square[i] = (pass == 0) ? acc_square[i]
+                                  : ((pass == 1) ? a3s_acc_square[i]
+                                                 : t10m_acc_square[i]);
+      fin_raw_sum[i] = (pass == 0) ? acc_raw_sum[i]
+                                   : ((pass == 1) ? a3s_acc_raw_sum[i]
+                                                  : t10m_acc_raw_sum[i]);
+      fin_raw_square[i] =
+          (pass == 0) ? acc_raw_square[i]
+                      : ((pass == 1) ? a3s_acc_raw_square[i]
+                                     : t10m_acc_raw_square[i]);
+      fin_minimum[i] = (pass == 0) ? acc_minimum[i]
+                                   : ((pass == 1) ? a3s_acc_minimum[i]
+                                                  : t10m_acc_minimum[i]);
+      fin_maximum[i] = (pass == 0) ? acc_maximum[i]
+                                   : ((pass == 1) ? a3s_acc_maximum[i]
+                                                  : t10m_acc_maximum[i]);
+      fin_phasor_re[i] = (pass == 0) ? acc_phasor_re[i]
+                                     : ((pass == 1) ? a3s_acc_phasor_re[i]
+                                                    : t10m_acc_phasor_re[i]);
+      fin_phasor_im[i] = (pass == 0) ? acc_phasor_im[i]
+                                     : ((pass == 1) ? a3s_acc_phasor_im[i]
+                                                    : t10m_acc_phasor_im[i]);
     }
   fin_select_pairs:
     for (int p = 0; p < MET_VLL_PAIRS; ++p) {
 #pragma HLS PIPELINE off
       fin_vll_square[p] =
-          (pass == 0) ? acc_vll_square[p] : a3s_acc_vll_square[p];
+          (pass == 0) ? acc_vll_square[p]
+                      : ((pass == 1) ? a3s_acc_vll_square[p]
+                                     : t10m_acc_vll_square[p]);
     }
   fin_select_power:
     for (int p = 0; p < MET_POWER_PHASES; ++p) {
 #pragma HLS PIPELINE off
-      fin_power[p] = (pass == 0) ? acc_power[p] : a3s_acc_power[p];
+      fin_power[p] = (pass == 0) ? acc_power[p]
+                                 : ((pass == 1) ? a3s_acc_power[p]
+                                                : t10m_acc_power[p]);
     }
 
     met_finalize_interval(fin_sum, fin_square, fin_raw_sum, fin_raw_square,
@@ -562,8 +663,10 @@ finalize_passes:
     // keeps each tier's sticky arithmetic bit exactly as it was.
     if (pass == 0) {
       arithmetic_overflow = fin_ovf;
-    } else {
+    } else if (pass == 1) {
       a3s_arithmetic_flag = fin_ovf;
+    } else {
+      t10m_arithmetic_flag = fin_ovf;
     }
 
     if (pass == 0) {
@@ -715,6 +818,144 @@ finalize_passes:
     fill_unbal_payload(fin_out, unbal_image);
     serialize_record<MREC_FORMAT_UNBAL_V2>(unbal_image, m_basic);
 
+    // ==== Clock-aligned ten-minute interval tier (M13) ===================
+    // This consumes the BASIC result directly, in parallel with the 3 s
+    // tier below.  It never consumes the 3 s record.  A Linux-provided
+    // sample target maps the next UTC ten-minute mark into the PL sample
+    // counter; the first complete basic block ending at/after that target
+    // closes the interval.  Overshoot is recorded rather than hidden.
+    const bool t10m_nominal_known =
+        (result.nominal_hz == 50) || (result.nominal_hz == 60);
+    const bool t10m_input_eligible =
+        result.flags.bit(MET_FLAG_LOCKED) == 1 &&
+        result.flags.bit(MET_FLAG_FALLBACK) == 0 &&
+        result.flags.bit(MET_FLAG_FIRST_BLOCK) == 0 && t10m_nominal_known &&
+        result.cycle_count == met_expected_cycles(result.nominal_hz);
+
+    if (t10m_target_valid == 0) {
+      if (t10m_blocks_accumulated != 0) {
+        t10m_reset_count += 1;
+      }
+      t10m_blocks_accumulated = 0;
+      t10m_contaminated = 1;
+    } else if (!t10m_input_eligible) {
+      t10m_ineligible_count += 1;
+      if (t10m_blocks_accumulated != 0) {
+        t10m_reset_count += 1;
+      }
+      t10m_blocks_accumulated = 0;
+      t10m_contaminated = 1;
+    } else {
+      bool t10m_seed = (t10m_blocks_accumulated == 0);
+      if (!t10m_seed) {
+        if (result.generation != t10m_generation ||
+            result.nominal_hz != t10m_nominal ||
+            result.sample_rate_hz != t10m_sample_rate ||
+            result.dc_remove != t10m_dc_remove) {
+          t10m_reset_count += 1;
+          t10m_contaminated = 1;
+          t10m_seed = true;
+        } else if (result.sequence != t10m_expected_next_seq ||
+                   result.first_sample != t10m_expected_next_first) {
+          t10m_continuity_count += 1;
+          t10m_reset_count += 1;
+          t10m_contaminated = 1;
+          t10m_seed = true;
+        }
+      }
+
+      if (t10m_seed) {
+        t10m_generation = result.generation;
+        t10m_nominal = result.nominal_hz;
+        t10m_sample_rate = result.sample_rate_hz;
+        t10m_dc_remove = result.dc_remove;
+        t10m_first_sample = result.first_sample;
+        t10m_first_seq = result.sequence;
+        t10m_total_samples = result.sample_count;
+        t10m_total_cycles = result.cycle_count;
+        t10m_mask_and = result.valid_mask;
+        t10m_arithmetic_flag =
+            result.status.bit(MREC_STATUS_ARITHMETIC_BIT);
+        t10m_phasor_invalid_or =
+            result.status.bit(PHASOR_STATUS_INVALID_BIT);
+        t10m_blocks_accumulated = 1;
+      } else {
+        t10m_total_samples += result.sample_count;
+        t10m_total_cycles += result.cycle_count;
+        t10m_mask_and &= result.valid_mask;
+        t10m_arithmetic_flag |=
+            result.status.bit(MREC_STATUS_ARITHMETIC_BIT);
+        t10m_phasor_invalid_or |=
+            result.status.bit(PHASOR_STATUS_INVALID_BIT);
+        t10m_blocks_accumulated += 1;
+      }
+      t10m_last_sample = result.last_sample;
+      t10m_last_seq = result.sequence;
+      t10m_expected_next_seq = result.sequence + 1;
+      t10m_expected_next_first = result.first_sample + result.sample_count;
+
+    t10m_merge_lanes:
+      for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+      #pragma HLS PIPELINE off
+        const ap_int<128> sum_base =
+            t10m_seed ? ap_int<128>(0) : t10m_acc_sum[lane];
+        t10m_acc_sum[lane] = sum_base + result.sum[lane];
+        const ap_uint<128> square_base =
+            t10m_seed ? ap_uint<128>(0) : t10m_acc_square[lane];
+        t10m_acc_square[lane] = met_add_square_saturating<128>(
+            square_base, result.square[lane], t10m_arithmetic_flag);
+        const ap_int<64> raw_sum_base =
+            t10m_seed ? ap_int<64>(0) : t10m_acc_raw_sum[lane];
+        t10m_acc_raw_sum[lane] = raw_sum_base + result.raw_sum[lane];
+        const ap_uint<96> raw_square_base =
+            t10m_seed ? ap_uint<96>(0) : t10m_acc_raw_square[lane];
+        t10m_acc_raw_square[lane] = raw_square_base + result.raw_square[lane];
+        if (t10m_seed || result.minimum[lane] < t10m_acc_minimum[lane]) {
+          t10m_acc_minimum[lane] = result.minimum[lane];
+        }
+        if (t10m_seed || result.maximum[lane] > t10m_acc_maximum[lane]) {
+          t10m_acc_maximum[lane] = result.maximum[lane];
+        }
+        const ap_int<128> re_base =
+            t10m_seed ? ap_int<128>(0) : t10m_acc_phasor_re[lane];
+        t10m_acc_phasor_re[lane] = met_add_signed_saturating<128>(
+            re_base, result.phasor_re[lane], t10m_arithmetic_flag);
+        const ap_int<128> im_base =
+            t10m_seed ? ap_int<128>(0) : t10m_acc_phasor_im[lane];
+        t10m_acc_phasor_im[lane] = met_add_signed_saturating<128>(
+            im_base, result.phasor_im[lane], t10m_arithmetic_flag);
+      }
+    t10m_merge_power:
+      for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
+      #pragma HLS PIPELINE off
+        const ap_int<128> power_base =
+            t10m_seed ? ap_int<128>(0) : t10m_acc_power[phase];
+        t10m_acc_power[phase] = met_add_signed_saturating<128>(
+            power_base, result.power_sum[phase], t10m_arithmetic_flag);
+      }
+    t10m_merge_pairs:
+      for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
+      #pragma HLS PIPELINE off
+        const ap_uint<128> vll_base =
+            t10m_seed ? ap_uint<128>(0) : t10m_acc_vll_square[pair];
+        t10m_acc_vll_square[pair] = met_add_square_saturating<128>(
+            vll_base, result.vll_square[pair], t10m_arithmetic_flag);
+      }
+
+      if (result.last_sample >= t10m_target_sample) {
+        t10m_closed_target = t10m_target_sample;
+        const ap_uint<64> overshoot = result.last_sample - t10m_target_sample;
+        t10m_overshoot_samples =
+            (overshoot > ap_uint<64>(0xFFFFFFFFu))
+                ? ap_uint<32>(0xFFFFFFFFu)
+                : ap_uint<32>(overshoot);
+        // Continue autonomously at exact 600-second sample intervals. Linux
+        // sends another UPDATE after a time/source/rate discontinuity.
+        t10m_target_sample += ap_uint<64>(result.sample_rate_hz) * 600u;
+        interval_pending.bit(1) = 1;
+      }
+    }
+
     // ==== 150/180-cycle (3 s) interval tier ================================
     // Was Agg150_180CycleEngine. Its input is no longer an AXIS beat: the
     // block result is the local `result` built above, so the 7072-bit
@@ -862,8 +1103,8 @@ finalize_passes:
       // Arming pass 1: reaching here means the merge accepted this block
       // and it was the fifteenth, so the interval closes on this beat too.
       // Do not run pass 1 now -- defer it to the next invocation.
-      interval_pending = 1;
-    } else {
+      interval_pending.bit(0) = 1;
+    } else if (pass == 1) {
       // Derived from the interval statics the merge just updated; these
       // used to sit immediately above the second finalize call.
       const ap_uint<8> a3s_result_mask = a3s_mask_and & ap_uint<8>(0x7F);
@@ -959,6 +1200,140 @@ finalize_passes:
     a3s_unbal_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a3s_agg_last_seq;
     fill_unbal_payload(fin_out, a3s_unbal_image);
     serialize_record<MREC_FORMAT_AGG_UNBAL_V2>(a3s_unbal_image, m_agg);
+    } else {
+      // ---- TEN-MINUTE-v1: one quad for the interval which closed at the
+      // first complete basic block ending at/after the programmed UTC
+      // sample target.  Frequency is intentionally absent; the Class-A
+      // 10-second frequency path is a separate direct-cycle producer.
+      const ap_uint<8> t10m_result_mask =
+          t10m_mask_and & ap_uint<8>(0x7F);
+      const ap_uint<32> t10m_count_now = t10m_total_samples;
+      const ap_uint<1> t10m_aligned =
+          t10m_target_valid & ap_uint<1>(!t10m_contaminated);
+      ap_uint<8> t10m_flags = 0;
+      t10m_flags.bit(TEN_MINUTE_FLAG_CONTAMINATED_BIT) = t10m_contaminated;
+      t10m_flags.bit(TEN_MINUTE_FLAG_ALIGNED_BIT) = t10m_aligned;
+
+      t10m_out_sequence += 1;
+      const ap_uint<32> t10m_shape_word =
+          (ap_uint<32>(t10m_blocks_accumulated)
+           << TEN_MINUTE_SHAPE_BLOCKS_LSB) |
+          (ap_uint<32>(t10m_nominal) << TEN_MINUTE_SHAPE_NOMINAL_LSB) |
+          (ap_uint<32>(t10m_flags) << TEN_MINUTE_SHAPE_FLAGS_LSB);
+      const ap_uint<32> t10m_status =
+          (ap_uint<32>(t10m_arithmetic_flag)
+           << MREC_STATUS_ARITHMETIC_BIT) |
+          (ap_uint<32>(1) << TEN_MINUTE_STATUS_COMPLETE_BIT) |
+          (ap_uint<32>(t10m_aligned)
+           << TEN_MINUTE_STATUS_TIME_ALIGNED_BIT) |
+          (ap_uint<32>(t10m_contaminated)
+           << TEN_MINUTE_STATUS_CONTAMINATED_BIT) |
+          (ap_uint<32>(t10m_target_valid)
+           << TEN_MINUTE_STATUS_BOUNDARY_VALID_BIT);
+
+      record_image_t t10m_image;
+      clear_record(t10m_image);
+      fill_envelope(t10m_image, t10m_out_sequence, t10m_generation,
+                    t10m_sample_rate, t10m_count_now, t10m_result_mask,
+                    t10m_status, t10m_first_sample);
+      t10m_image.word[MTR2_SHAPE_WORD] = t10m_shape_word;
+      t10m_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = t10m_first_seq;
+      t10m_image.word[MTR2_LAST_BASIC_SEQ_WORD] = t10m_last_seq;
+    t10m_record_lanes:
+      for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
+      #pragma HLS PIPELINE off
+        if (lane < MET_ACTIVE_CHANNELS) {
+          const ap_uint<64> rms_units = fin_out.rms_q16[lane] >> 16;
+          const int base =
+              MTR2_CH_BASE_WORD + lane * MTR2_CH_STRIDE_WORDS;
+          t10m_image.word[base + 0] = rms_units.range(31, 0);
+          t10m_image.word[base + 1] = rms_units.range(63, 32);
+        }
+      }
+      // MTR2_FREQUENCY_WORD remains zero by construction.
+      t10m_image.word[MTR2_RESET_COUNT_WORD] = t10m_reset_count;
+      t10m_image.word[MTR2_INELIGIBLE_COUNT_WORD] = t10m_ineligible_count;
+      t10m_image.word[MTR2_CONTINUITY_COUNT_WORD] = t10m_continuity_count;
+      t10m_image.word[AGG_LAST_SAMPLE_LOW_WORD] =
+          t10m_last_sample.range(31, 0);
+      t10m_image.word[AGG_LAST_SAMPLE_HIGH_WORD] =
+          t10m_last_sample.range(63, 32);
+    t10m_record_pairs:
+      for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
+      #pragma HLS PIPELINE off
+        t10m_image.word[AGG_VLL_BASE_WORD + pair] =
+            ap_uint<64>(fin_out.vll_rms[pair] >> 16).range(31, 0);
+      }
+      t10m_image.word[TEN_MINUTE_TOTAL_CYCLES_WORD] = t10m_total_cycles;
+      t10m_image.word[TEN_MINUTE_TARGET_SAMPLE_LOW_WORD] =
+          t10m_closed_target.range(31, 0);
+      t10m_image.word[TEN_MINUTE_TARGET_SAMPLE_HIGH_WORD] =
+          t10m_closed_target.range(63, 32);
+      t10m_image.word[TEN_MINUTE_OVERSHOOT_SAMPLES_WORD] =
+          t10m_overshoot_samples;
+      serialize_record<MREC_FORMAT_TEN_MINUTE_V1>(t10m_image, m_agg);
+
+      // Sibling records reuse the same interval identity.  Detailed UTC
+      // boundary provenance is carried only by the fundamental record: the
+      // established POWER/PHASOR/UNBAL payload maps own those word numbers.
+      // Consumers correlate the siblings through sequence and shape fields.
+      // Their status keeps bit 1 available for the existing phasor-invalid
+      // contract; completeness remains normative in the fundamental record.
+      const ap_uint<32> t10m_sibling_status =
+          (ap_uint<32>(t10m_arithmetic_flag)
+           << MREC_STATUS_ARITHMETIC_BIT) |
+          (ap_uint<32>(t10m_aligned)
+           << TEN_MINUTE_STATUS_TIME_ALIGNED_BIT) |
+          (ap_uint<32>(t10m_contaminated)
+           << TEN_MINUTE_STATUS_CONTAMINATED_BIT) |
+          (ap_uint<32>(t10m_target_valid)
+           << TEN_MINUTE_STATUS_BOUNDARY_VALID_BIT);
+      const ap_uint<32> t10m_phasor_status =
+          t10m_sibling_status |
+          (ap_uint<32>(t10m_phasor_invalid_or)
+           << PHASOR_STATUS_INVALID_BIT);
+
+      record_image_t t10m_power_image;
+      clear_record(t10m_power_image);
+      fill_envelope(t10m_power_image, t10m_out_sequence, t10m_generation,
+                    t10m_sample_rate, t10m_count_now, t10m_result_mask,
+                    t10m_sibling_status, t10m_first_sample);
+      t10m_power_image.word[MTR2_SHAPE_WORD] = t10m_shape_word;
+      t10m_power_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = t10m_first_seq;
+      t10m_power_image.word[MTR2_LAST_BASIC_SEQ_WORD] = t10m_last_seq;
+      fill_power_payload(fin_out, t10m_power_image);
+      serialize_record<MREC_FORMAT_TEN_MINUTE_POWER_V1>(t10m_power_image,
+                                                         m_agg);
+
+      record_image_t t10m_phasor_image;
+      clear_record(t10m_phasor_image);
+      fill_envelope(t10m_phasor_image, t10m_out_sequence, t10m_generation,
+                    t10m_sample_rate, t10m_count_now, t10m_result_mask,
+                    t10m_phasor_status, t10m_first_sample);
+      t10m_phasor_image.word[MTR2_SHAPE_WORD] = t10m_shape_word;
+      t10m_phasor_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = t10m_first_seq;
+      t10m_phasor_image.word[MTR2_LAST_BASIC_SEQ_WORD] = t10m_last_seq;
+      fill_phasor_payload(fin_out, t10m_phasor_image);
+      serialize_record<MREC_FORMAT_TEN_MINUTE_PHASOR_V2>(t10m_phasor_image,
+                                                          m_agg);
+
+      record_image_t t10m_unbal_image;
+      clear_record(t10m_unbal_image);
+      fill_envelope(t10m_unbal_image, t10m_out_sequence, t10m_generation,
+                    t10m_sample_rate, t10m_count_now, t10m_result_mask,
+                    t10m_phasor_status, t10m_first_sample);
+      t10m_unbal_image.word[MTR2_SHAPE_WORD] = t10m_shape_word;
+      t10m_unbal_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = t10m_first_seq;
+      t10m_unbal_image.word[MTR2_LAST_BASIC_SEQ_WORD] = t10m_last_seq;
+      fill_unbal_payload(fin_out, t10m_unbal_image);
+      serialize_record<MREC_FORMAT_TEN_MINUTE_UNBAL_V2>(t10m_unbal_image,
+                                                         m_agg);
+
+      t10m_blocks_accumulated = 0;
+      // The interval which started at the user-provided target is partial;
+      // after its first close the autonomous 600-second target cadence is
+      // complete and aligned until software supplies another update.
+      t10m_contaminated = 0;
     }
   }
 }
