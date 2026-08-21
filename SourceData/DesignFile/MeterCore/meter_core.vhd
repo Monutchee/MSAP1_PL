@@ -2,6 +2,7 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
+use work.metering_pkg.all;
 use work.pq_event_pkg.all;
 
 library xpm;
@@ -171,8 +172,8 @@ architecture structural of meter_core is
   end record;
 
   type converted_stream_t is record
-    data  : std_logic_vector(511 downto 0);
-    keep  : std_logic_vector(63 downto 0);
+    data  : std_logic_vector(METER_CONVERTED_FRAME_BITS - 1 downto 0);
+    keep  : std_logic_vector(METER_CONVERTED_KEEP_BITS - 1 downto 0);
     user  : std_logic_vector(383 downto 0);
     valid : std_logic;
     ready : std_logic;
@@ -253,9 +254,6 @@ architecture structural of meter_core is
   -- drained unconditionally until then so the engine can never stall.
   signal scyc_result_tdata  : std_logic_vector(7071 downto 0);
   signal scyc_result_tvalid : std_logic;
-  signal mtr1_result_tdata    : std_logic_vector(7071 downto 0);
-  signal mtr1_result_tvalid   : std_logic;
-  signal mtr1_result_tready   : std_logic;
 
   signal mtr1_axis_tdata  : std_logic_vector(31 downto 0);
   signal mtr1_axis_tkeep  : std_logic_vector(3 downto 0);
@@ -608,7 +606,7 @@ begin
       CASCADE_HEIGHT       => 0,
       PACKET_FIFO          => "false",
       FIFO_DEPTH           => 16,
-      TDATA_WIDTH          => 512,
+      TDATA_WIDTH          => METER_CONVERTED_FRAME_BITS,
       TID_WIDTH            => 1,
       TDEST_WIDTH          => 1,
       TUSER_WIDTH          => 384,
@@ -812,7 +810,7 @@ begin
   -- BASIC-v4 records onto the retired producer's exported boundary, and
   -- keeps emitting the unchanged basic-result beat for the 150/180-cycle
   -- aggregator until M11 replaces it.
-  agg10_12_cycle_producer : entity work.meter_agg10_12_cycle_hls_shim
+  aggregation_producer : entity work.meter_aggregation_hls_shim
     port map (
       aclk => aclk,
       aresetn => aresetn,
@@ -839,9 +837,11 @@ begin
       m_axis_basic_tvalid => mtr1_axis_tvalid,
       m_axis_basic_tready => m_axis_mtr1_tready,
       m_axis_basic_tlast => mtr1_axis_tlast,
-      m_result_tdata => mtr1_result_tdata,
-      m_result_tvalid => mtr1_result_tvalid,
-      m_result_tready => mtr1_result_tready,
+      m_axis_agg_tdata => mtr2_axis_tdata,
+      m_axis_agg_tkeep => mtr2_axis_tkeep,
+      m_axis_agg_tvalid => mtr2_axis_tvalid,
+      m_axis_agg_tready => m_axis_mtr2_tready,
+      m_axis_agg_tlast => mtr2_axis_tlast,
       active_generation_o => active_generation,
       active_enable_o => active_enable,
       apply_seen_o => apply_seen
@@ -858,25 +858,12 @@ begin
   processing_status <= (31 downto 4 => '0') & mtr1_tap_status(0) & '0' &
                        (apply_toggle xor apply_seen) & active_enable;
 
-  -- Aggregate producer (M11): the 150/180-cycle aggregation engine
-  -- consumes the 10/12-cycle tier's block-result beats (provenance +
-  -- merge-safe accumulators) and emits the complete AGG record quad
-  -- (HLS_DesignFile/MeterProcessing/Agg150_180CycleEngine, hosted by its
-  -- pure-hosting shim). Mtr2Engine and the 808-bit basic beat retired.
-  mtr2_producer : entity work.meter_agg150_180_hls_shim
-    port map (
-      aclk => aclk,
-      aresetn => aresetn,
-      s_result_tdata => mtr1_result_tdata,
-      s_result_tvalid => mtr1_result_tvalid,
-      s_result_tready => mtr1_result_tready,
-      m_axis_mtr2_tdata => mtr2_axis_tdata,
-      m_axis_mtr2_tkeep => mtr2_axis_tkeep,
-      m_axis_mtr2_tvalid => mtr2_axis_tvalid,
-      m_axis_mtr2_tready => m_axis_mtr2_tready,
-      m_axis_mtr2_tlast => mtr2_axis_tlast
-    );
-
+  -- The 150/180-cycle tier no longer has a producer of its own (roadmap
+  -- A1): ONE engine owns both finalized tiers, so the aggregate record
+  -- quad leaves the same shim as the basic quad on a second master. The
+  -- 7072-bit block-result beat between them became an internal variable,
+  -- which retired meter_agg150_180_hls_shim.vhd, its FIFO, and both sets
+  -- of boundary registers on that beat.
   m_axis_mtr2_tdata <= mtr2_axis_tdata;
   m_axis_mtr2_tkeep <= mtr2_axis_tkeep;
   m_axis_mtr2_tvalid <= mtr2_axis_tvalid;

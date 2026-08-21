@@ -64,9 +64,10 @@ static single_cycle_sample_beat_t pack_frame(const FrameSpec &f) {
   beat[SCYC_IN_ENABLE_BIT] = f.enable ? 1 : 0;
   beat[SCYC_IN_DC_REMOVE_BIT] = f.dc_remove ? 1 : 0;
   for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
-    beat.range(SCYC_IN_SAMPLES_LSB + lane * 64 + 63,
-               SCYC_IN_SAMPLES_LSB + lane * 64) =
-        ap_uint<64>(ap_int<64>(f.q16[lane]));
+    beat.range(SCYC_IN_SAMPLES_LSB + lane * MET_RMS_LANE_BITS +
+                   MET_RMS_LANE_BITS - 1,
+               SCYC_IN_SAMPLES_LSB + lane * MET_RMS_LANE_BITS) =
+        ap_uint<MET_RMS_LANE_BITS>(ap_int<MET_RMS_LANE_BITS>(f.q16[lane]));
     beat.range(SCYC_IN_RAW_LSB + lane * 32 + 31, SCYC_IN_RAW_LSB + lane * 32) =
         ap_uint<32>(ap_int<32>(f.raw[lane]));
   }
@@ -280,7 +281,7 @@ static single_cycle_result_t run_wave(Bench &b, const FrameSpec &base_frame,
 }
 
 int main() {
-  static_assert(SCYC_IN_BITS == 1152, "input beat width is normative");
+  static_assert(SCYC_IN_BITS == 1024, "input beat width is normative");
   static_assert(SCYC_BEAT_BITS == 7072, "result beat width is normative");
 
   Bench b;
@@ -586,26 +587,29 @@ int main() {
     }
   }
 
-  // --- Square saturation sets the per-cycle flag and clamps. -------------
+  // --- Full-scale 48-bit samples remain exact in the wide accumulators. ---
   {
     unsigned long long base = settle(b, f, 80000);
+    const long long full_scale = 0x7FFFFFFFFFFFll;
     for (int i = 0; i < 5; ++i) {
       FrameSpec h = b.leveled(f);
       h.sample_index = base + i;
-      h.q16[0] = 0x7FFFFFFFFFFFFFFFll;  // ~2^63: square ~2^126, x5 > 2^128
+      h.q16[0] = full_scale;
       h.closes = (i == 4);
       b.send(h);
     }
     const single_cycle_result_t rs =
         unpack_single_cycle_result(b.m_result.read());
     take_record(b, words);
-    CHECK(rs.status == (1u << SCYC_STATUS_OVERFLOW_BIT),
-          "saturation must set exactly the per-cycle flag, got 0x%x",
+    const ap_uint<96> one_square =
+        ap_uint<48>(full_scale) * ap_uint<48>(full_scale);
+    CHECK(rs.status == 0,
+          "full-scale 48-bit input must not overflow, got status 0x%x",
           (unsigned)rs.status);
-    CHECK((rs.square[0] == ~ap_uint<128>(0)),
-          "saturated square must clamp to all-ones");
-    CHECK((rs.sum[0] == ap_int<128>(ap_int<64>(0x7FFFFFFFFFFFFFFFll)) * 5),
-          "sum stays exact under square saturation");
+    CHECK((rs.square[0] == ap_uint<128>(one_square) * 5),
+          "full-scale square accumulation must remain exact");
+    CHECK((rs.sum[0] == ap_int<128>(ap_int<48>(full_scale)) * 5),
+          "full-scale sum accumulation must remain exact");
   }
 
   // --- PhasorCore: harmonic rejection at 64 Hz (500 samples). ------------

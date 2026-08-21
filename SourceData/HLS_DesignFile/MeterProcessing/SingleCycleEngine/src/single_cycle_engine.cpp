@@ -159,16 +159,17 @@ void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
   const ap_uint<32> count_now = sample_count + 1;
 
   // StatisticsCore accumulation on every accepted frame, closer included.
-  ap_int<64> q16[MET_ACTIVE_CHANNELS];
+  met_q16_t q16[MET_ACTIVE_CHANNELS];
 #pragma HLS ARRAY_PARTITION variable=q16 complete
   ap_int<32> raw[MET_ACTIVE_CHANNELS];
 #pragma HLS ARRAY_PARTITION variable=raw complete
 extract_lanes:
   for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
 #pragma HLS UNROLL
-    q16[lane] = ap_int<64>(ap_uint<64>(
-        beat.range(SCYC_IN_SAMPLES_LSB + lane * 64 + 63,
-                   SCYC_IN_SAMPLES_LSB + lane * 64)));
+    q16[lane] = met_q16_t(ap_uint<MET_RMS_LANE_BITS>(
+        beat.range(SCYC_IN_SAMPLES_LSB + lane * MET_RMS_LANE_BITS +
+                       MET_RMS_LANE_BITS - 1,
+                   SCYC_IN_SAMPLES_LSB + lane * MET_RMS_LANE_BITS)));
     raw[lane] = ap_int<32>(ap_uint<32>(
         beat.range(SCYC_IN_RAW_LSB + lane * 32 + 31,
                    SCYC_IN_RAW_LSB + lane * 32)));

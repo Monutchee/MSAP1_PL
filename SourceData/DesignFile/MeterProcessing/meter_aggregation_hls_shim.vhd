@@ -14,13 +14,13 @@ use ieee.std_logic_1164.all;
 -- the skid stage together with the configuration shadows and the live
 -- context sampled AT THAT MOMENT (grid lock view, frequency words,
 -- capture counters), packed to the engine's 7392-bit input layout
--- (normative in HLS_DesignFile/MeterProcessing/Agg10_12CycleEngine/
+-- (normative in HLS_DesignFile/MeterProcessing/AggregationEngine/
 -- src/agg10_12_engine.hpp) and held stable until the engine accepts it.
 --
 -- The register-file mirror (active generation / enable / apply) commits
 -- immediately on the APPLY toggle, exactly like the retired shim: the
 -- engine commits the identical values when the toggled beat reaches it.
-entity meter_agg10_12_cycle_hls_shim is
+entity meter_aggregation_hls_shim is
   port (
     aclk    : in std_logic;
     aresetn : in std_logic;
@@ -60,9 +60,11 @@ entity meter_agg10_12_cycle_hls_shim is
 
     -- Block-result beats to the 150/180-cycle aggregator (M11 contract:
     -- agg_block_result.hpp — provenance + merge-safe accumulators).
-    m_result_tdata  : out std_logic_vector(7071 downto 0);
-    m_result_tvalid : out std_logic;
-    m_result_tready : in  std_logic;
+    m_axis_agg_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_agg_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_agg_tvalid : out std_logic;
+    m_axis_agg_tready : in  std_logic;
+    m_axis_agg_tlast  : out std_logic;
 
     -- Register-file mirror.
     active_generation_o : out std_logic_vector(31 downto 0);
@@ -71,7 +73,7 @@ entity meter_agg10_12_cycle_hls_shim is
   );
 end entity;
 
-architecture rtl of meter_agg10_12_cycle_hls_shim is
+architecture rtl of meter_aggregation_hls_shim is
   -- Engine input layout (agg10_12_engine.hpp, normative there).
   constant IN_RESULT_LSB       : natural := 0;
   constant IN_CFG_GEN_LSB      : natural := 7072;
@@ -92,24 +94,32 @@ architecture rtl of meter_agg10_12_cycle_hls_shim is
   constant IN_BITS             : natural := 7392;
 
   -- Bound to the packaged-IP customization (SourceData/IP/
-  -- hls_agg10_12_cycle_engine_ip) in the Vivado project; the non-project check
-  -- flows bind the same name through tb/hls_agg10_12_cycle_engine_ip.v.
-  component hls_agg10_12_cycle_engine_ip is
+  -- hls_aggregation_engine_ip) in the Vivado project; the non-project check
+  -- flows bind the same name through tb/hls_aggregation_engine_ip.v.
+  --
+  -- ONE engine now owns both finalized tiers (roadmap A1), so this shim
+  -- hosts two record masters instead of one record master plus a 7072-bit
+  -- block-result beat: the inter-tier hand-off became an internal variable
+  -- and the 150/180 shim it used to feed is gone.
+  component hls_aggregation_engine_ip is
     port (
       ap_clk          : in  std_logic;
       ap_rst_n        : in  std_logic;
       s_result_TDATA  : in  std_logic_vector(IN_BITS - 1 downto 0);
       s_result_TVALID : in  std_logic;
       s_result_TREADY : out std_logic;
-      m_axis_TDATA    : out std_logic_vector(31 downto 0);
-      m_axis_TVALID   : out std_logic;
-      m_axis_TREADY   : in  std_logic;
-      m_axis_TKEEP    : out std_logic_vector(3 downto 0);
-      m_axis_TSTRB    : out std_logic_vector(3 downto 0);
-      m_axis_TLAST    : out std_logic_vector(0 downto 0);
-      m_result_TDATA  : out std_logic_vector(7071 downto 0);
-      m_result_TVALID : out std_logic;
-      m_result_TREADY : in  std_logic
+      m_basic_TDATA   : out std_logic_vector(31 downto 0);
+      m_basic_TVALID  : out std_logic;
+      m_basic_TREADY  : in  std_logic;
+      m_basic_TKEEP   : out std_logic_vector(3 downto 0);
+      m_basic_TSTRB   : out std_logic_vector(3 downto 0);
+      m_basic_TLAST   : out std_logic_vector(0 downto 0);
+      m_agg_TDATA     : out std_logic_vector(31 downto 0);
+      m_agg_TVALID    : out std_logic;
+      m_agg_TREADY    : in  std_logic;
+      m_agg_TKEEP     : out std_logic_vector(3 downto 0);
+      m_agg_TSTRB     : out std_logic_vector(3 downto 0);
+      m_agg_TLAST     : out std_logic_vector(0 downto 0)
     );
   end component;
 
@@ -117,32 +127,38 @@ architecture rtl of meter_agg10_12_cycle_hls_shim is
   signal stage_beat  : std_logic_vector(IN_BITS - 1 downto 0) :=
     (others => '0');
   signal engine_ready : std_logic;
-  signal tlast_vec    : std_logic_vector(0 downto 0);
+  signal tlast_vec     : std_logic_vector(0 downto 0);
+  signal agg_tlast_vec : std_logic_vector(0 downto 0);
   -- Records are never sparse: TSTRB duplicates TKEEP and terminates here.
-  signal tstrb_nc     : std_logic_vector(3 downto 0);
+  signal tstrb_nc      : std_logic_vector(3 downto 0);
+  signal agg_tstrb_nc  : std_logic_vector(3 downto 0);
 
   signal active_generation : std_logic_vector(31 downto 0) := (others => '0');
   signal active_enable     : std_logic := '0';
   signal apply_seen        : std_logic := '0';
 begin
-  core : hls_agg10_12_cycle_engine_ip
+  core : hls_aggregation_engine_ip
     port map (
       ap_clk          => aclk,
       ap_rst_n        => aresetn,
       s_result_TDATA  => stage_beat,
       s_result_TVALID => stage_valid,
       s_result_TREADY => engine_ready,
-      m_axis_TDATA    => m_axis_basic_tdata,
-      m_axis_TVALID   => m_axis_basic_tvalid,
-      m_axis_TREADY   => m_axis_basic_tready,
-      m_axis_TKEEP    => m_axis_basic_tkeep,
-      m_axis_TSTRB    => tstrb_nc,
-      m_axis_TLAST    => tlast_vec,
-      m_result_TDATA  => m_result_tdata,
-      m_result_TVALID => m_result_tvalid,
-      m_result_TREADY => m_result_tready
+      m_basic_TDATA   => m_axis_basic_tdata,
+      m_basic_TVALID  => m_axis_basic_tvalid,
+      m_basic_TREADY  => m_axis_basic_tready,
+      m_basic_TKEEP   => m_axis_basic_tkeep,
+      m_basic_TSTRB   => tstrb_nc,
+      m_basic_TLAST   => tlast_vec,
+      m_agg_TDATA     => m_axis_agg_tdata,
+      m_agg_TVALID    => m_axis_agg_tvalid,
+      m_agg_TREADY    => m_axis_agg_tready,
+      m_agg_TKEEP     => m_axis_agg_tkeep,
+      m_agg_TSTRB     => agg_tstrb_nc,
+      m_agg_TLAST     => agg_tlast_vec
     );
   m_axis_basic_tlast <= tlast_vec(0);
+  m_axis_agg_tlast <= agg_tlast_vec(0);
 
   active_generation_o <= active_generation;
   active_enable_o <= active_enable;

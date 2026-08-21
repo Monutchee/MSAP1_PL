@@ -18,8 +18,9 @@
 // Units and signs are normative in metering_types.hpp: Q16 micro-unit
 // samples make each product Q32 picowatts; import is positive. The
 // 128-bit signed saturating accumulator mirrors the square accumulator's
-// width analysis: one contract-max product needs 126 bits, real products
-// stay below 2^80, and the M7 merge remains a pure addition.
+// width analysis: a full-scale 48x48 product is exactly 96 bits, normal
+// products are much smaller, and the downstream merge remains a pure
+// addition.
 
 struct cycle_power_t {
   ap_int<128> power_sum[MET_POWER_PHASES];
@@ -36,16 +37,16 @@ static const int MET_POWER_CURRENT[MET_POWER_PHASES] = {MET_LANE_IA,
 // Accumulate one accepted frame (seed-in-place on first_frame, like
 // every window accumulator; saturation raises the shared sticky flag).
 inline void accumulate_power(cycle_power_t &acc,
-                             const ap_int<64> q16[MET_ACTIVE_CHANNELS],
+                             const met_q16_t q16[MET_ACTIVE_CHANNELS],
                              const bool first_frame,
                              ap_uint<1> &sticky_overflow) {
 #pragma HLS INLINE
 power_phases:
   for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
 #pragma HLS PIPELINE off
-    const ap_int<128> product =
-        ap_int<128>(q16[MET_POWER_VOLTAGE[phase]]) *
-        q16[MET_POWER_CURRENT[phase]];
+    const ap_int<96> product_narrow =
+        q16[MET_POWER_VOLTAGE[phase]] * q16[MET_POWER_CURRENT[phase]];
+    const ap_int<128> product = product_narrow;
     const ap_int<128> base =
         first_frame ? ap_int<128>(0) : acc.power_sum[phase];
     acc.power_sum[phase] =

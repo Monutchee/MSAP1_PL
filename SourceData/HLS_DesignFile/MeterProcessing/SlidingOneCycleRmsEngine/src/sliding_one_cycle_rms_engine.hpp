@@ -21,11 +21,9 @@
 // per half, which is why this engine is a fraction of the single-cycle
 // engine's cost despite touching every sample.
 //
-// Square accumulators use the same widths as every other engine (u128,
-// saturating, sticky flag). Narrower products are NOT safe here: the
-// conversion stage saturates a 24-bit sample times a 32-bit scale into a
-// full signed 64-bit converted value, so the magnitude bound is the
-// 64-bit rail, not the much smaller range a typical 120 V profile uses.
+// Square accumulators use the same wide u128 saturating contract as every
+// other engine. Converted inputs are 48-bit Q16, so each per-sample square
+// is formed exactly at 96 bits and then widened before accumulation.
 //
 //   s_frame : one beat per accepted converted frame plus the strobes and
 //             configuration the hosting shim appends (layout below).
@@ -46,25 +44,25 @@
 // PQ thresholds. [MSB:LSB] positions are normative and
 // meter_sliding_rms_hls_shim.vhd mirrors them.
 // ---------------------------------------------------------------------------
-static const int PQIN_SAMPLES_LSB    = 0;    // [511:0]  8 x 64b Q16 samples
-static const int PQIN_FRAME_MASK_LSB = 512;  // [519:512] frame valid mask
-static const int PQIN_HALF_BIT       = 520;  // frame completes a half cycle
-static const int PQIN_MALFORMED_BIT  = 521;  // TKEEP was not all-ones
-static const int PQIN_LOCKED_BIT     = 522;  // grid lock (live view)
-static const int PQIN_FALLBACK_BIT   = 523;  // half-cycle strobe was synthetic
-static const int PQIN_APPLY_BIT      = 524;  // config APPLY toggle (level)
-static const int PQIN_ENABLE_BIT     = 525;  // shadow enable
-static const int PQIN_CFG_GEN_LSB    = 528;  // [559:528] shadow generation
-static const int PQIN_CFG_RATE_LSB   = 560;  // [591:560] shadow sample rate
-static const int PQIN_CFG_MASK_LSB   = 592;  // [599:592] shadow valid mask
-static const int PQIN_SAMPLE_IDX_LSB = 640;  // [703:640] frame's sample index
-static const int PQIN_PL_TICK_LSB    = 704;  // [767:704] free-running PL tick
-static const int PQIN_REFERENCE_LSB  = 768;  // [799:768] Udin, micro-volts
-static const int PQIN_SAG_LSB        = 800;  // [815:800] sag threshold, 1e-4
-static const int PQIN_SWELL_LSB      = 816;  // [831:816] swell threshold, 1e-4
-static const int PQIN_INTERRUPT_LSB  = 832;  // [847:832] interruption, 1e-4
-static const int PQIN_HYSTERESIS_LSB = 848;  // [863:848] hysteresis, 1e-4
-static const int PQIN_BITS           = 864;  // 108 bytes on AXIS
+static const int PQIN_SAMPLES_LSB    = 0;    // [383:0]   8 x 48b Q16 samples
+static const int PQIN_FRAME_MASK_LSB = 384;  // [391:384] frame valid mask
+static const int PQIN_HALF_BIT       = 392;  // frame completes a half cycle
+static const int PQIN_MALFORMED_BIT  = 393;  // TKEEP was not all-ones
+static const int PQIN_LOCKED_BIT     = 394;  // grid lock (live view)
+static const int PQIN_FALLBACK_BIT   = 395;  // half-cycle strobe was synthetic
+static const int PQIN_APPLY_BIT      = 396;  // config APPLY toggle (level)
+static const int PQIN_ENABLE_BIT     = 397;  // shadow enable
+static const int PQIN_CFG_GEN_LSB    = 400;  // [431:400] shadow generation
+static const int PQIN_CFG_RATE_LSB   = 432;  // [463:432] shadow sample rate
+static const int PQIN_CFG_MASK_LSB   = 464;  // [471:464] shadow valid mask
+static const int PQIN_SAMPLE_IDX_LSB = 512;  // [575:512] frame's sample index
+static const int PQIN_PL_TICK_LSB    = 576;  // [639:576] free-running PL tick
+static const int PQIN_REFERENCE_LSB  = 640;  // [671:640] Udin, micro-volts
+static const int PQIN_SAG_LSB        = 672;  // [687:672] sag threshold, 1e-4
+static const int PQIN_SWELL_LSB      = 688;  // [703:688] swell threshold, 1e-4
+static const int PQIN_INTERRUPT_LSB  = 704;  // [719:704] interruption, 1e-4
+static const int PQIN_HYSTERESIS_LSB = 720;  // [735:720] hysteresis, 1e-4
+static const int PQIN_BITS           = 736;  // 92 bytes on AXIS
 
 typedef ap_uint<PQIN_BITS> pq_input_beat_t;
 

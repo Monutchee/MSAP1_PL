@@ -204,13 +204,14 @@ static const int MET_FLAG_BITS        = 3;
 // conversion stage.
 typedef ap_int<32> met_sample_t;
 
-// One RMS lane in the internal Q16 domain: signed 64-bit, magnitude < 2^63.
-// The aggregation arithmetic contract (squares, 132-bit accumulators,
-// floor mean, floor root) is stated where it is implemented; the lane type
-// is fixed here.
-typedef ap_int<64> met_q16_t;
-static const int MET_RMS_LANE_BITS  = 64;
-static const int MET_RMS_LANES_BITS = MET_CHANNEL_LANES * MET_RMS_LANE_BITS;  // 512
+// One converted lane in the internal Q16 micro-unit domain.  Forty-eight
+// signed bits retain 16 fractional bits and 31 magnitude bits: more than
+// enough for every supported voltage/current front end, while materially
+// reducing the high-rate stream, square, power, and phasor multipliers.
+// Result accumulators and published quantities deliberately remain wider.
+typedef ap_int<48> met_q16_t;
+static const int MET_RMS_LANE_BITS  = 48;
+static const int MET_RMS_LANES_BITS = MET_CHANNEL_LANES * MET_RMS_LANE_BITS;  // 384
 
 // Signed micro-unit quantities as published in records (mean, RMS).
 typedef ap_int<64> met_micro_units_t;

@@ -51,27 +51,27 @@
 // lanes are carried from M2 onward but consumed only from M3 (statistics
 // accumulation) — the shim wiring does not change when the math lands.
 // ---------------------------------------------------------------------------
-static const int SCYC_IN_SAMPLES_LSB      = 0;     // [511:0]    8 x 64b Q16
-static const int SCYC_IN_RAW_LSB          = 512;   // [767:512]  8 x 32b raw
-static const int SCYC_IN_FRAME_MASK_LSB   = 768;   // [775:768]  frame valid mask
-static const int SCYC_IN_FRAME_GEN_LSB    = 776;   // [807:776]  frame generation
-static const int SCYC_IN_MALFORMED_BIT    = 808;   // TKEEP was not all-ones
-static const int SCYC_IN_CLOSES_BIT       = 809;   // frame completes a cycle
-static const int SCYC_IN_CYCLE_MODE_BIT   = 810;   // cycle timing locked (level)
-static const int SCYC_IN_APPLY_BIT        = 811;   // config APPLY toggle (level)
-static const int SCYC_IN_ENABLE_BIT       = 812;   // shadow enable
-static const int SCYC_IN_DC_REMOVE_BIT    = 813;   // shadow dc_remove (M3)
-static const int SCYC_IN_CFG_GEN_LSB      = 816;   // [847:816]  shadow generation
-static const int SCYC_IN_CFG_RATE_LSB     = 848;   // [879:848]  shadow sample rate
-static const int SCYC_IN_CFG_MASK_LSB     = 880;   // [887:880]  shadow valid mask
-static const int SCYC_IN_CYCLE_SEQ_LSB    = 896;   // [927:896]  grid cycle sequence
-static const int SCYC_IN_NOMINAL_LSB      = 928;   // [935:928]  declared nominal Hz
-static const int SCYC_IN_FLAGS_LSB        = 936;   // [938:936]  MET_FLAG_*
-static const int SCYC_IN_SAMPLE_IDX_LSB   = 960;   // [1023:960] frame's sample index
-static const int SCYC_IN_PL_TICK_LSB      = 1024;  // [1087:1024] free-running PL tick
-static const int SCYC_IN_FREQ_MHZ_LSB     = 1088;  // [1119:1088] frequency millihertz
-static const int SCYC_IN_FREQ_STATUS_LSB  = 1120;  // [1151:1120] frequency status word
-static const int SCYC_IN_BITS             = 1152;  // 144 bytes on AXIS
+static const int SCYC_IN_SAMPLES_LSB      = 0;     // [383:0]    8 x 48b Q16
+static const int SCYC_IN_RAW_LSB          = 384;   // [639:384]  8 x 32b raw
+static const int SCYC_IN_FRAME_MASK_LSB   = 640;   // [647:640]  frame valid mask
+static const int SCYC_IN_FRAME_GEN_LSB    = 648;   // [679:648]  frame generation
+static const int SCYC_IN_MALFORMED_BIT    = 680;   // TKEEP was not all-ones
+static const int SCYC_IN_CLOSES_BIT       = 681;   // frame completes a cycle
+static const int SCYC_IN_CYCLE_MODE_BIT   = 682;   // cycle timing locked (level)
+static const int SCYC_IN_APPLY_BIT        = 683;   // config APPLY toggle (level)
+static const int SCYC_IN_ENABLE_BIT       = 684;   // shadow enable
+static const int SCYC_IN_DC_REMOVE_BIT    = 685;   // shadow dc_remove (M3)
+static const int SCYC_IN_CFG_GEN_LSB      = 688;   // [719:688]  shadow generation
+static const int SCYC_IN_CFG_RATE_LSB     = 720;   // [751:720]  shadow sample rate
+static const int SCYC_IN_CFG_MASK_LSB     = 752;   // [759:752]  shadow valid mask
+static const int SCYC_IN_CYCLE_SEQ_LSB    = 768;   // [799:768]  grid cycle sequence
+static const int SCYC_IN_NOMINAL_LSB      = 800;   // [807:800]  declared nominal Hz
+static const int SCYC_IN_FLAGS_LSB        = 808;   // [810:808]  MET_FLAG_*
+static const int SCYC_IN_SAMPLE_IDX_LSB   = 832;   // [895:832]  frame's sample index
+static const int SCYC_IN_PL_TICK_LSB      = 896;   // [959:896]  free-running PL tick
+static const int SCYC_IN_FREQ_MHZ_LSB     = 960;   // [991:960]  frequency millihertz
+static const int SCYC_IN_FREQ_STATUS_LSB  = 992;   // [1023:992] frequency status word
+static const int SCYC_IN_BITS             = 1024;  // 128 bytes on AXIS
 
 typedef ap_uint<SCYC_IN_BITS> single_cycle_sample_beat_t;
 

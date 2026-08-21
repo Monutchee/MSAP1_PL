@@ -128,6 +128,20 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
+      <File Path="$PPRDIR/../SourceData/IP/hls_single_cycle_engine_ip/hls_single_cycle_engine_ip.xci">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
+      <File Path="$PPRDIR/../SourceData/IP/hls_aggregation_engine_ip/hls_aggregation_engine_ip.xci">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
       <File Path="$PPRDIR/../SourceData/IP/hls_sim_wave_engine_ip/hls_sim_wave_engine_ip.xci">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -267,13 +281,7 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
-      <File Path="$PPRDIR/../SourceData/DesignFile/MeterProcessing/meter_agg10_12_cycle_hls_shim.vhd">
-        <FileInfo SFType="VHDL2008">
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <File Path="$PPRDIR/../SourceData/DesignFile/MeterProcessing/meter_agg150_180_hls_shim.vhd">
+      <File Path="$PPRDIR/../SourceData/DesignFile/MeterProcessing/meter_aggregation_hls_shim.vhd">
         <FileInfo SFType="VHDL2008">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
@@ -452,45 +460,6 @@
         <Option Name="UseBlackboxStub" Val="1"/>
       </Config>
     </FileSet>
-    <FileSet Name="hls_single_cycle_engine_ip" Type="BlockSrcs" RelSrcDir="$PSRCDIR/hls_single_cycle_engine_ip" RelGenDir="$PGENDIR/hls_single_cycle_engine_ip">
-      <File Path="$PPRDIR/../SourceData/IP/hls_single_cycle_engine_ip/hls_single_cycle_engine_ip.xci">
-        <FileInfo>
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="implementation"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <Config>
-        <Option Name="TopModule" Val="hls_single_cycle_engine_ip"/>
-        <Option Name="UseBlackboxStub" Val="1"/>
-      </Config>
-    </FileSet>
-    <FileSet Name="hls_agg150_180_cycle_engine_ip" Type="BlockSrcs" RelSrcDir="$PSRCDIR/hls_agg150_180_cycle_engine_ip" RelGenDir="$PGENDIR/hls_agg150_180_cycle_engine_ip">
-      <File Path="$PPRDIR/../SourceData/IP/hls_agg150_180_cycle_engine_ip/hls_agg150_180_cycle_engine_ip.xci">
-        <FileInfo>
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="implementation"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <Config>
-        <Option Name="TopModule" Val="hls_agg150_180_cycle_engine_ip"/>
-        <Option Name="UseBlackboxStub" Val="1"/>
-      </Config>
-    </FileSet>
-    <FileSet Name="hls_agg10_12_cycle_engine_ip" Type="BlockSrcs" RelSrcDir="$PSRCDIR/hls_agg10_12_cycle_engine_ip" RelGenDir="$PGENDIR/hls_agg10_12_cycle_engine_ip">
-      <File Path="$PPRDIR/../SourceData/IP/hls_agg10_12_cycle_engine_ip/hls_agg10_12_cycle_engine_ip.xci">
-        <FileInfo>
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="implementation"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <Config>
-        <Option Name="TopModule" Val="hls_agg10_12_cycle_engine_ip"/>
-        <Option Name="UseBlackboxStub" Val="1"/>
-      </Config>
-    </FileSet>
     <FileSet Name="TopDesign_MeterCore_Wrapper_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/TopDesign_MeterCore_Wrapper_0" RelGenDir="$PGENDIR/TopDesign_MeterCore_Wrapper_0">
       <Config>
         <Option Name="TopModule" Val="TopDesign_MeterCore_Wrapper_0"/>
@@ -607,36 +576,6 @@
       <RQSFiles/>
     </Run>
     <Run Id="TopDesign_axis_switch_0_0_synth_1" Type="Ft3:Synth" SrcSet="TopDesign_axis_switch_0_0" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_axis_switch_0_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/TopDesign_axis_switch_0_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_axis_switch_0_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_axis_switch_0_0_synth_1" ParallelReportGen="true">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025"/>
-        <Step Id="synth_design"/>
-      </Strategy>
-      <GeneratedRun Dir="$PRUNDIR" File="gen_run.xml"/>
-      <ReportStrategy Name="Vivado Synthesis Default Reports" Flow="Vivado Synthesis 2025"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
-    <Run Id="hls_single_cycle_engine_ip_synth_1" Type="Ft3:Synth" SrcSet="hls_single_cycle_engine_ip" Part="xck26-sfvc784-2LV-c" ConstrsSet="hls_single_cycle_engine_ip" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/hls_single_cycle_engine_ip_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/hls_single_cycle_engine_ip_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/hls_single_cycle_engine_ip_synth_1" ParallelReportGen="true">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025"/>
-        <Step Id="synth_design"/>
-      </Strategy>
-      <GeneratedRun Dir="$PRUNDIR" File="gen_run.xml"/>
-      <ReportStrategy Name="Vivado Synthesis Default Reports" Flow="Vivado Synthesis 2025"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
-    <Run Id="hls_agg150_180_cycle_engine_ip_synth_1" Type="Ft3:Synth" SrcSet="hls_agg150_180_cycle_engine_ip" Part="xck26-sfvc784-2LV-c" ConstrsSet="hls_agg150_180_cycle_engine_ip" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/hls_agg150_180_cycle_engine_ip_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/hls_agg150_180_cycle_engine_ip_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/hls_agg150_180_cycle_engine_ip_synth_1" ParallelReportGen="true">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025"/>
-        <Step Id="synth_design"/>
-      </Strategy>
-      <GeneratedRun Dir="$PRUNDIR" File="gen_run.xml"/>
-      <ReportStrategy Name="Vivado Synthesis Default Reports" Flow="Vivado Synthesis 2025"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
-    <Run Id="hls_agg10_12_cycle_engine_ip_synth_1" Type="Ft3:Synth" SrcSet="hls_agg10_12_cycle_engine_ip" Part="xck26-sfvc784-2LV-c" ConstrsSet="hls_agg10_12_cycle_engine_ip" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/hls_agg10_12_cycle_engine_ip_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/hls_agg10_12_cycle_engine_ip_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/hls_agg10_12_cycle_engine_ip_synth_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2025"/>
         <Step Id="synth_design"/>
@@ -804,57 +743,6 @@
       <RQSFiles/>
     </Run>
     <Run Id="TopDesign_axis_switch_0_0_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="TopDesign_axis_switch_0_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="TopDesign_axis_switch_0_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/TopDesign_axis_switch_0_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/TopDesign_axis_switch_0_0_impl_1" ParallelReportGen="true">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025"/>
-        <Step Id="init_design"/>
-        <Step Id="opt_design"/>
-        <Step Id="power_opt_design"/>
-        <Step Id="place_design"/>
-        <Step Id="post_place_power_opt_design"/>
-        <Step Id="phys_opt_design"/>
-        <Step Id="route_design"/>
-        <Step Id="post_route_phys_opt_design"/>
-        <Step Id="write_bitstream"/>
-      </Strategy>
-      <ReportStrategy Name="Vivado Implementation Default Reports" Flow="Vivado Implementation 2025"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
-    <Run Id="hls_single_cycle_engine_ip_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="hls_single_cycle_engine_ip" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="hls_single_cycle_engine_ip_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/hls_single_cycle_engine_ip_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/hls_single_cycle_engine_ip_impl_1" ParallelReportGen="true">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025"/>
-        <Step Id="init_design"/>
-        <Step Id="opt_design"/>
-        <Step Id="power_opt_design"/>
-        <Step Id="place_design"/>
-        <Step Id="post_place_power_opt_design"/>
-        <Step Id="phys_opt_design"/>
-        <Step Id="route_design"/>
-        <Step Id="post_route_phys_opt_design"/>
-        <Step Id="write_bitstream"/>
-      </Strategy>
-      <ReportStrategy Name="Vivado Implementation Default Reports" Flow="Vivado Implementation 2025"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
-    <Run Id="hls_agg150_180_cycle_engine_ip_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="hls_agg150_180_cycle_engine_ip" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="hls_agg150_180_cycle_engine_ip_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/hls_agg150_180_cycle_engine_ip_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/hls_agg150_180_cycle_engine_ip_impl_1" ParallelReportGen="true">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025"/>
-        <Step Id="init_design"/>
-        <Step Id="opt_design"/>
-        <Step Id="power_opt_design"/>
-        <Step Id="place_design"/>
-        <Step Id="post_place_power_opt_design"/>
-        <Step Id="phys_opt_design"/>
-        <Step Id="route_design"/>
-        <Step Id="post_route_phys_opt_design"/>
-        <Step Id="write_bitstream"/>
-      </Strategy>
-      <ReportStrategy Name="Vivado Implementation Default Reports" Flow="Vivado Implementation 2025"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
-    <Run Id="hls_agg10_12_cycle_engine_ip_impl_1" Type="Ft2:EntireDesign" Part="xck26-sfvc784-2LV-c" ConstrsSet="hls_agg10_12_cycle_engine_ip" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="hls_agg10_12_cycle_engine_ip_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/hls_agg10_12_cycle_engine_ip_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/hls_agg10_12_cycle_engine_ip_impl_1" ParallelReportGen="true">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2025"/>
         <Step Id="init_design"/>

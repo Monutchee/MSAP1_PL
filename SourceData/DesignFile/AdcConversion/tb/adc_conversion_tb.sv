@@ -10,8 +10,8 @@ module adc_conversion_tb;
   wire raw_ready;
   logic raw_last = 1'b0;
 
-  wire [511:0] converted_data;
-  wire [63:0] converted_keep;
+  wire [383:0] converted_data;
+  wire [47:0] converted_keep;
   wire [383:0] converted_user;
   wire converted_valid;
   logic converted_ready = 1'b0;
@@ -135,11 +135,11 @@ module adc_conversion_tb;
 
     wait (converted_valid);
     assert (!raw_ready) else $fatal(1, "input was not backpressured");
-    assert ($signed(converted_data[4*64 +: 64]) == (64'sd100 <<< 16));
-    assert ($signed(converted_data[5*64 +: 64]) == (-64'sd200 <<< 16));
-    assert ($signed(converted_data[6*64 +: 64]) == (64'sd300 <<< 16));
-    assert (converted_data[0*64 +: 64] == 0);
-    assert (converted_data[7*64 +: 64] == 0);
+    assert ($signed(converted_data[4*48 +: 48]) == (48'sd100 <<< 16));
+    assert ($signed(converted_data[5*48 +: 48]) == (-48'sd200 <<< 16));
+    assert ($signed(converted_data[6*48 +: 48]) == (48'sd300 <<< 16));
+    assert (converted_data[0*48 +: 48] == 0);
+    assert (converted_data[7*48 +: 48] == 0);
     assert (converted_user[31:0] == 1);
     assert (converted_user[63:32] == 42);
     assert (converted_user[71:64] == 8'h70);
@@ -147,7 +147,7 @@ module adc_conversion_tb;
     assert ($signed(converted_user[128 + 4*32 +: 32]) == 32'sd100);
     assert ($signed(converted_user[128 + 5*32 +: 32]) == -32'sd200);
     assert ($signed(converted_user[128 + 6*32 +: 32]) == 32'sd300);
-    assert (converted_keep == {64{1'b1}} && converted_last);
+    assert (converted_keep == {48{1'b1}} && converted_last);
 
     converted_ready = 1'b1;
     @(posedge clock);

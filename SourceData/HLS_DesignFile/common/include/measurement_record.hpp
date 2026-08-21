@@ -474,10 +474,17 @@ mrec_clear:
 // from measurement by an internal result stream (the never-backpressure
 // rule, plan §5.2). A mid-record stall then bounds at the transport FIFO
 // drain time and can never reach the accumulation side.
-template <uint32_t FORMAT>
-void serialize_record(record_image_t &image, record_axis_stream_t &m_axis) {
+// Runtime-format serializer. Identical framing guarantee to the template
+// below; the format travels as a value so ONE serializer instance can
+// emit records of several formats. That matters where a single engine
+// owns more than one tier: the aggregation engine emits eight record
+// formats across two intervals, and without this each call site would
+// carry its own copy of the 64-beat loop and its 2048-bit image buffer.
+inline void serialize_record_format(record_image_t &image, uint32_t format,
+                                    record_axis_stream_t &m_axis) {
+#pragma HLS INLINE off
   image.word[MREC_MAGIC_WORD]  = MREC_MAGIC;
-  image.word[MREC_FORMAT_WORD] = ap_uint<32>(FORMAT);
+  image.word[MREC_FORMAT_WORD] = ap_uint<32>(format);
   image.word[MREC_SIZE_WORD]   = MREC_BYTES;
 mrec_serialize:
   for (int w = 0; w < MREC_WORDS; ++w) {
@@ -489,6 +496,13 @@ mrec_serialize:
     beat.last = (w == MREC_WORDS - 1) ? ap_uint<1>(1) : ap_uint<1>(0);
     m_axis.write(beat);
   }
+}
+
+// Compile-time-format wrapper: unchanged contract for every existing
+// producer, now a thin call into the shared serializer above.
+template <uint32_t FORMAT>
+void serialize_record(record_image_t &image, record_axis_stream_t &m_axis) {
+  serialize_record_format(image, FORMAT, m_axis);
 }
 
 #endif  // MSAP1_MEASUREMENT_RECORD_HPP

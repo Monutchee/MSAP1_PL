@@ -16,7 +16,7 @@
 # already-registered components, refresh_hls_ip.tcl is sufficient -- and
 # 'mnc HLS build' runs that automatically. What this script cannot do is add
 # a new component's maintained VHDL boundary sources (its shim, like
-# meter_agg10_12_cycle_hls_shim.vhd / meter_mtr2_hls_shim.vhd): add those to
+# meter_aggregation_hls_shim.vhd): add those to
 # sources_1 yourself.
 #
 # Idempotent: safe to re-run any time; unchanged projects are untouched.
@@ -160,7 +160,7 @@ if {!$changed && [llength $removed] == 0} {
 }
 puts "Reminder: a new component's maintained VHDL boundary sources (its"
 puts "shim) are design intent this script does not add; add them to"
-puts "sources_1 (see meter_agg10_12_cycle_hls_shim.vhd / meter_mtr2_hls_shim.vhd)."
+puts "sources_1 (see meter_aggregation_hls_shim.vhd)."
 puts "HLS component registration complete."
 if {$close_project_when_done} {
     close_project

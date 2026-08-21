@@ -2,6 +2,9 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
+library work;
+use work.metering_pkg.all;
+
 -- Sample-beat shim hosting the packaged single-cycle measurement engine
 -- (HLS_DesignFile/MeterProcessing/SingleCycleEngine; the beat layout
 -- below mirrors single_cycle_engine.hpp SCYC_IN_* in lock step).
@@ -23,8 +26,8 @@ entity meter_single_cycle_hls_shim is
 
     -- Accepted converted frame (one beat per frame_accept_i pulse).
     frame_accept_i : in std_logic;
-    frame_data_i   : in std_logic_vector(511 downto 0);
-    frame_keep_i   : in std_logic_vector(63 downto 0);
+    frame_data_i   : in std_logic_vector(METER_CONVERTED_FRAME_BITS - 1 downto 0);
+    frame_keep_i   : in std_logic_vector(METER_CONVERTED_KEEP_BITS - 1 downto 0);
     frame_user_i   : in std_logic_vector(383 downto 0);
 
     -- Grid-cycle timing. The boundary/sequence pair is registered (one
@@ -68,27 +71,27 @@ end entity;
 
 architecture rtl of meter_single_cycle_hls_shim is
   -- Sample beat geometry (single_cycle_engine.hpp SCYC_IN_*).
-  constant BEAT_BITS          : natural := 1152;
+  constant BEAT_BITS          : natural := 1024;
   constant IN_SAMPLES_LSB     : natural := 0;
-  constant IN_RAW_LSB         : natural := 512;
-  constant IN_FRAME_MASK_LSB  : natural := 768;
-  constant IN_FRAME_GEN_LSB   : natural := 776;
-  constant IN_MALFORMED_BIT   : natural := 808;
-  constant IN_CLOSES_BIT      : natural := 809;
-  constant IN_CYCLE_MODE_BIT  : natural := 810;
-  constant IN_APPLY_BIT       : natural := 811;
-  constant IN_ENABLE_BIT      : natural := 812;
-  constant IN_DC_REMOVE_BIT   : natural := 813;
-  constant IN_CFG_GEN_LSB     : natural := 816;
-  constant IN_CFG_RATE_LSB    : natural := 848;
-  constant IN_CFG_MASK_LSB    : natural := 880;
-  constant IN_CYCLE_SEQ_LSB   : natural := 896;
-  constant IN_NOMINAL_LSB     : natural := 928;
-  constant IN_FLAGS_LSB       : natural := 936;
-  constant IN_SAMPLE_IDX_LSB  : natural := 960;
-  constant IN_PL_TICK_LSB     : natural := 1024;
-  constant IN_FREQ_MHZ_LSB    : natural := 1088;
-  constant IN_FREQ_STATUS_LSB : natural := 1120;
+  constant IN_RAW_LSB         : natural := 384;
+  constant IN_FRAME_MASK_LSB  : natural := 640;
+  constant IN_FRAME_GEN_LSB   : natural := 648;
+  constant IN_MALFORMED_BIT   : natural := 680;
+  constant IN_CLOSES_BIT      : natural := 681;
+  constant IN_CYCLE_MODE_BIT  : natural := 682;
+  constant IN_APPLY_BIT       : natural := 683;
+  constant IN_ENABLE_BIT      : natural := 684;
+  constant IN_DC_REMOVE_BIT   : natural := 685;
+  constant IN_CFG_GEN_LSB     : natural := 688;
+  constant IN_CFG_RATE_LSB    : natural := 720;
+  constant IN_CFG_MASK_LSB    : natural := 752;
+  constant IN_CYCLE_SEQ_LSB   : natural := 768;
+  constant IN_NOMINAL_LSB     : natural := 800;
+  constant IN_FLAGS_LSB       : natural := 808;
+  constant IN_SAMPLE_IDX_LSB  : natural := 832;
+  constant IN_PL_TICK_LSB     : natural := 896;
+  constant IN_FREQ_MHZ_LSB    : natural := 960;
+  constant IN_FREQ_STATUS_LSB : natural := 992;
 
   component hls_single_cycle_engine_ip is
     port (
@@ -125,7 +128,7 @@ architecture rtl of meter_single_cycle_hls_shim is
   -- One-cycle frame stage: payload captured with the frame, context
   -- (cycle boundary/sequence, shadow set, tick, frequency) at the push.
   signal staged_valid     : std_logic := '0';
-  signal staged_data      : std_logic_vector(511 downto 0) := (others => '0');
+  signal staged_data      : std_logic_vector(METER_CONVERTED_FRAME_BITS - 1 downto 0) := (others => '0');
   signal staged_raw       : std_logic_vector(255 downto 0) := (others => '0');
   signal staged_mask      : std_logic_vector(7 downto 0) := (others => '0');
   signal staged_gen       : std_logic_vector(31 downto 0) := (others => '0');
@@ -184,7 +187,8 @@ begin
           else
             pushing := true;
             beat := (others => '0');
-            beat(IN_SAMPLES_LSB + 511 downto IN_SAMPLES_LSB) := staged_data;
+            beat(IN_SAMPLES_LSB + METER_CONVERTED_FRAME_BITS - 1 downto
+                 IN_SAMPLES_LSB) := staged_data;
             beat(IN_RAW_LSB + 255 downto IN_RAW_LSB) := staged_raw;
             beat(IN_FRAME_MASK_LSB + 7 downto IN_FRAME_MASK_LSB) :=
               staged_mask;
@@ -235,7 +239,7 @@ begin
           staged_gen <= frame_user_i(63 downto 32);
           staged_index <= frame_user_i(105 downto 74) &
                           frame_user_i(31 downto 0);
-          if frame_keep_i /= x"FFFFFFFFFFFFFFFF" then
+          if frame_keep_i /= (frame_keep_i'range => '1') then
             staged_malformed <= '1';
           else
             staged_malformed <= '0';

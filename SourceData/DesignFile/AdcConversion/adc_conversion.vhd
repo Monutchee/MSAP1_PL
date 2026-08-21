@@ -16,8 +16,8 @@ entity adc_conversion is
     s_axis_tready    : out std_logic;
     s_axis_tlast     : in  std_logic;
 
-    m_axis_tdata     : out std_logic_vector(511 downto 0);
-    m_axis_tkeep     : out std_logic_vector(63 downto 0);
+    m_axis_tdata     : out std_logic_vector(METER_CONVERTED_FRAME_BITS - 1 downto 0);
+    m_axis_tkeep     : out std_logic_vector(METER_CONVERTED_KEEP_BITS - 1 downto 0);
     m_axis_tuser     : out std_logic_vector(383 downto 0);
     m_axis_tvalid    : out std_logic;
     m_axis_tready    : in  std_logic;
@@ -57,9 +57,9 @@ architecture rtl of adc_conversion is
   signal apply_seen        : std_logic := '0';
 
   signal channel_index     : natural range 0 to 7 := 0;
-  signal frame_buffer      : std_logic_vector(511 downto 0) := (others => '0');
+  signal frame_buffer      : std_logic_vector(METER_CONVERTED_FRAME_BITS - 1 downto 0) := (others => '0');
   signal raw_frame_buffer  : std_logic_vector(255 downto 0) := (others => '0');
-  signal output_data       : std_logic_vector(511 downto 0) := (others => '0');
+  signal output_data       : std_logic_vector(METER_CONVERTED_FRAME_BITS - 1 downto 0) := (others => '0');
   signal output_user       : std_logic_vector(383 downto 0) := (others => '0');
   signal output_valid      : std_logic := '0';
   -- 64-bit free-running measurement timebase. It counts accepted complete
@@ -120,8 +120,8 @@ begin
     variable raw_value       : signed(32 downto 0);
     variable scale_value     : signed(32 downto 0);
     variable product_value   : signed(65 downto 0);
-    variable converted_value : sword64_t;
-    variable next_frame      : std_logic_vector(511 downto 0);
+    variable converted_value : sword48_t;
+    variable next_frame      : std_logic_vector(METER_CONVERTED_FRAME_BITS - 1 downto 0);
     variable next_raw_frame  : std_logic_vector(255 downto 0);
     variable next_user       : std_logic_vector(383 downto 0);
     variable next_sequence   : unsigned(63 downto 0);
@@ -162,11 +162,10 @@ begin
           raw_value := resize(signed(s_axis_tdata), raw_value'length);
           scale_value := signed('0' & active_scale(channel_index));
           product_value := raw_value * scale_value;
-          converted_value := saturate_signed_66_to_64(product_value);
+          converted_value := saturate_signed_66_to_48(product_value);
 
           saturated := '0';
-          if product_value(65 downto 63) /= "000" and
-             product_value(65 downto 63) /= "111" then
+          if resize(converted_value, product_value'length) /= product_value then
             saturated := '1';
             saturation_seen <= '1';
           end if;
@@ -178,7 +177,9 @@ begin
 
           next_frame := frame_buffer;
           next_raw_frame := raw_frame_buffer;
-          next_frame((channel_index * 64) + 63 downto channel_index * 64) :=
+          next_frame((channel_index * METER_CONVERTED_LANE_BITS) +
+                     METER_CONVERTED_LANE_BITS - 1 downto
+                     channel_index * METER_CONVERTED_LANE_BITS) :=
             std_logic_vector(converted_value);
           next_raw_frame((channel_index * 32) + 31 downto channel_index * 32) :=
             s_axis_tdata;

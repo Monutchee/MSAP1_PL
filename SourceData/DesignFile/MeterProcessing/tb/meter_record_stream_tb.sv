@@ -3,10 +3,12 @@
 // Whole-chain record-stream integration bench (verification plan TB-1).
 //
 // Drives converted-frame beats through the REAL shims and the PACKAGED
-// hls_single_cycle_engine, hls_agg10_12_cycle_engine, and hls_mtr2_engine
-// RTL (bound exactly as the build binds them) — the complete M7 chain
-// sample -> whole cycles -> 10/12-cycle blocks -> 150/180-cycle
-// aggregate, to all three exported 32-bit AXIS record streams. No stubs
+// hls_single_cycle_engine and hls_aggregation_engine RTL (bound exactly as
+// the build binds them) — the complete chain sample -> whole cycles ->
+// 10/12-cycle blocks -> 150/180-cycle aggregate, to all three exported
+// 32-bit AXIS record streams. Since A1 ONE engine owns both finalized
+// tiers, so there is no longer an inter-tier beat to carry between two
+// shims: the merged shim drives both record masters directly. No stubs
 // anywhere on a path that has ever produced a field fault (TB-2), and
 // stimulus enters only at the sample/event boundary (TB-3): the bench
 // stands in for grid_cycle_timing, driving cycle boundaries explicitly.
@@ -48,8 +50,8 @@ module meter_record_stream_tb;
 
   // --- shim inputs ---------------------------------------------------------
   logic frame_accept = 1'b0;
-  logic [511:0] frame_data = '0;
-  logic [63:0] frame_keep = '1;
+  logic [383:0] frame_data = '0;
+  logic [47:0] frame_keep = '1;
   logic [383:0] frame_user = '0;
   logic cycle_boundary = 1'b0;
   logic [31:0] cycle_sequence = 32'd100;
@@ -90,12 +92,10 @@ module meter_record_stream_tb;
   wire basic_tvalid;
   logic basic_tready;
   wire basic_tlast;
-  wire [7071:0] result_tdata;
-  wire result_tvalid;
-  wire result_tready;
   wire [31:0] mtr2_tdata;
   wire mtr2_tvalid;
   logic mtr2_tready;
+
   wire [3:0] mtr2_tkeep;
   wire mtr2_tlast;
 
@@ -135,7 +135,7 @@ module meter_record_stream_tb;
     .drop_count_o(scyc_drop_count)
   );
 
-  meter_agg10_12_cycle_hls_shim merge_tier (
+  meter_aggregation_hls_shim merge_tier (
     .aclk(clock), .aresetn(resetn),
     .s_result_tdata(scyc_result_tdata),
     .s_result_tvalid(scyc_result_tvalid),
@@ -160,24 +160,14 @@ module meter_record_stream_tb;
     .m_axis_basic_tvalid(basic_tvalid),
     .m_axis_basic_tready(basic_tready),
     .m_axis_basic_tlast(basic_tlast),
-    .m_result_tdata(result_tdata),
-    .m_result_tvalid(result_tvalid),
-    .m_result_tready(result_tready),
+    .m_axis_agg_tdata(mtr2_tdata),
+    .m_axis_agg_tkeep(mtr2_tkeep),
+    .m_axis_agg_tvalid(mtr2_tvalid),
+    .m_axis_agg_tready(mtr2_tready),
+    .m_axis_agg_tlast(mtr2_tlast),
     .active_generation_o(active_generation),
     .active_enable_o(active_enable),
     .apply_seen_o(apply_seen)
-  );
-
-  meter_agg150_180_hls_shim aggregator (
-    .aclk(clock), .aresetn(resetn),
-    .s_result_tdata(result_tdata),
-    .s_result_tvalid(result_tvalid),
-    .s_result_tready(result_tready),
-    .m_axis_mtr2_tdata(mtr2_tdata),
-    .m_axis_mtr2_tkeep(mtr2_tkeep),
-    .m_axis_mtr2_tvalid(mtr2_tvalid),
-    .m_axis_mtr2_tready(mtr2_tready),
-    .m_axis_mtr2_tlast(mtr2_tlast)
   );
 
   // Independent framing watchdogs (the in-fabric register taps).
@@ -654,7 +644,7 @@ module meter_record_stream_tb;
     // Converted samples: constant (lane+1).0 Q16 per lane; raw samples
     // constant (lane+1)*100; generation tag and full-frame TKEEP.
     for (int lane = 0; lane < 8; ++lane) begin
-      frame_data[lane*64 +: 64] = lane_dc(lane);
+      frame_data[lane*48 +: 48] = lane_dc(lane);
       frame_user[128 + lane*32 +: 32] = 32'((lane + 1) * 100);
     end
     frame_user[63:32] = GENERATION;
@@ -681,10 +671,20 @@ module meter_record_stream_tb;
         for (int f = 0; f < FRAMES_PER_CYCLE; ++f) begin
           send_frame(f == FRAMES_PER_CYCLE - 1);
           // The previous block's closing result (and its context sample)
-          // lands within the single-cycle finalize latency (~2k clocks);
-          // advance the capture counter this block's record must carry
-          // only after that has comfortably passed.
-          if (c == 2 && f == 0) cap_frames = 32'(1000 + w);
+          // lands within the single-cycle finalize latency plus the
+          // aggregation engine's own invocation. Advance the capture
+          // counter this block's record must carry only after that has
+          // comfortably passed.
+          //
+          // Was c == 2, sized for the retired 10/12 engine's 6,684-clock
+          // block close. Since A1 one engine owns both finalized tiers, so a
+          // close costs more and the old margin let block w's record latch
+          // block w+1's counter (observed: record 6 word 60 read 1007 for
+          // 1006). c == 5 is half a block, ~24k clocks at FRAME_GAP=600.
+          // This is a TEST timing margin, not a product requirement:
+          // nothing downstream cares when a diagnostic capture counter is
+          // sampled to within a few ms.
+          if (c == 5 && f == 0) cap_frames = 32'(1000 + w);
         end
       end
     end
