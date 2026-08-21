@@ -190,10 +190,10 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
   static ap_uint<1> apply_seen = 0;
   // Set when a block close also completes an interval; the interval
   // finalize then runs on the following invocation.
-  // Bit 0 defers the 150/180-cycle finalize, bit 1 defers the ten-minute
-  // finalize.  Keeping both in this one engine is what lets all periods use
-  // one physical met_finalize_interval datapath.
-  static ap_uint<2> interval_pending = 0;
+  // Bit 0 defers the 150/180-cycle finalize, bit 1 the ten-minute finalize,
+  // and bit 2 the cascaded two-hour finalize. Keeping all three in this one
+  // engine is what lets every period use one physical finalize datapath.
+  static ap_uint<3> interval_pending = 0;
   static ap_uint<32> active_generation = 0;
   static ap_uint<32> active_sample_rate = 32000;
   static ap_uint<8> active_valid_mask = 0;
@@ -348,6 +348,55 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
   static ap_int<128> t10m_acc_phasor_im[MET_ACTIVE_CHANNELS];
 #pragma HLS BIND_STORAGE variable=t10m_acc_phasor_im type=ram_s2p impl=lutram
 
+  // M14 two-hour tier. Unlike the 3 s and 10 min branches, this is the one
+  // standards-defined cascaded tier: it folds exactly twelve COMPLETE,
+  // ALIGNED ten-minute accumulator sets. It never re-aggregates finalized
+  // RMS values and it never accepts a partial/contaminated ten-minute result.
+  static const ap_uint<4> A2H_INTERVALS_TARGET = 12;
+  static ap_uint<4> a2h_intervals_accumulated = 0;
+  static ap_uint<32> a2h_generation = 0;
+  static ap_uint<8> a2h_nominal = 0;
+  static ap_uint<32> a2h_sample_rate = 0;
+  static ap_uint<1> a2h_dc_remove = 1;
+  static ap_uint<64> a2h_first_sample = 0;
+  static ap_uint<64> a2h_last_sample = 0;
+  static ap_uint<32> a2h_first_seq = 0;
+  static ap_uint<32> a2h_last_seq = 0;
+  static ap_uint<32> a2h_total_samples = 0;
+  static ap_uint<32> a2h_total_cycles = 0;
+  static ap_uint<8> a2h_mask_and = 0;
+  static ap_uint<1> a2h_arithmetic_flag = 0;
+  static ap_uint<1> a2h_phasor_invalid_or = 0;
+  static ap_uint<32> a2h_expected_next_seq = 0;
+  static ap_uint<64> a2h_expected_next_first = 0;
+  static ap_uint<32> a2h_out_sequence = 0;
+  static ap_uint<32> a2h_reset_count = 0;
+  static ap_uint<32> a2h_ineligible_count = 0;
+  static ap_uint<32> a2h_continuity_count = 0;
+  static ap_uint<64> a2h_last_target = 0;
+  static ap_uint<32> a2h_last_overshoot = 0;
+
+  static ap_int<128> a2h_acc_sum[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=a2h_acc_sum type=ram_s2p impl=lutram
+  static ap_uint<128> a2h_acc_square[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=a2h_acc_square type=ram_s2p impl=lutram
+  static ap_int<64> a2h_acc_raw_sum[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=a2h_acc_raw_sum type=ram_s2p impl=lutram
+  static ap_uint<96> a2h_acc_raw_square[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=a2h_acc_raw_square type=ram_s2p impl=lutram
+  static ap_uint<128> a2h_acc_vll_square[MET_VLL_PAIRS];
+#pragma HLS BIND_STORAGE variable=a2h_acc_vll_square type=ram_s2p impl=lutram
+  static ap_int<128> a2h_acc_power[MET_POWER_PHASES];
+#pragma HLS BIND_STORAGE variable=a2h_acc_power type=ram_s2p impl=lutram
+  static ap_int<64> a2h_acc_minimum[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=a2h_acc_minimum type=ram_s2p impl=lutram
+  static ap_int<64> a2h_acc_maximum[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=a2h_acc_maximum type=ram_s2p impl=lutram
+  static ap_int<128> a2h_acc_phasor_re[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=a2h_acc_phasor_re type=ram_s2p impl=lutram
+  static ap_int<128> a2h_acc_phasor_im[MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=a2h_acc_phasor_im type=ram_s2p impl=lutram
+
   // ---- One tier per invocation (A1 latency fix) -------------------------
   // A block close and an interval close used to happen in the SAME
   // invocation: two finalizes plus eight records, 22,935 clocks worst
@@ -368,7 +417,7 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
               ctx_cap_alerts = 0;
   ap_uint<8> result_mask = 0;
   ap_uint<32> count_now = 0;
-  ap_uint<3> pass_armed = 0;  // block, 150/180-cycle, ten-minute
+  ap_uint<4> pass_armed = 0;  // block, 150/180-cycle, ten-minute, two-hour
 
   if (interval_pending.bit(0) == 1) {
     // Deferred interval pass: consume NO beat this invocation. The
@@ -379,6 +428,9 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
   } else if (interval_pending.bit(1) == 1) {
     interval_pending.bit(1) = 0;
     pass_armed = 4;
+  } else if (interval_pending.bit(2) == 1) {
+    interval_pending.bit(2) = 0;
+    pass_armed = 8;
   } else {
     if (s_result.empty()) {
       return;
@@ -412,6 +464,13 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
       // inside the interval, so the first emitted result is explicitly
       // partial.  The following auto-advanced intervals are complete.
       t10m_contaminated = 1;
+      // A new UTC mapping terminates the old two-hour chain immediately.
+      // Its next seed must be the first complete/aligned ten-minute interval
+      // produced under the new mapping.
+      if (a2h_intervals_accumulated != 0) {
+        a2h_reset_count += 1;
+      }
+      a2h_intervals_accumulated = 0;
     }
 
     const ap_uint<1> beat_apply = beat.bit(AGG_IN_APPLY_BIT);
@@ -429,6 +488,10 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
       cycles_in_block = 0;
       have_expectation = 0;
       disc_pending = 1;
+      if (a2h_intervals_accumulated != 0) {
+        a2h_reset_count += 1;
+      }
+      a2h_intervals_accumulated = 0;
     }
 
     if (active_enable == 0) {
@@ -545,10 +608,12 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
     }
     cycles_in_block = 0;
 
-    // ---- Shared finalize: ONE call site, up to three passes --------------
+    // ---- Shared finalize: ONE call site, up to four passes ---------------
     // pass 0 closes the 10/12-cycle block, pass 1 the 150/180-cycle
-    // interval. Both tiers finalize through the SAME instance because there
-    // is only one textual call, whatever the inliner decides. The pass's
+    // interval, pass 2 the aligned ten-minute interval, and pass 3 the
+    // cascaded two-hour interval. All tiers finalize through the SAME
+    // instance because there is only one textual call, whatever the inliner
+    // decides. The pass's
     // accumulator set is selected by a ROLLED copy below rather than a
     // parallel mux across ten 896-bit arrays: one 128-bit 2:1 mux per array
     // instead of seven, ~1.3k LUT of selection instead of ~9k.
@@ -584,7 +649,7 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
   static ap_uint<32> a3s_agg_last_seq = 0;
 
 finalize_passes:
-  for (int pass = 0; pass < 3; ++pass) {
+  for (int pass = 0; pass < 4; ++pass) {
 #pragma HLS PIPELINE off
     if (pass_armed.bit(pass) == 0) {
       continue;
@@ -603,40 +668,66 @@ finalize_passes:
       fin_dc = a3s_agg_dc_remove;
       fin_mask = a3s_mask_and & ap_uint<8>(0x7F);
       fin_ovf = a3s_arithmetic_flag;
-    } else {
+    } else if (pass == 2) {
       fin_count = t10m_total_samples;
       fin_dc = t10m_dc_remove;
       fin_mask = t10m_mask_and & ap_uint<8>(0x7F);
       fin_ovf = t10m_arithmetic_flag;
+    } else {
+      fin_count = a2h_total_samples;
+      fin_dc = a2h_dc_remove;
+      fin_mask = a2h_mask_and & ap_uint<8>(0x7F);
+      fin_ovf = a2h_arithmetic_flag;
     }
   fin_select_lanes:
     for (int i = 0; i < MET_ACTIVE_CHANNELS; ++i) {
 #pragma HLS PIPELINE off
-      fin_sum[i] = (pass == 0) ? acc_sum[i]
-                               : ((pass == 1) ? a3s_acc_sum[i]
-                                              : t10m_acc_sum[i]);
-      fin_square[i] = (pass == 0) ? acc_square[i]
-                                  : ((pass == 1) ? a3s_acc_square[i]
-                                                 : t10m_acc_square[i]);
-      fin_raw_sum[i] = (pass == 0) ? acc_raw_sum[i]
-                                   : ((pass == 1) ? a3s_acc_raw_sum[i]
-                                                  : t10m_acc_raw_sum[i]);
+      fin_sum[i] = (pass == 0)
+                       ? acc_sum[i]
+                       : ((pass == 1) ? a3s_acc_sum[i]
+                                      : ((pass == 2) ? t10m_acc_sum[i]
+                                                     : a2h_acc_sum[i]));
+      fin_square[i] =
+          (pass == 0)
+              ? acc_square[i]
+              : ((pass == 1) ? a3s_acc_square[i]
+                             : ((pass == 2) ? t10m_acc_square[i]
+                                            : a2h_acc_square[i]));
+      fin_raw_sum[i] =
+          (pass == 0)
+              ? acc_raw_sum[i]
+              : ((pass == 1) ? a3s_acc_raw_sum[i]
+                             : ((pass == 2) ? t10m_acc_raw_sum[i]
+                                            : a2h_acc_raw_sum[i]));
       fin_raw_square[i] =
           (pass == 0) ? acc_raw_square[i]
                       : ((pass == 1) ? a3s_acc_raw_square[i]
-                                     : t10m_acc_raw_square[i]);
-      fin_minimum[i] = (pass == 0) ? acc_minimum[i]
-                                   : ((pass == 1) ? a3s_acc_minimum[i]
-                                                  : t10m_acc_minimum[i]);
-      fin_maximum[i] = (pass == 0) ? acc_maximum[i]
-                                   : ((pass == 1) ? a3s_acc_maximum[i]
-                                                  : t10m_acc_maximum[i]);
-      fin_phasor_re[i] = (pass == 0) ? acc_phasor_re[i]
-                                     : ((pass == 1) ? a3s_acc_phasor_re[i]
-                                                    : t10m_acc_phasor_re[i]);
-      fin_phasor_im[i] = (pass == 0) ? acc_phasor_im[i]
-                                     : ((pass == 1) ? a3s_acc_phasor_im[i]
-                                                    : t10m_acc_phasor_im[i]);
+                                     : ((pass == 2) ? t10m_acc_raw_square[i]
+                                                    : a2h_acc_raw_square[i]));
+      fin_minimum[i] =
+          (pass == 0)
+              ? acc_minimum[i]
+              : ((pass == 1) ? a3s_acc_minimum[i]
+                             : ((pass == 2) ? t10m_acc_minimum[i]
+                                            : a2h_acc_minimum[i]));
+      fin_maximum[i] =
+          (pass == 0)
+              ? acc_maximum[i]
+              : ((pass == 1) ? a3s_acc_maximum[i]
+                             : ((pass == 2) ? t10m_acc_maximum[i]
+                                            : a2h_acc_maximum[i]));
+      fin_phasor_re[i] =
+          (pass == 0)
+              ? acc_phasor_re[i]
+              : ((pass == 1) ? a3s_acc_phasor_re[i]
+                             : ((pass == 2) ? t10m_acc_phasor_re[i]
+                                            : a2h_acc_phasor_re[i]));
+      fin_phasor_im[i] =
+          (pass == 0)
+              ? acc_phasor_im[i]
+              : ((pass == 1) ? a3s_acc_phasor_im[i]
+                             : ((pass == 2) ? t10m_acc_phasor_im[i]
+                                            : a2h_acc_phasor_im[i]));
     }
   fin_select_pairs:
     for (int p = 0; p < MET_VLL_PAIRS; ++p) {
@@ -644,14 +735,18 @@ finalize_passes:
       fin_vll_square[p] =
           (pass == 0) ? acc_vll_square[p]
                       : ((pass == 1) ? a3s_acc_vll_square[p]
-                                     : t10m_acc_vll_square[p]);
+                                     : ((pass == 2) ? t10m_acc_vll_square[p]
+                                                    : a2h_acc_vll_square[p]));
     }
   fin_select_power:
     for (int p = 0; p < MET_POWER_PHASES; ++p) {
 #pragma HLS PIPELINE off
-      fin_power[p] = (pass == 0) ? acc_power[p]
-                                 : ((pass == 1) ? a3s_acc_power[p]
-                                                : t10m_acc_power[p]);
+      fin_power[p] =
+          (pass == 0)
+              ? acc_power[p]
+              : ((pass == 1) ? a3s_acc_power[p]
+                             : ((pass == 2) ? t10m_acc_power[p]
+                                            : a2h_acc_power[p]));
     }
 
     met_finalize_interval(fin_sum, fin_square, fin_raw_sum, fin_raw_square,
@@ -665,8 +760,10 @@ finalize_passes:
       arithmetic_overflow = fin_ovf;
     } else if (pass == 1) {
       a3s_arithmetic_flag = fin_ovf;
-    } else {
+    } else if (pass == 2) {
       t10m_arithmetic_flag = fin_ovf;
+    } else {
+      a2h_arithmetic_flag = fin_ovf;
     }
 
     if (pass == 0) {
@@ -1200,7 +1297,7 @@ finalize_passes:
     a3s_unbal_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a3s_agg_last_seq;
     fill_unbal_payload(fin_out, a3s_unbal_image);
     serialize_record<MREC_FORMAT_AGG_UNBAL_V2>(a3s_unbal_image, m_agg);
-    } else {
+    } else if (pass == 2) {
       // ---- TEN-MINUTE-v1: one quad for the interval which closed at the
       // first complete basic block ending at/after the programmed UTC
       // sample target.  Frequency is intentionally absent; the Class-A
@@ -1230,6 +1327,127 @@ finalize_passes:
            << TEN_MINUTE_STATUS_CONTAMINATED_BIT) |
           (ap_uint<32>(t10m_target_valid)
            << TEN_MINUTE_STATUS_BOUNDARY_VALID_BIT);
+
+      // ==== Cascaded two-hour interval tier (M14) ========================
+      // The two-hour result is the only tier allowed to consume another
+      // aggregate.  It merges the merge-safe accumulator state behind each
+      // complete, aligned ten-minute record; finalized RMS/power values are
+      // never averaged or re-derived.  This preserves the exact arithmetic
+      // of one continuous two-hour sample interval while sharing the one
+      // finalizer above.
+      const bool a2h_input_eligible =
+          t10m_aligned == 1 && t10m_target_valid == 1 &&
+          t10m_contaminated == 0 && t10m_blocks_accumulated != 0 &&
+          ((t10m_nominal == 50) || (t10m_nominal == 60));
+
+      if (!a2h_input_eligible) {
+        a2h_ineligible_count += 1;
+        if (a2h_intervals_accumulated != 0) {
+          a2h_reset_count += 1;
+        }
+        a2h_intervals_accumulated = 0;
+      } else {
+        bool a2h_seed = (a2h_intervals_accumulated == 0);
+        if (!a2h_seed) {
+          if (t10m_generation != a2h_generation ||
+              t10m_nominal != a2h_nominal ||
+              t10m_sample_rate != a2h_sample_rate ||
+              t10m_dc_remove != a2h_dc_remove) {
+            a2h_reset_count += 1;
+            a2h_seed = true;
+          } else if (t10m_out_sequence != a2h_expected_next_seq ||
+                     t10m_first_sample != a2h_expected_next_first) {
+            a2h_continuity_count += 1;
+            a2h_reset_count += 1;
+            a2h_seed = true;
+          }
+        }
+
+        // t10m_out_sequence was incremented above for the record being
+        // folded. Use that same value for the cascade's sequence provenance
+        // and continuity contract.
+        const ap_uint<32> folded_t10m_sequence = t10m_out_sequence;
+        if (a2h_seed) {
+          a2h_generation = t10m_generation;
+          a2h_nominal = t10m_nominal;
+          a2h_sample_rate = t10m_sample_rate;
+          a2h_dc_remove = t10m_dc_remove;
+          a2h_first_sample = t10m_first_sample;
+          a2h_first_seq = folded_t10m_sequence;
+          a2h_total_samples = t10m_total_samples;
+          a2h_total_cycles = t10m_total_cycles;
+          a2h_mask_and = t10m_mask_and;
+          a2h_arithmetic_flag = t10m_arithmetic_flag;
+          a2h_phasor_invalid_or = t10m_phasor_invalid_or;
+          a2h_intervals_accumulated = 1;
+        } else {
+          a2h_total_samples += t10m_total_samples;
+          a2h_total_cycles += t10m_total_cycles;
+          a2h_mask_and &= t10m_mask_and;
+          a2h_arithmetic_flag |= t10m_arithmetic_flag;
+          a2h_phasor_invalid_or |= t10m_phasor_invalid_or;
+          a2h_intervals_accumulated += 1;
+        }
+        a2h_last_sample = t10m_last_sample;
+        a2h_last_seq = folded_t10m_sequence;
+        a2h_expected_next_seq = folded_t10m_sequence + 1;
+        a2h_expected_next_first = t10m_first_sample + t10m_total_samples;
+        a2h_last_target = t10m_closed_target;
+        a2h_last_overshoot = t10m_overshoot_samples;
+
+      a2h_merge_lanes:
+        for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+        #pragma HLS PIPELINE off
+          const ap_int<128> sum_base =
+              a2h_seed ? ap_int<128>(0) : a2h_acc_sum[lane];
+          a2h_acc_sum[lane] = sum_base + t10m_acc_sum[lane];
+          const ap_uint<128> square_base =
+              a2h_seed ? ap_uint<128>(0) : a2h_acc_square[lane];
+          a2h_acc_square[lane] = met_add_square_saturating<128>(
+              square_base, t10m_acc_square[lane], a2h_arithmetic_flag);
+          const ap_int<64> raw_sum_base =
+              a2h_seed ? ap_int<64>(0) : a2h_acc_raw_sum[lane];
+          a2h_acc_raw_sum[lane] = raw_sum_base + t10m_acc_raw_sum[lane];
+          const ap_uint<96> raw_square_base =
+              a2h_seed ? ap_uint<96>(0) : a2h_acc_raw_square[lane];
+          a2h_acc_raw_square[lane] =
+              raw_square_base + t10m_acc_raw_square[lane];
+          if (a2h_seed || t10m_acc_minimum[lane] < a2h_acc_minimum[lane]) {
+            a2h_acc_minimum[lane] = t10m_acc_minimum[lane];
+          }
+          if (a2h_seed || t10m_acc_maximum[lane] > a2h_acc_maximum[lane]) {
+            a2h_acc_maximum[lane] = t10m_acc_maximum[lane];
+          }
+          const ap_int<128> re_base =
+              a2h_seed ? ap_int<128>(0) : a2h_acc_phasor_re[lane];
+          a2h_acc_phasor_re[lane] = met_add_signed_saturating<128>(
+              re_base, t10m_acc_phasor_re[lane], a2h_arithmetic_flag);
+          const ap_int<128> im_base =
+              a2h_seed ? ap_int<128>(0) : a2h_acc_phasor_im[lane];
+          a2h_acc_phasor_im[lane] = met_add_signed_saturating<128>(
+              im_base, t10m_acc_phasor_im[lane], a2h_arithmetic_flag);
+        }
+      a2h_merge_power:
+        for (int phase = 0; phase < MET_POWER_PHASES; ++phase) {
+        #pragma HLS PIPELINE off
+          const ap_int<128> power_base =
+              a2h_seed ? ap_int<128>(0) : a2h_acc_power[phase];
+          a2h_acc_power[phase] = met_add_signed_saturating<128>(
+              power_base, t10m_acc_power[phase], a2h_arithmetic_flag);
+        }
+      a2h_merge_pairs:
+        for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
+        #pragma HLS PIPELINE off
+          const ap_uint<128> vll_base =
+              a2h_seed ? ap_uint<128>(0) : a2h_acc_vll_square[pair];
+          a2h_acc_vll_square[pair] = met_add_square_saturating<128>(
+              vll_base, t10m_acc_vll_square[pair], a2h_arithmetic_flag);
+        }
+
+        if (a2h_intervals_accumulated == A2H_INTERVALS_TARGET) {
+          interval_pending.bit(2) = 1;
+        }
+      }
 
       record_image_t t10m_image;
       clear_record(t10m_image);
@@ -1334,6 +1552,116 @@ finalize_passes:
       // after its first close the autonomous 600-second target cadence is
       // complete and aligned until software supplies another update.
       t10m_contaminated = 0;
+    } else {
+      // ---- TWO-HOUR-v1: twelve complete/aligned ten-minute intervals. ---
+      // Its fundamental payload uses the long-period record layout, with
+      // the shape count denoting ten-minute input intervals. Frequency is
+      // absent because standardized 10-second frequency remains a direct
+      // single-cycle measurement and must not be cascaded.
+      const ap_uint<8> a2h_result_mask =
+          a2h_mask_and & ap_uint<8>(0x7F);
+      const ap_uint<32> a2h_count_now = a2h_total_samples;
+      ap_uint<8> a2h_flags = 0;
+      a2h_flags.bit(TEN_MINUTE_FLAG_ALIGNED_BIT) = 1;
+
+      a2h_out_sequence += 1;
+      const ap_uint<32> a2h_shape_word =
+          (ap_uint<32>(A2H_INTERVALS_TARGET)
+           << TEN_MINUTE_SHAPE_BLOCKS_LSB) |
+          (ap_uint<32>(a2h_nominal) << TEN_MINUTE_SHAPE_NOMINAL_LSB) |
+          (ap_uint<32>(a2h_flags) << TEN_MINUTE_SHAPE_FLAGS_LSB);
+      const ap_uint<32> a2h_status =
+          (ap_uint<32>(a2h_arithmetic_flag)
+           << MREC_STATUS_ARITHMETIC_BIT) |
+          (ap_uint<32>(1) << TEN_MINUTE_STATUS_COMPLETE_BIT) |
+          (ap_uint<32>(1) << TEN_MINUTE_STATUS_TIME_ALIGNED_BIT) |
+          (ap_uint<32>(1) << TEN_MINUTE_STATUS_BOUNDARY_VALID_BIT);
+
+      record_image_t a2h_image;
+      clear_record(a2h_image);
+      fill_envelope(a2h_image, a2h_out_sequence, a2h_generation,
+                    a2h_sample_rate, a2h_count_now, a2h_result_mask,
+                    a2h_status, a2h_first_sample);
+      a2h_image.word[MTR2_SHAPE_WORD] = a2h_shape_word;
+      a2h_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = a2h_first_seq;
+      a2h_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a2h_last_seq;
+    a2h_record_lanes:
+      for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
+      #pragma HLS PIPELINE off
+        if (lane < MET_ACTIVE_CHANNELS) {
+          const ap_uint<64> rms_units = fin_out.rms_q16[lane] >> 16;
+          const int base = MTR2_CH_BASE_WORD + lane * MTR2_CH_STRIDE_WORDS;
+          a2h_image.word[base + 0] = rms_units.range(31, 0);
+          a2h_image.word[base + 1] = rms_units.range(63, 32);
+        }
+      }
+      a2h_image.word[MTR2_RESET_COUNT_WORD] = a2h_reset_count;
+      a2h_image.word[MTR2_INELIGIBLE_COUNT_WORD] = a2h_ineligible_count;
+      a2h_image.word[MTR2_CONTINUITY_COUNT_WORD] = a2h_continuity_count;
+      a2h_image.word[AGG_LAST_SAMPLE_LOW_WORD] = a2h_last_sample.range(31, 0);
+      a2h_image.word[AGG_LAST_SAMPLE_HIGH_WORD] = a2h_last_sample.range(63, 32);
+    a2h_record_pairs:
+      for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
+      #pragma HLS PIPELINE off
+        a2h_image.word[AGG_VLL_BASE_WORD + pair] =
+            ap_uint<64>(fin_out.vll_rms[pair] >> 16).range(31, 0);
+      }
+      a2h_image.word[TEN_MINUTE_TOTAL_CYCLES_WORD] = a2h_total_cycles;
+      a2h_image.word[TEN_MINUTE_TARGET_SAMPLE_LOW_WORD] =
+          a2h_last_target.range(31, 0);
+      a2h_image.word[TEN_MINUTE_TARGET_SAMPLE_HIGH_WORD] =
+          a2h_last_target.range(63, 32);
+      a2h_image.word[TEN_MINUTE_OVERSHOOT_SAMPLES_WORD] =
+          a2h_last_overshoot;
+      serialize_record<MREC_FORMAT_TWO_HOUR_V1>(a2h_image, m_agg);
+
+      const ap_uint<32> a2h_sibling_status =
+          (ap_uint<32>(a2h_arithmetic_flag)
+           << MREC_STATUS_ARITHMETIC_BIT) |
+          (ap_uint<32>(1) << TEN_MINUTE_STATUS_TIME_ALIGNED_BIT) |
+          (ap_uint<32>(1) << TEN_MINUTE_STATUS_BOUNDARY_VALID_BIT);
+      const ap_uint<32> a2h_phasor_status =
+          a2h_sibling_status |
+          (ap_uint<32>(a2h_phasor_invalid_or)
+           << PHASOR_STATUS_INVALID_BIT);
+
+      record_image_t a2h_power_image;
+      clear_record(a2h_power_image);
+      fill_envelope(a2h_power_image, a2h_out_sequence, a2h_generation,
+                    a2h_sample_rate, a2h_count_now, a2h_result_mask,
+                    a2h_sibling_status, a2h_first_sample);
+      a2h_power_image.word[MTR2_SHAPE_WORD] = a2h_shape_word;
+      a2h_power_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = a2h_first_seq;
+      a2h_power_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a2h_last_seq;
+      fill_power_payload(fin_out, a2h_power_image);
+      serialize_record<MREC_FORMAT_TWO_HOUR_POWER_V1>(a2h_power_image,
+                                                       m_agg);
+
+      record_image_t a2h_phasor_image;
+      clear_record(a2h_phasor_image);
+      fill_envelope(a2h_phasor_image, a2h_out_sequence, a2h_generation,
+                    a2h_sample_rate, a2h_count_now, a2h_result_mask,
+                    a2h_phasor_status, a2h_first_sample);
+      a2h_phasor_image.word[MTR2_SHAPE_WORD] = a2h_shape_word;
+      a2h_phasor_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = a2h_first_seq;
+      a2h_phasor_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a2h_last_seq;
+      fill_phasor_payload(fin_out, a2h_phasor_image);
+      serialize_record<MREC_FORMAT_TWO_HOUR_PHASOR_V2>(a2h_phasor_image,
+                                                        m_agg);
+
+      record_image_t a2h_unbal_image;
+      clear_record(a2h_unbal_image);
+      fill_envelope(a2h_unbal_image, a2h_out_sequence, a2h_generation,
+                    a2h_sample_rate, a2h_count_now, a2h_result_mask,
+                    a2h_phasor_status, a2h_first_sample);
+      a2h_unbal_image.word[MTR2_SHAPE_WORD] = a2h_shape_word;
+      a2h_unbal_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = a2h_first_seq;
+      a2h_unbal_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a2h_last_seq;
+      fill_unbal_payload(fin_out, a2h_unbal_image);
+      serialize_record<MREC_FORMAT_TWO_HOUR_UNBAL_V2>(a2h_unbal_image,
+                                                       m_agg);
+
+      a2h_intervals_accumulated = 0;
     }
   }
 }

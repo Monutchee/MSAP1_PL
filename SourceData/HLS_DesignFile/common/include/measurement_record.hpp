@@ -151,6 +151,15 @@ static const uint32_t MREC_FORMAT_TEN_MINUTE_V1        = 0x000C0001u;
 static const uint32_t MREC_FORMAT_TEN_MINUTE_POWER_V1  = 0x00130001u;
 static const uint32_t MREC_FORMAT_TEN_MINUTE_PHASOR_V2 = 0x00140002u;
 static const uint32_t MREC_FORMAT_TEN_MINUTE_UNBAL_V2  = 0x00150002u;
+// TWO-HOUR v1 (M14): cascaded aggregation of exactly twelve complete,
+// aligned TEN-MINUTE intervals.  The payload layout deliberately matches the
+// ten-minute family so the APU can share one long-period decoder; only the
+// format word and the shape count identify the period.  Frequency remains a
+// separate direct-cycle product and is therefore unavailable here too.
+static const uint32_t MREC_FORMAT_TWO_HOUR_V1        = 0x000D0001u;
+static const uint32_t MREC_FORMAT_TWO_HOUR_POWER_V1  = 0x00160001u;
+static const uint32_t MREC_FORMAT_TWO_HOUR_PHASOR_V2 = 0x00170002u;
+static const uint32_t MREC_FORMAT_TWO_HOUR_UNBAL_V2  = 0x00180002u;
 // PQEVT v1 (M12): the sliding Urms(1/2) tier's record, emitted by
 // SlidingOneCycleRmsEngine on its OWN producer port (M_AXIS_PQ). Three
 // kinds share the format, distinguished by the format-header word 13:

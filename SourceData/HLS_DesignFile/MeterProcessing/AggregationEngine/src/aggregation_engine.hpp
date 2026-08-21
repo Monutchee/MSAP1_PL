@@ -61,9 +61,10 @@
 // 268 s... i.e. ~9.3 hours at 128 kSPS, so any tier longer than 2 h
 // needs a 64-bit count.
 //
-// The finalize has exactly ONE call site — the three-pass loop in the
+// The finalize has exactly ONE call site — the four-pass loop in the
 // engine body, pass 0 closing a block, pass 1 closing the 150/180-cycle
-// interval, and pass 2 closing the clock-aligned 10-minute interval —
+// interval, pass 2 closing the clock-aligned 10-minute interval, and pass 3
+// closing twelve complete 10-minute intervals into the 2-hour result —
 // so it is one hardware instance whatever the inliner decides. The
 // accumulator set for the pass is selected by a ROLLED copy loop rather
 // than a parallel mux: ~1.3 kLUT of selection instead of ~9 k.
@@ -84,6 +85,8 @@
 //                AGG-PHASOR-v2 (0x00110002), AGG-UNBAL-v2  (0x00120002).
 //                TENMIN-v1     (0x000C0001), TENMIN-POWER  (0x00130001),
 //                TENMIN-PHASOR (0x00140002), TENMIN-UNBAL  (0x00150002).
+//                TWOHOUR-v1    (0x000D0001), TWOHOUR-POWER (0x00160001),
+//                TWOHOUR-PHASOR(0x00170002), TWOHOUR-UNBAL (0x00180002).
 //              Emitted on every 15th eligible block, so ~1 quad per 3 s
 //              against the basic tier's ~5 quads per second.
 //

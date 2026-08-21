@@ -409,6 +409,7 @@ struct Bench {
   hls::stream<record_axis_t> m_agg{"m_agg"};
   bool apply_level = false;
   unsigned cfg_generation = 1;
+  unsigned sample_rate = 32000;
   bool enable = true;
   bool dc_remove = true;
   bool locked = true;
@@ -426,7 +427,7 @@ struct Bench {
     agg_input_beat_t beat = 0;
     beat.range(SCYC_BEAT_BITS - 1, 0) = pack_single_cycle_result(r);
     beat.range(AGG_IN_CFG_GEN_LSB + 31, AGG_IN_CFG_GEN_LSB) = cfg_generation;
-    beat.range(AGG_IN_CFG_RATE_LSB + 31, AGG_IN_CFG_RATE_LSB) = 32000;
+    beat.range(AGG_IN_CFG_RATE_LSB + 31, AGG_IN_CFG_RATE_LSB) = sample_rate;
     beat.range(AGG_IN_CFG_MASK_LSB + 7, AGG_IN_CFG_MASK_LSB) = 0x7F;
     beat[AGG_IN_ENABLE_BIT] = enable ? 1 : 0;
     beat[AGG_IN_DC_REMOVE_BIT] = dc_remove ? 1 : 0;
@@ -1474,7 +1475,150 @@ int main() {
           "ten-minute unbalance record shares interval sequence");
     CHECK(b.m_agg.empty(), "ten-minute close emits exactly one record quad");
 
-    // Do not let this short synthetic target influence the long soak.
+    // Leave the consumed update-toggle state intact for the following M14
+    // scenario.  Toggling twice without presenting an input beat would make
+    // the next target update invisible to the engine.
+  }
+
+  // --- Cascaded two-hour tier: exactly twelve complete/aligned ten-minute
+  // accumulator sets, never twelve finalized RMS values.  A 1 Hz metadata
+  // rate and 50 samples/cycle make each 12-cycle basic block exactly one
+  // synthetic 600-s interval.  This accelerates the cadence only; the
+  // arithmetic and provenance path is the production M14 path.
+  {
+    b.enable = true; b.locked = true; b.fallback = false;
+    b.dc_remove = true;
+    b.sample_rate = 1;
+    while (!b.m_axis.empty()) b.m_axis.read();
+    while (!b.m_agg.empty()) b.m_agg.read();
+
+    CycleSpec h2;
+    h2.sequence = 30000; h2.cycle_sequence = 30000;
+    h2.first_sample = 5000000;
+    h2.nominal = 60; h2.samples = 50; h2.generation = b.cfg_generation;
+
+    const unsigned block_samples = 12u * h2.samples;
+    const unsigned long long first_target =
+        h2.first_sample + 2u * block_samples - 1u;
+    b.ten_minute_target = first_target;
+    b.ten_minute_valid = true;
+    b.ten_minute_update = !b.ten_minute_update;
+
+    // Configuration APPLY excludes this priming block from every interval
+    // and leaves the first programmed ten-minute interval contaminated.
+    GoldenBlock priming;
+    run_block(b, h2, 12, priming, /*apply_on_first=*/true);
+    ap_uint<32> hw[MREC_WORDS];
+    take_record(b, hw);
+    take_power_record(b, hw);
+    take_phasor_record(b, hw);
+    take_unbalance_record(b, hw);
+    CHECK(b.m_agg.empty(), "two-hour priming block emits no interval");
+
+    GoldenAgg two_hour_golden;
+    unsigned first_clean_t10m_sequence = 0;
+    unsigned last_clean_t10m_sequence = 0;
+    unsigned long long first_clean_sample = 0;
+    unsigned long long last_clean_sample = 0;
+
+    // First close is contaminated and must not seed M14.  The next twelve
+    // closes are autonomous, aligned ten-minute intervals and must produce
+    // exactly one two-hour record family after the twelfth.
+    for (unsigned interval = 0; interval < 13; ++interval) {
+      GoldenBlock gb;
+      run_block(b, h2, 12, gb);
+      take_record(b, hw);
+      take_power_record(b, hw);
+      take_phasor_record(b, hw);
+      take_unbalance_record(b, hw);
+
+      take_agg(b, hw, MREC_FORMAT_TEN_MINUTE_V1);
+      const unsigned t10m_sequence = (unsigned)hw[MREC_SEQUENCE_WORD];
+      const unsigned long long t10m_first =
+          (unsigned long long)hw[MREC_FIRST_SAMPLE_LOW_WORD] |
+          ((unsigned long long)hw[MREC_FIRST_SAMPLE_HIGH_WORD] << 32);
+      const unsigned long long t10m_last =
+          (unsigned long long)hw[AGG_LAST_SAMPLE_LOW_WORD] |
+          ((unsigned long long)hw[AGG_LAST_SAMPLE_HIGH_WORD] << 32);
+      if (interval == 0) {
+        CHECK((hw[MREC_STATUS_WORD] &
+               (1u << TEN_MINUTE_STATUS_CONTAMINATED_BIT)) != 0,
+              "first synthetic ten-minute interval is contaminated");
+      } else {
+        CHECK((hw[MREC_STATUS_WORD] &
+               (1u << TEN_MINUTE_STATUS_TIME_ALIGNED_BIT)) != 0,
+              "M14 input %u is time aligned", interval);
+        fold_block(two_hour_golden, gb, 12, h2.freq_mhz);
+        if (interval == 1) {
+          first_clean_t10m_sequence = t10m_sequence;
+          first_clean_sample = t10m_first;
+        }
+        last_clean_t10m_sequence = t10m_sequence;
+        last_clean_sample = t10m_last;
+      }
+      take_agg(b, hw, MREC_FORMAT_TEN_MINUTE_POWER_V1);
+      take_agg(b, hw, MREC_FORMAT_TEN_MINUTE_PHASOR_V2);
+      take_agg(b, hw, MREC_FORMAT_TEN_MINUTE_UNBAL_V2);
+      CHECK(b.m_agg.empty(),
+            "two-hour result remains deferred through input %u", interval);
+    }
+
+    // Supply one look-ahead cycle so Vitis cosimulation observes the
+    // input-free deferred pass exactly as hardware does.
+    GoldenBlock look_ahead;
+    b.send(make_cycle(h2, look_ahead));
+    h2.sequence += 1;
+    h2.cycle_sequence += 1;
+    h2.first_sample += h2.samples;
+
+    take_agg(b, hw, MREC_FORMAT_TWO_HOUR_V1);
+    CHECK(hw[MREC_SAMPLE_COUNT_WORD] == two_hour_golden.count,
+          "two-hour sample count %u, golden %u",
+          (unsigned)hw[MREC_SAMPLE_COUNT_WORD], two_hour_golden.count);
+    CHECK((hw[MTR2_SHAPE_WORD] & 0xFFFFu) == 12u,
+          "two-hour shape carries twelve ten-minute inputs");
+    CHECK(hw[MTR2_FIRST_BASIC_SEQ_WORD] == first_clean_t10m_sequence &&
+              hw[MTR2_LAST_BASIC_SEQ_WORD] == last_clean_t10m_sequence,
+          "two-hour provenance spans ten-minute sequences %u..%u",
+          first_clean_t10m_sequence, last_clean_t10m_sequence);
+    const unsigned long long got_first_sample =
+        (unsigned long long)hw[MREC_FIRST_SAMPLE_LOW_WORD] |
+        ((unsigned long long)hw[MREC_FIRST_SAMPLE_HIGH_WORD] << 32);
+    const unsigned long long got_last_sample =
+        (unsigned long long)hw[AGG_LAST_SAMPLE_LOW_WORD] |
+        ((unsigned long long)hw[AGG_LAST_SAMPLE_HIGH_WORD] << 32);
+    CHECK(got_first_sample == first_clean_sample &&
+              got_last_sample == last_clean_sample,
+          "two-hour sample domain is contiguous %llu..%llu",
+          first_clean_sample, last_clean_sample);
+    CHECK(hw[MTR2_FREQUENCY_WORD] == 0,
+          "two-hour frequency is unavailable by definition");
+    CHECK(hw[TEN_MINUTE_TOTAL_CYCLES_WORD] == 12u * 12u,
+          "two-hour record carries 144 contributing cycles");
+    for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
+      const unsigned long long rms_q16 = golden_rms_q16(
+          two_hour_golden.square[lane], two_hour_golden.sum[lane],
+          two_hour_golden.count, true);
+      const unsigned long long got =
+          (unsigned long long)hw[MTR2_CH_BASE_WORD +
+                                 lane * MTR2_CH_STRIDE_WORDS];
+      CHECK(got == (rms_q16 >> 16),
+            "two-hour lane %d RMS %llu, golden %llu", lane, got,
+            rms_q16 >> 16);
+    }
+    const unsigned h2_sequence = (unsigned)hw[MREC_SEQUENCE_WORD];
+    take_agg(b, hw, MREC_FORMAT_TWO_HOUR_POWER_V1);
+    CHECK(hw[MREC_SEQUENCE_WORD] == h2_sequence,
+          "two-hour power record shares interval sequence");
+    take_agg(b, hw, MREC_FORMAT_TWO_HOUR_PHASOR_V2);
+    CHECK(hw[MREC_SEQUENCE_WORD] == h2_sequence,
+          "two-hour phasor record shares interval sequence");
+    take_agg(b, hw, MREC_FORMAT_TWO_HOUR_UNBAL_V2);
+    CHECK(hw[MREC_SEQUENCE_WORD] == h2_sequence,
+          "two-hour unbalance record shares interval sequence");
+    CHECK(b.m_agg.empty(), "two-hour close emits exactly one record quad");
+
+    b.sample_rate = 32000;
     b.ten_minute_valid = false;
     b.ten_minute_update = !b.ten_minute_update;
   }
