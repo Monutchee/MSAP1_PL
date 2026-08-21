@@ -54,6 +54,31 @@ set bd_was_open [expr {[current_bd_design -quiet] ne ""}]
 if {!$bd_was_open} {
     open_bd_design $bd
 }
+
+# A module-reference cell snapshots its HDL interface into the block design;
+# an RTL port or interface edit (a widened AXI address bus, say) reaches
+# neither the BD nor the out-of-context run's staleness check until the
+# reference is updated. Without this, synthesis silently links the previous
+# checkpoint and ships yesterday's logic (2026-08-18: a MeterCore interface
+# change left the built bitstream on the prior ADC-simulator core). The
+# refresh is idempotent and costs seconds when nothing changed.
+# update_module_reference takes get_ips-style module names (e.g.
+# TopDesign_MeterCore_Wrapper_0), NOT bd_cell paths -- a bd_cell object makes
+# it fail with an empty error. Module references are the get_ips entries
+# whose IPDEF carries the module_ref library.
+set module_refs [list]
+foreach candidate_ip [get_ips -quiet] {
+    if {[string match "*:module_ref:*" \
+             [get_property -quiet IPDEF $candidate_ip]]} {
+        lappend module_refs $candidate_ip
+    }
+}
+if {[llength $module_refs] > 0} {
+    puts "PL_BUILD_MODULE_REFS=$module_refs"
+    update_module_reference $module_refs
+    save_bd_design
+}
+
 validate_bd_design
 puts "PL_BUILD_BD_VALIDATED=$bd"
 if {!$bd_was_open} {
@@ -84,6 +109,32 @@ puts "PL_BUILD_BD_WRAPPER=$wrapper"
 if {[file exists $wrapper] && [file mtime $wrapper] < [file mtime $bd]} {
     puts "WARNING: $top is older than [file tail $bd]; if the block-design\
  boundary changed, refresh the managed top wrapper in IP Integrator"
+}
+
+# ---- Stage summary ---------------------------------------------------
+# IP freshness: a stale customization silently ships old logic (the
+# 2026-08 stale-bitstream incident class), so the count is a headline.
+set upgradable [llength [get_ips -quiet -filter {UPGRADE_VERSIONS != ""}]]
+set locked [llength [get_ips -quiet -filter {IS_LOCKED}]]
+puts "PL_BUILD_BD_IP_TOTAL=[llength [get_ips -quiet]]"
+puts "PL_BUILD_BD_IP_UPGRADABLE=$upgradable"
+puts "PL_BUILD_BD_IP_LOCKED=$locked"
+# Locked counts vary with how the session loaded the catalog and are
+# informational; upgradable customizations are the real staleness signal.
+if {$upgradable > 0} {
+    puts "*** STALE IP: $upgradable customization(s) trail their packaged"
+    puts "*** revision -- run Script/refresh_hls_ip.tcl (or 'mnc HLS build')"
+    puts "*** before trusting this build's netlist."
+}
+
+# Module-reference customizations actually baked into this build (the
+# build-shape switches, e.g. the ADC simulator's presence on K24 targets).
+foreach cell [get_bd_cells -quiet -hierarchical -filter {VLNV =~ "*:module_ref:*"}] {
+    foreach parameter [list_property $cell] {
+        if {[string match "CONFIG.G_*" $parameter]} {
+            puts "PL_BUILD_BD_GENERIC=[file tail $cell]:[string range $parameter 7 end]=[get_property $parameter $cell]"
+        }
+    }
 }
 
 puts "PL_BUILD_STAGE_COMPLETE=bd"

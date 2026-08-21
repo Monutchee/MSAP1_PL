@@ -18,14 +18,29 @@ set design_root [file join $project_root SourceData DesignFile]
 # Packaged HLS RTL (IP repository entry); refreshed by 'mnc HLS build' or
 # SourceData/HLS_DesignFile/run_hls.sh <component>.
 set hls_mtr2_hdl [file join $project_root SourceData HLS_DesignFile \
-  ip_repo Mtr2Engine hdl verilog]
+  ip_repo Agg150_180CycleEngine hdl verilog]
 if {![file isdirectory $hls_mtr2_hdl]} {
   error "missing $hls_mtr2_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
 }
-set hls_mtr1_hdl [file join $project_root SourceData HLS_DesignFile \
-  ip_repo Mtr1Engine hdl verilog]
-if {![file isdirectory $hls_mtr1_hdl]} {
-  error "missing $hls_mtr1_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+set hls_agg1012_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo Agg10_12CycleEngine hdl verilog]
+if {![file isdirectory $hls_agg1012_hdl]} {
+  error "missing $hls_agg1012_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+}
+set hls_pq_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo SlidingOneCycleRmsEngine hdl verilog]
+if {![file isdirectory $hls_pq_hdl]} {
+  error "missing $hls_pq_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+}
+set hls_scyc_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo SingleCycleEngine hdl verilog]
+if {![file isdirectory $hls_scyc_hdl]} {
+  error "missing $hls_scyc_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+}
+set hls_sim_wave_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo SimWaveEngine hdl verilog]
+if {![file isdirectory $hls_sim_wave_hdl]} {
+  error "missing $hls_sim_wave_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
 }
 
 # Keep focused checks predictable on developer workstations where the GUI or
@@ -34,6 +49,7 @@ set_param general.maxThreads 2
 
 read_vhdl -vhdl2008 [file join $design_root MeterCommon metering_pkg.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCommon grid_timing_pkg.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterCommon pq_event_pkg.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCommon measurement_record_bus_pkg.vhd]
 read_vhdl -vhdl2008 [file join $design_root Ad7771Capture ad7771_receiver.vhd]
 read_vhdl -vhdl2008 [file join $design_root Ad7771Capture ad7771_axi_regs.vhd]
@@ -49,14 +65,22 @@ read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_frequency_esti
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_frequency.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing grid_cycle_timing.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing record_word_tap.vhd]
-read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_mtr1_hls_shim.vhd]
-read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_mtr2_hls_shim.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_agg10_12_cycle_hls_shim.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_agg150_180_hls_shim.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_sliding_rms_hls_shim.vhd]
 read_verilog [lsort [glob -directory $hls_mtr2_hdl *.v]]
-read_verilog [lsort [glob -directory $hls_mtr1_hdl *.v]]
+read_verilog [lsort [glob -directory $hls_agg1012_hdl *.v]]
+read_verilog [lsort [glob -directory $hls_scyc_hdl *.v]]
+read_verilog [lsort [glob -directory $hls_pq_hdl *.v]]
+read_verilog [lsort [glob -directory $hls_sim_wave_hdl *.v]]
 # Bind the IP-customization module names over the packaged RTL for this
 # non-project flow (the project gets the same modules from the XCIs).
-read_verilog [file join $design_root MeterProcessing tb hls_mtr2_engine_ip.v]
-read_verilog [file join $design_root MeterProcessing tb hls_mtr1_engine_ip.v]
+read_verilog [file join $design_root MeterProcessing tb hls_agg150_180_cycle_engine_ip.v]
+read_verilog [file join $design_root MeterProcessing tb hls_agg10_12_cycle_engine_ip.v]
+read_verilog [file join $design_root MeterProcessing tb hls_sliding_one_cycle_rms_engine_ip.v]
+read_verilog [file join $design_root MeterProcessing tb hls_single_cycle_engine_ip.v]
+read_verilog [file join $design_root MeterCore tb hls_sim_wave_engine_ip.v]
 read_vhdl -vhdl2008 [file join $design_root MeterCore adc_simulator_pkg.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore adc_simulator.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore adc_source_mux.vhd]

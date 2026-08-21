@@ -39,6 +39,10 @@ if {![file exists $bitstream]} {
     error "write_bitstream reported success but $bitstream is missing"
 }
 puts "PL_BUILD_BITSTREAM=$bitstream"
+puts "PL_BUILD_BITSTREAM_BYTES=[file size $bitstream]"
+
+pl_build_timing_verdict impl_1
+pl_build_power_summary impl_1
 
 puts "PL_BUILD_STAGE_COMPLETE=bitstream"
 pl_build_close_project

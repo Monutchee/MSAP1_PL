@@ -28,31 +28,45 @@
   `TUSER[31:0]`, high word in `TUSER[105:74]`). It is the measurement
   timebase: never reset it on configuration apply and never step it for time
   synchronization. MTR1 format `0x00010002` references it in words 60/61 and
-  the waveform correlation block latches it for Linux UTC mapping.
+  the waveform correlation block latches it for Linux UTC mapping (the
+  BASIC-v4 record keeps those words).
 - Grid-cycle timing registers live in the processing block: `GRID_SHADOW_CONFIG`
   `0x6C`, `GRID_ACTIVE_CONFIG` `0x70`, `GRID_STATUS` `0x74` (RPU-owned,
   committed by the shared `CONTROL.APPLY` toggle). Like the frequency and
   waveform branches, grid timing is observational: it must never backpressure
-  ADC capture, RMS, or MTR1 production.
-- Both record producers are Vitis HLS engines that build and serialize
-  their own records: the MTR1 basic engine
-  (`SourceData/HLS_DesignFile/MeterProcessing/Mtr1Engine`,
-  `mtr1_engine.hpp`/`.cpp` normative) and the 150/180-cycle aggregation
-  engine (`.../Mtr2Engine`, `mtr2_engine.hpp`/`.cpp` normative;
-  the hand-written RTL engines they replaced live in git history). Shared
-  contracts -- the 256-byte record envelope with the MTR1-v3 (`0x00010003`)
-  and MTR2-v2 (`0x00020002`) maps, the basic-result beat, and the serial
-  math -- are single-defined in `SourceData/HLS_DesignFile/common/include/`
-  and mirrored by any VHDL shim in lock step. Aggregates are formed from
-  exactly 15 eligible Basic results -- never from raw samples or a
-  wall-clock timer -- and aggregate data never travels over RPMsg. Like
-  every metrology observer the engines must never backpressure
-  measurement (the MTR1 shim's beat FIFO absorbs finalize latency and
-  counts any overflow). Health registers `0x24`-`0x2c` and `0x78`-`0x98`
-  in the processing block are "as of the last emitted record" (the
-  counters ride inside the records, republished by `record_word_tap`);
-  `AGG_STATUS` `0x78` and the reserved mismatch register `0x94` read
-  zero, and `0x98` now counts MTR1 shim FIFO drops. Never wire two
+  ADC capture, RMS, or basic-record production.
+- All record producers are Vitis HLS engines that build and serialize
+  their own records: the single-cycle engine
+  (`SourceData/HLS_DesignFile/MeterProcessing/SingleCycleEngine`,
+  SCYC-v5 `0x000A0005`), the 10/12-cycle merge tier
+  (`.../Agg10_12CycleEngine`, `agg10_12_cycle_engine.hpp`/`.cpp`
+  normative — it consumes SingleCycleResult beats, never raw samples,
+  retired the sample-domain Mtr1Engine in M7, and emits four records
+  per block on one stream: BASIC-v4 `0x00010004`, POWER-v1 `0x00070001`,
+  PHASOR-v1 `0x00080001`, UNBAL-v1 `0x00090001`) and
+  the 150/180-cycle aggregation engine (`.../Agg150_180CycleEngine`,
+  `agg150_180_cycle_engine.hpp`/`.cpp` normative — consumes the 10/12
+  tier's block-result beats (provenance + merge-safe accumulators,
+  `agg_block_result.hpp`) and emits four records per aggregate: AGG-v3
+  `0x00020003`, AGG-POWER `0x00100001`, AGG-PHASOR `0x00110001`,
+  AGG-UNBAL `0x00120001`; Mtr2Engine and the 808-bit basic beat retired
+  in M11, the hand-written RTL engines live in git history). Shared
+  contracts -- the 256-byte record envelope and word maps, the
+  SingleCycleResult and block-result beats, the shared interval finalize
+  (`metrology_finalize.hpp`), and the serial math -- are single-defined in
+  `SourceData/HLS_DesignFile/common/include/` and mirrored by any VHDL
+  shim in lock step. Aggregates are formed from exactly 15 eligible Basic
+  results -- never from raw samples or a wall-clock timer -- and
+  aggregate data never travels over RPMsg. Like every metrology observer
+  the engines must never backpressure measurement (the single-cycle
+  shim's beat FIFO absorbs finalize latency and counts any overflow; on a
+  dead reference grid timing keeps cycle boundaries running synthetically
+  at nominal cadence so the whole chain keeps producing flagged results).
+  Health registers `0x24`-`0x2c` and `0x78`-`0x98` in the processing
+  block are "as of the last emitted record" (the counters ride inside the
+  records, republished by `record_word_tap`); `AGG_STATUS` `0x78` and the
+  reserved mismatch register `0x94` read zero, and `0x98` now counts
+  single-cycle shim FIFO drops. Never wire two
   `register_mode=off` HLS axis ports directly together: a raw HLS axis
   master gates TVALID on TREADY (AXI-illegal) and deadlocks against a
   TVALID-gated reader -- keep the boundary register on every HLS axis
@@ -69,8 +83,8 @@
   reference (`SUPPORTS_MODREF=1`); only the `.xci` is tracked, its output
   products are not. The non-project check scripts compile the packaged RTL
   directly from `ip_repo/<Name>/hdl/verilog` with the module-name binding
-  in `DesignFile/MeterProcessing/tb/hls_mtr1_engine_ip.v` and
-  `hls_mtr2_engine_ip.v`. A fresh
+  in `DesignFile/MeterProcessing/tb/hls_agg10_12_cycle_engine_ip.v`,
+  `hls_single_cycle_engine_ip.v`, and `hls_agg150_180_cycle_engine_ip.v`. A fresh
   checkout must run `mnc HLS build` (or `HLS_DesignFile/run_hls.sh`) first;
   the check scripts fail with that instruction when the repository is
   absent. After any HLS source change: `run_hls.sh`, then
@@ -110,7 +124,7 @@
   internally but is zero and invalid in the default simulator configuration.
 - The raw waveform branch emits 64-byte WFM1 headers plus 1024 eight-channel
   frames. It is observational and must never backpressure ADC capture, RMS,
-  frequency, or MTR1 production. Its short XPM FIFO may drop waveform frames
+  frequency, or basic-record production. Its short XPM FIFO may drop waveform frames
   and increment its counter when Linux is unavailable.
 - Capture diagnostics expose the measured ADC DCLK rate at offset `0x2C` and
   the physical `ADC_DRDY_N` falling-edge rate at offset `0x30`. Both use

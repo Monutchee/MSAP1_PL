@@ -4,6 +4,13 @@ use ieee.std_logic_1164.all;
 -- Ordinary-VHDL Vivado module-reference boundary. The implementation and
 -- algorithm entities are VHDL-2008 sources.
 entity MeterCore_Wrapper is
+  generic (
+    -- Elaborate the raw ADC simulator (dev/test builds). Set false for
+    -- resource-constrained production targets (K24): the block leaves
+    -- the netlist entirely. Settable on the block-design module
+    -- reference (CONFIG.G_SIMULATOR_ENABLE) without editing sources.
+    G_SIMULATOR_ENABLE : boolean := true
+  );
   port (
     aclk    : in std_logic;
     aresetn : in std_logic;
@@ -80,7 +87,7 @@ entity MeterCore_Wrapper is
     s_axi_waveform_rvalid  : out std_logic;
     s_axi_waveform_rready  : in  std_logic;
 
-    s_axi_simulator_awaddr  : in  std_logic_vector(7 downto 0);
+    s_axi_simulator_awaddr  : in  std_logic_vector(11 downto 0);
     s_axi_simulator_awvalid : in  std_logic;
     s_axi_simulator_awready : out std_logic;
     s_axi_simulator_wdata   : in  std_logic_vector(31 downto 0);
@@ -90,7 +97,7 @@ entity MeterCore_Wrapper is
     s_axi_simulator_bresp   : out std_logic_vector(1 downto 0);
     s_axi_simulator_bvalid  : out std_logic;
     s_axi_simulator_bready  : in  std_logic;
-    s_axi_simulator_araddr  : in  std_logic_vector(7 downto 0);
+    s_axi_simulator_araddr  : in  std_logic_vector(11 downto 0);
     s_axi_simulator_arvalid : in  std_logic;
     s_axi_simulator_arready : out std_logic;
     s_axi_simulator_rdata   : out std_logic_vector(31 downto 0);
@@ -109,6 +116,18 @@ entity MeterCore_Wrapper is
     m_axis_mtr2_tvalid : out std_logic;
     m_axis_mtr2_tready : in  std_logic;
     m_axis_mtr2_tlast  : out std_logic;
+
+    m_axis_pq_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_pq_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_pq_tvalid : out std_logic;
+    m_axis_pq_tready : in  std_logic;
+    m_axis_pq_tlast  : out std_logic;
+
+    m_axis_scyc_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_scyc_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_scyc_tvalid : out std_logic;
+    m_axis_scyc_tready : in  std_logic;
+    m_axis_scyc_tlast  : out std_logic;
 
     m_axis_waveform_tdata  : out std_logic_vector(31 downto 0);
     m_axis_waveform_tkeep  : out std_logic_vector(3 downto 0);
@@ -132,7 +151,7 @@ architecture structural of MeterCore_Wrapper is
   attribute X_INTERFACE_INFO of aclk : signal is
     "xilinx.com:signal:clock:1.0 aclk CLK";
   attribute X_INTERFACE_PARAMETER of aclk : signal is
-    "XIL_INTERFACENAME aclk, FREQ_HZ 99999001, ASSOCIATED_RESET aresetn, ASSOCIATED_BUSIF S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:S_AXI_WAVEFORM:S_AXI_SIMULATOR:M_AXIS_MTR1:M_AXIS_MTR2:M_AXIS_WAVEFORM";
+    "XIL_INTERFACENAME aclk, FREQ_HZ 99999001, ASSOCIATED_RESET aresetn, ASSOCIATED_BUSIF S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:S_AXI_WAVEFORM:S_AXI_SIMULATOR:M_AXIS_MTR1:M_AXIS_MTR2:M_AXIS_PQ:M_AXIS_SCYC:M_AXIS_WAVEFORM";
   attribute X_INTERFACE_INFO of aresetn : signal is
     "xilinx.com:signal:reset:1.0 aresetn RST";
   attribute X_INTERFACE_PARAMETER of aresetn : signal is
@@ -225,7 +244,7 @@ architecture structural of MeterCore_Wrapper is
 
   attribute X_INTERFACE_INFO of s_axi_simulator_awaddr : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR AWADDR";
   attribute X_INTERFACE_PARAMETER of s_axi_simulator_awaddr : signal is
-    "XIL_INTERFACENAME S_AXI_SIMULATOR, PROTOCOL AXI4LITE, DATA_WIDTH 32, ADDR_WIDTH 8, ID_WIDTH 0, READ_WRITE_MODE READ_WRITE";
+    "XIL_INTERFACENAME S_AXI_SIMULATOR, PROTOCOL AXI4LITE, DATA_WIDTH 32, ADDR_WIDTH 12, ID_WIDTH 0, READ_WRITE_MODE READ_WRITE";
   attribute X_INTERFACE_INFO of s_axi_simulator_awvalid : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR AWVALID";
   attribute X_INTERFACE_INFO of s_axi_simulator_awready : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR AWREADY";
   attribute X_INTERFACE_INFO of s_axi_simulator_wdata : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR WDATA";
@@ -258,6 +277,16 @@ architecture structural of MeterCore_Wrapper is
   attribute X_INTERFACE_INFO of m_axis_mtr2_tvalid : signal is "xilinx.com:interface:axis:1.0 M_AXIS_MTR2 TVALID";
   attribute X_INTERFACE_INFO of m_axis_mtr2_tready : signal is "xilinx.com:interface:axis:1.0 M_AXIS_MTR2 TREADY";
   attribute X_INTERFACE_INFO of m_axis_mtr2_tlast : signal is "xilinx.com:interface:axis:1.0 M_AXIS_MTR2 TLAST";
+  attribute X_INTERFACE_INFO of m_axis_pq_tdata : signal is "xilinx.com:interface:axis:1.0 M_AXIS_PQ TDATA";
+  attribute X_INTERFACE_INFO of m_axis_pq_tkeep : signal is "xilinx.com:interface:axis:1.0 M_AXIS_PQ TKEEP";
+  attribute X_INTERFACE_INFO of m_axis_pq_tvalid : signal is "xilinx.com:interface:axis:1.0 M_AXIS_PQ TVALID";
+  attribute X_INTERFACE_INFO of m_axis_pq_tready : signal is "xilinx.com:interface:axis:1.0 M_AXIS_PQ TREADY";
+  attribute X_INTERFACE_INFO of m_axis_pq_tlast : signal is "xilinx.com:interface:axis:1.0 M_AXIS_PQ TLAST";
+  attribute X_INTERFACE_INFO of m_axis_scyc_tdata : signal is "xilinx.com:interface:axis:1.0 M_AXIS_SCYC TDATA";
+  attribute X_INTERFACE_INFO of m_axis_scyc_tkeep : signal is "xilinx.com:interface:axis:1.0 M_AXIS_SCYC TKEEP";
+  attribute X_INTERFACE_INFO of m_axis_scyc_tvalid : signal is "xilinx.com:interface:axis:1.0 M_AXIS_SCYC TVALID";
+  attribute X_INTERFACE_INFO of m_axis_scyc_tready : signal is "xilinx.com:interface:axis:1.0 M_AXIS_SCYC TREADY";
+  attribute X_INTERFACE_INFO of m_axis_scyc_tlast : signal is "xilinx.com:interface:axis:1.0 M_AXIS_SCYC TLAST";
 
   attribute X_INTERFACE_INFO of m_axis_waveform_tdata : signal is "xilinx.com:interface:axis:1.0 M_AXIS_WAVEFORM TDATA";
   attribute X_INTERFACE_PARAMETER of m_axis_waveform_tdata : signal is
@@ -268,6 +297,9 @@ architecture structural of MeterCore_Wrapper is
   attribute X_INTERFACE_INFO of m_axis_waveform_tlast : signal is "xilinx.com:interface:axis:1.0 M_AXIS_WAVEFORM TLAST";
 begin
   implementation : entity work.meter_core
+    generic map (
+      G_SIMULATOR_ENABLE => G_SIMULATOR_ENABLE
+    )
     port map (
       aclk => aclk,
       aresetn => aresetn,
@@ -366,6 +398,16 @@ begin
       m_axis_mtr2_tvalid => m_axis_mtr2_tvalid,
       m_axis_mtr2_tready => m_axis_mtr2_tready,
       m_axis_mtr2_tlast => m_axis_mtr2_tlast,
+      m_axis_pq_tdata => m_axis_pq_tdata,
+      m_axis_pq_tkeep => m_axis_pq_tkeep,
+      m_axis_pq_tvalid => m_axis_pq_tvalid,
+      m_axis_pq_tready => m_axis_pq_tready,
+      m_axis_pq_tlast => m_axis_pq_tlast,
+      m_axis_scyc_tdata => m_axis_scyc_tdata,
+      m_axis_scyc_tkeep => m_axis_scyc_tkeep,
+      m_axis_scyc_tvalid => m_axis_scyc_tvalid,
+      m_axis_scyc_tready => m_axis_scyc_tready,
+      m_axis_scyc_tlast => m_axis_scyc_tlast,
       m_axis_waveform_tdata => m_axis_waveform_tdata,
       m_axis_waveform_tkeep => m_axis_waveform_tkeep,
       m_axis_waveform_tvalid => m_axis_waveform_tvalid,

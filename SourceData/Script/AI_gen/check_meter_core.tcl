@@ -8,21 +8,45 @@ set work_root [file join /tmp msap1_meter_core_sim]
 # Packaged HLS RTL (IP repository entry); refreshed by 'mnc HLS build' or
 # SourceData/HLS_DesignFile/run_hls.sh <component>.
 set hls_mtr2_hdl [file join $project_root SourceData HLS_DesignFile \
-  ip_repo Mtr2Engine hdl verilog]
+  ip_repo Agg150_180CycleEngine hdl verilog]
 if {![file isdirectory $hls_mtr2_hdl]} {
   error "missing $hls_mtr2_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
 }
 set hls_mtr2_verilog [concat \
   [lsort [glob -directory $hls_mtr2_hdl *.v]] \
-  [list [file join $design_root MeterProcessing tb hls_mtr2_engine_ip.v]]]
-set hls_mtr1_hdl [file join $project_root SourceData HLS_DesignFile \
-  ip_repo Mtr1Engine hdl verilog]
-if {![file isdirectory $hls_mtr1_hdl]} {
-  error "missing $hls_mtr1_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+  [list [file join $design_root MeterProcessing tb hls_agg150_180_cycle_engine_ip.v]]]
+set hls_agg1012_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo Agg10_12CycleEngine hdl verilog]
+if {![file isdirectory $hls_agg1012_hdl]} {
+  error "missing $hls_agg1012_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
 }
-set hls_mtr1_verilog [concat \
-  [lsort [glob -directory $hls_mtr1_hdl *.v]] \
-  [list [file join $design_root MeterProcessing tb hls_mtr1_engine_ip.v]]]
+set hls_agg1012_verilog [concat \
+  [lsort [glob -directory $hls_agg1012_hdl *.v]] \
+  [list [file join $design_root MeterProcessing tb hls_agg10_12_cycle_engine_ip.v]]]
+set hls_pq_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo SlidingOneCycleRmsEngine hdl verilog]
+if {![file isdirectory $hls_pq_hdl]} {
+  error "missing $hls_pq_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+}
+set hls_pq_verilog [concat \
+  [lsort [glob -directory $hls_pq_hdl *.v]] \
+  [list [file join $design_root MeterProcessing tb hls_sliding_one_cycle_rms_engine_ip.v]]]
+set hls_sim_wave_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo SimWaveEngine hdl verilog]
+if {![file isdirectory $hls_sim_wave_hdl]} {
+  error "missing $hls_sim_wave_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+}
+set hls_sim_wave_verilog [concat \
+  [lsort [glob -directory $hls_sim_wave_hdl *.v]] \
+  [list [file join $design_root MeterCore tb hls_sim_wave_engine_ip.v]]]
+set hls_scyc_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo SingleCycleEngine hdl verilog]
+if {![file isdirectory $hls_scyc_hdl]} {
+  error "missing $hls_scyc_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+}
+set hls_scyc_verilog [concat \
+  [lsort [glob -directory $hls_scyc_hdl *.v]] \
+  [list [file join $design_root MeterProcessing tb hls_single_cycle_engine_ip.v]]]
 
 set xvlog [lindex [auto_execok xvlog] 0]
 set xvhdl [lindex [auto_execok xvhdl] 0]
@@ -40,6 +64,7 @@ if {[info exists ::env(LD_LIBRARY_PATH)] && $::env(LD_LIBRARY_PATH) ne ""} {
 set vhdl2008_sources [list \
   [file join $design_root MeterCommon metering_pkg.vhd] \
   [file join $design_root MeterCommon grid_timing_pkg.vhd] \
+  [file join $design_root MeterCommon pq_event_pkg.vhd] \
   [file join $design_root MeterCommon measurement_record_bus_pkg.vhd] \
   [file join $design_root Ad7771Capture ad7771_receiver.vhd] \
   [file join $design_root Ad7771Capture ad7771_axi_regs.vhd] \
@@ -55,8 +80,10 @@ set vhdl2008_sources [list \
   [file join $design_root MeterProcessing meter_frequency.vhd] \
   [file join $design_root MeterProcessing grid_cycle_timing.vhd] \
   [file join $design_root MeterProcessing record_word_tap.vhd] \
-  [file join $design_root MeterProcessing meter_mtr1_hls_shim.vhd] \
-  [file join $design_root MeterProcessing meter_mtr2_hls_shim.vhd] \
+  [file join $design_root MeterProcessing meter_agg10_12_cycle_hls_shim.vhd] \
+  [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd] \
+  [file join $design_root MeterProcessing meter_sliding_rms_hls_shim.vhd] \
+  [file join $design_root MeterProcessing meter_agg150_180_hls_shim.vhd] \
   [file join $design_root MeterCore adc_simulator_pkg.vhd] \
   [file join $design_root MeterCore adc_simulator.vhd] \
   [file join $design_root MeterCore adc_source_mux.vhd] \
@@ -70,12 +97,26 @@ set simulator_testbench [file join $design_root MeterCore tb adc_simulator_tb.sv
 
 file delete -force $work_root
 file mkdir $work_root
+# ROM initialization images referenced by the packaged HLS RTL via
+# relative $readmemh paths -- xsim resolves them against the working
+# directory, so stage them beside the compiled snapshot. Sweep EVERY
+# packaged engine (sim-wave sine LUT, single-cycle trig LUT, the M9
+# CORDIC atan table, anything future).
+foreach hdl_dir [list $hls_sim_wave_hdl $hls_scyc_hdl $hls_agg1012_hdl \
+                     $hls_mtr2_hdl $hls_pq_hdl] {
+  foreach rom_image [glob -nocomplain -directory $hdl_dir *.dat] {
+    file copy -force $rom_image $work_root
+  }
+}
 set original_dir [pwd]
 cd $work_root
 
 puts [exec $xvhdl --2008 {*}$vhdl2008_sources 2>@1]
 puts [exec $xvlog -i $hls_mtr2_hdl {*}$hls_mtr2_verilog 2>@1]
-puts [exec $xvlog -i $hls_mtr1_hdl {*}$hls_mtr1_verilog 2>@1]
+puts [exec $xvlog -i $hls_agg1012_hdl {*}$hls_agg1012_verilog 2>@1]
+puts [exec $xvlog -i $hls_sim_wave_hdl {*}$hls_sim_wave_verilog 2>@1]
+puts [exec $xvlog -i $hls_scyc_hdl {*}$hls_scyc_verilog 2>@1]
+puts [exec $xvlog -i $hls_pq_hdl {*}$hls_pq_verilog 2>@1]
 puts [exec $xvhdl --2008 {*}$core_vhdl2008_sources 2>@1]
 puts [exec $xvhdl $boundary_wrapper 2>@1]
 puts [exec $xvlog --sv $testbench 2>@1]
@@ -101,6 +142,14 @@ puts $simulator_log
 if {![string match "*PASS: adc_simulator_tb*" $simulator_log]} {
   error "ADC simulator simulation did not report PASS"
 }
+
+# Elaborate the simulator-disabled configuration (K24 production shape):
+# the generate branch never runs in the benches above, so a dedicated
+# elaboration catches width/driver errors in the stub before a build does.
+set disabled_log [exec $xelab --mt off MeterCore_Wrapper glbl \
+  -generic_top "G_SIMULATOR_ENABLE=false" -s meter_core_sim_disabled 2>@1]
+puts $disabled_log
+puts "MeterCore G_SIMULATOR_ENABLE=false elaboration PASS"
 
 cd $original_dir
 file delete -force $work_root

@@ -104,6 +104,42 @@ cp -- "${REPORT}" "${REPO_ENTRY}.tmp/"
 rm -rf -- "${REPO_ENTRY}"
 mv -- "${REPO_ENTRY}.tmp" "${REPO_ENTRY}"
 
+# Headline summary from the synthesis report: the numbers behind the Vitis
+# GUI's summary panel, as stage output. Estimated clock and slack are the
+# HLS model's view -- the routed verdict comes from the PL build stages.
+awk '
+    /^\+ Timing:/         { timing = 1 }
+    timing && /^ *\|ap_clk/ {
+        gsub(/\|/, " ")
+        printf "HLS_BUILD_CLOCK_TARGET=%s %s  ESTIMATED=%s %s  UNCERTAINTY=%s %s\n",
+               $2, $3, $4, $5, $6, $7
+        timing = 0
+    }
+    /^\+ Latency:/ { latency = 1 ; next }
+    latency && /^ *\| *[0-9]/ {
+        gsub(/\|/, " ")
+        printf "HLS_BUILD_LATENCY_CYCLES=%s..%s\n", $1, $2
+        latency = 0
+    }
+    /^== Utilization Estimates/ { util = 1 }
+    util && /^ *\|Total / {
+        n = split($0, cell, "|")
+        gsub(/^ +| +$/, "", cell[3]); gsub(/^ +| +$/, "", cell[4])
+        gsub(/^ +| +$/, "", cell[5]); gsub(/^ +| +$/, "", cell[6])
+        gsub(/^ +| +$/, "", cell[7])
+        printf "HLS_BUILD_BRAM=%s  DSP=%s  FF=%s  LUT=%s  URAM=%s\n",
+               cell[3], cell[4], cell[5], cell[6], cell[7]
+    }
+    util && /^ *\|Utilization \(%\)/ {
+        n = split($0, cell, "|")
+        gsub(/^ +| +$/, "", cell[3]); gsub(/^ +| +$/, "", cell[4])
+        gsub(/^ +| +$/, "", cell[5]); gsub(/^ +| +$/, "", cell[6])
+        printf "HLS_BUILD_UTIL_PCT: BRAM=%s%%  DSP=%s%%  FF=%s%%  LUT=%s%% (of K26)\n",
+               cell[3], cell[4], cell[5], cell[6]
+        util = 0
+    }
+' "${REPORT}"
+
 echo "${NAME} HLS flow PASS; IP repository entry refreshed:"
 echo "  ${REPO_ENTRY}"
 echo "Pick it up in Vivado with Script/refresh_hls_ip.tcl (or 'mnc HLS build')."

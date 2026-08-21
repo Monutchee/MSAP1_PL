@@ -1,6 +1,0 @@
--std=c++14
--Isrc
--I../../common/include
--isystem/opt/Xilinx/2025.2/Vitis/include
--Wno-unknown-pragmas
--Wno-unused-label

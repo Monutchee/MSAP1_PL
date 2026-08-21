@@ -61,11 +61,18 @@ entity grid_cycle_timing is
     frame_closes_block_o : out std_logic;
     cycle_mode_o         : out std_logic;
 
-    -- Registered timing strobes, one aclk after the crossing frame. Nothing
-    -- consumes these yet; a future PQ event engine will.
+    -- Registered timing strobes, one aclk after the crossing frame (the
+    -- single-cycle tier consumes them). While enabled but UNLOCKED the
+    -- boundaries continue synthetically at the nominal cadence (see the
+    -- fallback budget below), so the single-cycle and 10/12-cycle tiers
+    -- keep producing flagged results on a dead reference exactly like the
+    -- retired sample-domain fallback window did.
     cycle_boundary_o      : out std_logic;
     half_cycle_boundary_o : out std_logic;
     cycle_sequence_o      : out std_logic_vector(31 downto 0);
+    -- Live lock view for per-result provenance flags downstream (the
+    -- closed-block flags above lag by one block by design).
+    cycle_locked_o        : out std_logic;
 
     -- Provenance of the most recently closed block. Stable from the close
     -- until the next close, which comfortably covers the RMS calculation
@@ -114,6 +121,20 @@ architecture rtl of grid_cycle_timing is
   -- scrubbed. A single disturbance hits one copy, never both.
   signal closed_first_sample_alt : unsigned(63 downto 0) := (others => '0');
 
+  -- Synthetic fallback cycle cadence, divider-free: each accepted frame
+  -- adds active_cycles to the budget; reaching active_window fires one
+  -- boundary and subtracts. active_window is active_cycles nominal cycles
+  -- of samples, so this fires exactly active_cycles times per window,
+  -- evenly spread -- one boundary per nominal cycle.
+  signal fallback_budget : unsigned(31 downto 0) := (others => '0');
+  -- Synthetic fallback HALF-cycle cadence (metrology M12). The Urms(1/2)
+  -- sliding window is refreshed on this strobe, so it needs the same
+  -- dead-reference survival the full-cycle boundary has: the same
+  -- divider-free budget at twice the rate (two boundaries per nominal
+  -- cycle). Real crossings -- rising OR falling -- always take priority
+  -- and reset the budget, so a locked reference is never disturbed.
+  signal half_fallback_budget : unsigned(31 downto 0) := (others => '0');
+
   signal close_locked   : std_logic;
   signal close_relock   : std_logic;
   signal close_fallback : std_logic;
@@ -126,6 +147,7 @@ begin
   active_grid_o <= pack_grid_config(
     to_integer(active_cycles), to_integer(active_nominal), active_enable);
   cycle_mode_o <= active_enable;
+  cycle_locked_o <= locked;
   cycle_sequence_o <= std_logic_vector(cycle_sequence);
   block_first_sample_o <= std_logic_vector(closed_first_sample);
   block_cycle_count_o <= std_logic_vector(closed_cycle_count);
@@ -184,6 +206,7 @@ begin
     if rising_edge(aclk) then
       cycle_boundary_o <= '0';
       half_cycle_boundary_o <= '0';
+      half_fallback_budget <= (others => '0');
 
       if aresetn = '0' then
         apply_seen <= '0';
@@ -224,6 +247,7 @@ begin
         cycles_in_block <= (others => '0');
         samples_in_block <= (others => '0');
         samples_since_crossing <= (others => '0');
+        fallback_budget <= (others => '0');
         block_start_pending <= '1';
         first_block_flag <= '1';
       elsif frame_accept_i = '1' and active_enable = '1' then
@@ -262,16 +286,43 @@ begin
           block_start_pending <= '0';
         end if;
 
-        -- Cycle bookkeeping from the shared detector's qualified crossings.
+        -- Cycle bookkeeping from the shared detector's qualified
+        -- crossings; without a lock the boundaries continue synthetically
+        -- at the nominal cadence so downstream cycle consumers never
+        -- stall on a dead reference.
         if rising_crossing_i = '1' then
           cycle_sequence <= cycle_sequence + 1;
           samples_since_crossing <= (others => '0');
           cycle_boundary_o <= '1';
+          fallback_budget <= (others => '0');
         else
           samples_since_crossing <= samples_since_crossing + 1;
+          if locked = '0' and active_window /= 0 and
+             fallback_budget + resize(active_cycles, 32) >= active_window then
+            cycle_sequence <= cycle_sequence + 1;
+            cycle_boundary_o <= '1';
+            fallback_budget <=
+              fallback_budget + resize(active_cycles, 32) - active_window;
+          elsif locked = '0' then
+            fallback_budget <= fallback_budget + resize(active_cycles, 32);
+          else
+            fallback_budget <= (others => '0');
+          end if;
         end if;
         if rising_crossing_i = '1' or falling_crossing_i = '1' then
           half_cycle_boundary_o <= '1';
+          half_fallback_budget <= (others => '0');
+        elsif locked = '0' and active_window /= 0 and
+              half_fallback_budget + resize(active_cycles & '0', 32) >=
+                active_window then
+          half_cycle_boundary_o <= '1';
+          half_fallback_budget <= half_fallback_budget +
+            resize(active_cycles & '0', 32) - active_window;
+        elsif locked = '0' then
+          half_fallback_budget <=
+            half_fallback_budget + resize(active_cycles & '0', 32);
+        else
+          half_fallback_budget <= (others => '0');
         end if;
 
         -- Lock tracking. Losing the reference drops the lock immediately;

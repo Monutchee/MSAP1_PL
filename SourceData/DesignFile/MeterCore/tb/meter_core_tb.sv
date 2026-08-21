@@ -76,7 +76,7 @@ module meter_core_tb;
   wire wave_rvalid;
   logic wave_rready = 1'b1;
 
-  logic [7:0] sim_awaddr = '0;
+  logic [11:0] sim_awaddr = '0;
   logic sim_awvalid = 1'b0;
   wire sim_awready;
   logic [31:0] sim_wdata = '0;
@@ -86,7 +86,7 @@ module meter_core_tb;
   wire [1:0] sim_bresp;
   wire sim_bvalid;
   logic sim_bready = 1'b1;
-  logic [7:0] sim_araddr = '0;
+  logic [11:0] sim_araddr = '0;
   logic sim_arvalid = 1'b0;
   wire sim_arready;
   wire [31:0] sim_rdata;
@@ -102,11 +102,30 @@ module meter_core_tb;
   logic mtr1_tready = 1'b0;
   wire mtr1_tlast;
 
+  // PQ event stream (M12): drained continuously so the producer can
+  // never stall; a passive monitor checks framing and format.
+  wire [31:0] pq_tdata;
+  wire [3:0] pq_tkeep;
+  wire pq_tvalid;
+  wire pq_tlast;
+  int pq_beats = 0;
+  int pq_records = 0;
+
   wire [31:0] mtr2_tdata;
   wire [3:0] mtr2_tkeep;
   wire mtr2_tvalid;
   logic mtr2_tready = 1'b0;
   wire mtr2_tlast;
+
+  // Single-cycle diagnostic stream: drained continuously; a passive
+  // monitor checks framing and format, and the final block requires at
+  // least one complete SCYC record (the MTR2 scenario spans 180 cycles).
+  wire [31:0] scyc_tdata;
+  wire [3:0] scyc_tkeep;
+  wire scyc_tvalid;
+  wire scyc_tlast;
+  int scyc_beats = 0;
+  int scyc_records = 0;
 
   wire [31:0] waveform_tdata;
   wire [3:0] waveform_tkeep;
@@ -225,11 +244,21 @@ module meter_core_tb;
     .m_axis_mtr1_tvalid(mtr1_tvalid),
     .m_axis_mtr1_tready(mtr1_tready),
     .m_axis_mtr1_tlast(mtr1_tlast),
+    .m_axis_pq_tdata(pq_tdata),
+    .m_axis_pq_tkeep(pq_tkeep),
+    .m_axis_pq_tvalid(pq_tvalid),
+    .m_axis_pq_tready(1'b1),
+    .m_axis_pq_tlast(pq_tlast),
     .m_axis_mtr2_tdata(mtr2_tdata),
     .m_axis_mtr2_tkeep(mtr2_tkeep),
     .m_axis_mtr2_tvalid(mtr2_tvalid),
     .m_axis_mtr2_tready(mtr2_tready),
     .m_axis_mtr2_tlast(mtr2_tlast),
+    .m_axis_scyc_tdata(scyc_tdata),
+    .m_axis_scyc_tkeep(scyc_tkeep),
+    .m_axis_scyc_tvalid(scyc_tvalid),
+    .m_axis_scyc_tready(1'b1),
+    .m_axis_scyc_tlast(scyc_tlast),
     .m_axis_waveform_tdata(waveform_tdata),
     .m_axis_waveform_tkeep(waveform_tkeep),
     .m_axis_waveform_tvalid(waveform_tvalid),
@@ -456,7 +485,7 @@ module meter_core_tb;
 
       processing_write(8'h10, generation);
       processing_write(8'h14, 32'd20);
-      processing_write(8'h18, 32'd4);
+      processing_write(8'h18, 32'd192);
       processing_write(8'h1c, 32'h0000_007f);
       processing_write(8'h08, remove_dc ? 32'h0000_0007 : 32'h0000_0003);
 
@@ -476,8 +505,11 @@ module meter_core_tb;
   task automatic check_meter_word(input integer word_index,
                                   input integer expected_sequence,
                                   input integer expected_generation,
+                                  input logic [31:0] expected_count,
+                                  input logic [31:0] expected_status,
                                   input logic [31:0] expected_timing,
                                   input logic [31:0] expected_first_sample,
+                                  input logic [31:0] expected_last_sample,
                                   input integer rms0,
                                   input integer rms1,
                                   input integer rms2,
@@ -488,15 +520,18 @@ module meter_core_tb;
     begin
       case (word_index)
         0: assert (mtr1_tdata == 32'h3152_544d) else $fatal(1, "bad MTR1 magic");
-        1: assert (mtr1_tdata == 32'h0001_0003) else $fatal(1, "bad record format");
+        1: assert (mtr1_tdata == 32'h0001_0004) else $fatal(1, "bad record format");
         2: assert (mtr1_tdata == 32'd256) else $fatal(1, "bad record length");
         3: assert (mtr1_tdata == expected_sequence) else $fatal(1, "bad result sequence");
         4: assert (mtr1_tdata == expected_generation) else $fatal(1, "bad generation");
         5: assert (mtr1_tdata == 32'd20) else $fatal(1, "bad sample rate");
-        6: assert (mtr1_tdata == 32'd4)
-          else $fatal(1, "bad RMS window: got %0d expected 4", mtr1_tdata);
+        6: assert (mtr1_tdata == expected_count)
+          else $fatal(1, "bad block sample count: got %0d expected %0d",
+                      mtr1_tdata, expected_count);
         7: assert (mtr1_tdata[7:0] == 8'h7f) else $fatal(1, "bad valid mask");
-        8: assert (mtr1_tdata == 0) else $fatal(1, "unexpected result status");
+        8: assert (mtr1_tdata == expected_status)
+          else $fatal(1, "bad status %08h, expected %08h", mtr1_tdata,
+                      expected_status);
         9: assert (mtr1_tdata == expected_first_sample)
           else $fatal(1, "bad first sample %0d, expected %0d",
                       mtr1_tdata, expected_first_sample);
@@ -506,8 +541,10 @@ module meter_core_tb;
         13: assert (mtr1_tdata == expected_timing)
           else $fatal(1, "bad timing word %08h, expected %08h",
                       mtr1_tdata, expected_timing);
-        14: assert (mtr1_tdata == 0) else $fatal(1, "word 14 not reserved");
-        15: assert (mtr1_tdata == 0) else $fatal(1, "word 15 not reserved");
+        14: assert (mtr1_tdata == expected_last_sample)
+          else $fatal(1, "bad last sample %0d, expected %0d",
+                      mtr1_tdata, expected_last_sample);
+        15: assert (mtr1_tdata == 0) else $fatal(1, "bad last sample high");
         16: assert ($signed(mtr1_tdata) == 20) else $fatal(1, "CH0 mean mismatch");
         17: assert (mtr1_tdata == 0) else $fatal(1, "CH0 mean high mismatch");
         18: assert (mtr1_tdata == rms0) else $fatal(1, "CH0 raw RMS mismatch");
@@ -553,10 +590,113 @@ module meter_core_tb;
     end
   endtask
 
+  // Every BASIC-v4 record is followed on the same stream by its POWER-v1
+  // companion (same sequence). Word-exact power content is pinned by the
+  // HLS bench and the record-stream bench; here the framing, format, and
+  // shared envelope are verified and the record is drained so the stream
+  // stays aligned for the next block.
+  task automatic drain_power_record(input integer expected_sequence);
+    integer word_index;
+    begin
+      @(negedge clock);
+      mtr1_tready = 1'b1;
+      word_index = 0;
+      while (word_index < 64) begin
+        @(posedge clock);
+        if (mtr1_tvalid && mtr1_tready) begin
+          assert (mtr1_tkeep == 4'hf) else $fatal(1, "bad POWER TKEEP");
+          assert (mtr1_tlast == (word_index == 63))
+            else $fatal(1, "POWER TLAST at word %0d", word_index);
+          case (word_index)
+            0: assert (mtr1_tdata == 32'h3152_544d)
+              else $fatal(1, "bad POWER magic");
+            1: assert (mtr1_tdata == 32'h0007_0001)
+              else $fatal(1, "bad POWER format: %08h", mtr1_tdata);
+            3: assert (mtr1_tdata == expected_sequence)
+              else $fatal(1, "POWER sequence %0d, expected %0d",
+                          mtr1_tdata, expected_sequence);
+            default: ;
+          endcase
+          word_index = word_index + 1;
+        end
+      end
+      @(negedge clock);
+      mtr1_tready = 1'b0;
+    end
+  endtask
+
+  // ... and the POWER record by its PHASOR-v1 companion (M9), the third
+  // record of the block triple. Same drain contract as above: framing,
+  // format, and sequence pinned here; value words pinned by the HLS
+  // bench and the record-stream bench.
+  task automatic drain_phasor_record(input integer expected_sequence);
+    integer word_index;
+    begin
+      @(negedge clock);
+      mtr1_tready = 1'b1;
+      word_index = 0;
+      while (word_index < 64) begin
+        @(posedge clock);
+        if (mtr1_tvalid && mtr1_tready) begin
+          assert (mtr1_tkeep == 4'hf) else $fatal(1, "bad PHASOR TKEEP");
+          assert (mtr1_tlast == (word_index == 63))
+            else $fatal(1, "PHASOR TLAST at word %0d", word_index);
+          case (word_index)
+            0: assert (mtr1_tdata == 32'h3152_544d)
+              else $fatal(1, "bad PHASOR magic");
+            1: assert (mtr1_tdata == 32'h0008_0002)
+              else $fatal(1, "bad PHASOR format: %08h", mtr1_tdata);
+            3: assert (mtr1_tdata == expected_sequence)
+              else $fatal(1, "PHASOR sequence %0d, expected %0d",
+                          mtr1_tdata, expected_sequence);
+            default: ;
+          endcase
+          word_index = word_index + 1;
+        end
+      end
+      @(negedge clock);
+      mtr1_tready = 1'b0;
+    end
+  endtask
+
+  // ... and the UNBALANCE-v1 record (M10), fourth of the block quad.
+  task automatic drain_unbalance_record(input integer expected_sequence);
+    integer word_index;
+    begin
+      @(negedge clock);
+      mtr1_tready = 1'b1;
+      word_index = 0;
+      while (word_index < 64) begin
+        @(posedge clock);
+        if (mtr1_tvalid && mtr1_tready) begin
+          assert (mtr1_tkeep == 4'hf) else $fatal(1, "bad UNBAL TKEEP");
+          assert (mtr1_tlast == (word_index == 63))
+            else $fatal(1, "UNBAL TLAST at word %0d", word_index);
+          case (word_index)
+            0: assert (mtr1_tdata == 32'h3152_544d)
+              else $fatal(1, "bad UNBAL magic");
+            1: assert (mtr1_tdata == 32'h0009_0002)
+              else $fatal(1, "bad UNBAL format: %08h", mtr1_tdata);
+            3: assert (mtr1_tdata == expected_sequence)
+              else $fatal(1, "UNBAL sequence %0d, expected %0d",
+                          mtr1_tdata, expected_sequence);
+            default: ;
+          endcase
+          word_index = word_index + 1;
+        end
+      end
+      @(negedge clock);
+      mtr1_tready = 1'b0;
+    end
+  endtask
+
   task automatic consume_record(input integer expected_sequence,
                                 input integer expected_generation,
+                                input logic [31:0] expected_count,
+                                input logic [31:0] expected_status,
                                 input logic [31:0] expected_timing,
                                 input logic [31:0] expected_first_sample,
+                                input logic [31:0] expected_last_sample,
                                 input integer rms0,
                                 input integer rms1,
                                 input integer rms2,
@@ -576,7 +716,9 @@ module meter_core_tb;
           assert (mtr1_tlast == (word_index == 63))
             else $fatal(1, "MTR1 TLAST at word %0d", word_index);
           check_meter_word(word_index, expected_sequence, expected_generation,
+                           expected_count, expected_status,
                            expected_timing, expected_first_sample,
+                           expected_last_sample,
                            rms0, rms1, rms2, rms3,
                            rms4, rms5, rms6);
           word_index = word_index + 1;
@@ -584,6 +726,9 @@ module meter_core_tb;
       end
       @(negedge clock);
       mtr1_tready = 1'b0;
+      drain_power_record(expected_sequence);
+      drain_phasor_record(expected_sequence);
+      drain_unbalance_record(expected_sequence);
     end
   endtask
 
@@ -593,6 +738,7 @@ module meter_core_tb;
   task automatic consume_timing_record(input integer expected_sequence,
                                        input integer expected_generation,
                                        input logic [31:0] expected_count,
+                                       input logic [31:0] expected_status,
                                        input logic [31:0] expected_timing,
                                        input logic [31:0] expected_first_sample);
     integer word_index;
@@ -608,10 +754,13 @@ module meter_core_tb;
             else $fatal(1, "MTR1 TLAST at word %0d", word_index);
           case (word_index)
             0: assert (mtr1_tdata == 32'h3152_544d) else $fatal(1, "bad MTR1 magic");
-            1: assert (mtr1_tdata == 32'h0001_0003) else $fatal(1, "bad record format");
+            1: assert (mtr1_tdata == 32'h0001_0004) else $fatal(1, "bad record format");
             2: assert (mtr1_tdata == 32'd256) else $fatal(1, "bad record length");
             3: assert (mtr1_tdata == expected_sequence) else $fatal(1, "bad result sequence");
             4: assert (mtr1_tdata == expected_generation) else $fatal(1, "bad generation");
+            8: assert (mtr1_tdata == expected_status)
+              else $fatal(1, "bad status %08h, expected %08h", mtr1_tdata,
+                          expected_status);
             6: assert (mtr1_tdata == expected_count)
               else $fatal(1, "bad block sample count %0d, expected %0d",
                           mtr1_tdata, expected_count);
@@ -629,6 +778,9 @@ module meter_core_tb;
       end
       @(negedge clock);
       mtr1_tready = 1'b0;
+      drain_power_record(expected_sequence);
+      drain_phasor_record(expected_sequence);
+      drain_unbalance_record(expected_sequence);
     end
   endtask
 
@@ -636,15 +788,16 @@ module meter_core_tb;
   // block (kept small for simulation), hysteresis below the +/-10 grid
   // amplitude so crossings qualify, and a fallback window that neither
   // expires before the first crossing nor unlocks between 20-frame cycles.
-  // Frame with an 8-frame-period grid waveform on CH6 (four +10 samples,
-  // four -10). Used by the aggregation scenario so 10-cycle blocks stay
-  // short enough to simulate: one block = 80 frames.
-  task automatic send_grid_frame8(input integer cycle_position);
+  // Frame with a 16-frame-period grid waveform on CH6 (eight +10
+  // samples, eight -10). Used by the aggregation scenario: one block =
+  // 160 frames, short enough to simulate while every cycle still spans
+  // >= ~5k clocks (the per-cycle finalize pacing contract).
+  task automatic send_grid_frame16(input integer cycle_position);
     logic [7:0] header;
     logic signed [23:0] grid_sample;
     begin
       build_frame(cycle_position);
-      grid_sample = (cycle_position % 8) < 4 ? 24'sd10 : -24'sd10;
+      grid_sample = (cycle_position % 16) < 8 ? 24'sd10 : -24'sd10;
       header = {1'b0, 3'd6, 4'h0};
       words[6] = {header, grid_sample};
       lanes[0] = {words[0], words[1]};
@@ -687,6 +840,40 @@ module meter_core_tb;
 
   // Consume one MTR2 aggregate record from the MTR2 stream and check every
   // meaningful word.
+  // Drain one aggregate sibling record (AGG-POWER/PHASOR/UNBAL), checking
+  // framing, format, and the shared sequence; values are pinned by the
+  // engine's golden bench and the record-stream bench.
+  task automatic drain_agg_sibling(input logic [31:0] expected_format,
+                                   input integer expected_sequence);
+    integer word_index;
+    begin
+      @(negedge clock);
+      mtr2_tready = 1'b1;
+      word_index = 0;
+      while (word_index < 64) begin
+        @(posedge clock);
+        if (mtr2_tvalid && mtr2_tready) begin
+          assert (mtr2_tkeep == 4'hf) else $fatal(1, "AGG sibling TKEEP");
+          assert (mtr2_tlast == (word_index == 63))
+            else $fatal(1, "AGG sibling TLAST at word %0d", word_index);
+          case (word_index)
+            0: assert (mtr2_tdata == 32'h3152_544d)
+              else $fatal(1, "AGG sibling magic");
+            1: assert (mtr2_tdata == expected_format)
+              else $fatal(1, "AGG sibling format %08h != %08h",
+                          mtr2_tdata, expected_format);
+            3: assert (mtr2_tdata == expected_sequence)
+              else $fatal(1, "AGG sibling sequence");
+            default: ;
+          endcase
+          word_index = word_index + 1;
+        end
+      end
+      @(negedge clock);
+      mtr2_tready = 1'b0;
+    end
+  endtask
+
   task automatic consume_mtr2_record(input integer expected_sequence,
                                      input integer expected_generation,
                                      input logic [31:0] expected_samples,
@@ -708,7 +895,7 @@ module meter_core_tb;
             else $fatal(1, "MTR2 TLAST at word %0d", word_index);
           case (word_index)
             0: assert (mtr2_tdata == 32'h3152_544d) else $fatal(1, "MTR2 magic");
-            1: assert (mtr2_tdata == 32'h0002_0002) else $fatal(1, "MTR2 format");
+            1: assert (mtr2_tdata == 32'h0002_0003) else $fatal(1, "AGG format");
             2: assert (mtr2_tdata == 32'd256) else $fatal(1, "MTR2 length");
             3: assert (mtr2_tdata == expected_sequence) else $fatal(1, "MTR2 sequence");
             4: assert (mtr2_tdata == expected_generation) else $fatal(1, "MTR2 generation");
@@ -731,8 +918,9 @@ module meter_core_tb;
               else $fatal(1, "MTR2 first basic");
             15: assert (mtr2_tdata == expected_last_basic)
               else $fatal(1, "MTR2 last basic");
-            // Uniform blocks: the aggregate equals the per-block RMS in
-            // micro-units (zero-referenced, no DC removal).
+            // Uniform blocks: the whole-interval finalize (M11) of
+            // identical inputs equals the per-block RMS in micro-units,
+            // so the legacy expectations carry over exactly.
             16: assert (mtr2_tdata == 32'd22) else $fatal(1, "MTR2 CH0: %0d", mtr2_tdata);
             17: assert (mtr2_tdata == 0) else $fatal(1, "MTR2 CH0 high");
             18: assert (mtr2_tdata == 32'd20) else $fatal(1, "MTR2 CH1: %0d", mtr2_tdata);
@@ -745,7 +933,9 @@ module meter_core_tb;
             32: assert (mtr2_tdata == 0) else $fatal(1, "MTR2 frequency must be invalid");
             // Engine diagnostics ride in the record: no resets or continuity
             // errors in a clean run; ineligible blocks are scenario-driven.
-            33: assert (mtr2_tdata == 0) else $fatal(1, "MTR2 reset count");
+            // One reset: the cycle-mode scenario's eligible second block
+            // opened an aggregate that the aggregation APPLY discarded.
+            33: assert (mtr2_tdata == 1) else $fatal(1, "MTR2 reset count");
             34: assert (mtr2_tdata == expected_ineligible)
               else $fatal(1, "MTR2 ineligible count %0d != %0d",
                           mtr2_tdata, expected_ineligible);
@@ -789,7 +979,7 @@ module meter_core_tb;
   endtask
 
   initial begin : watchdog
-    #12_000_000;
+    #60_000_000;
     $fatal(1, "MeterCore integration test timed out");
   end
 
@@ -805,10 +995,39 @@ module meter_core_tb;
     assert (adc_reset_n && !adc_start_n && !adc_convst_sar)
       else $fatal(1, "ADC control outputs mismatch");
 
-    for (int frame = 0; frame < 4; frame++)
+    // The merge chain needs 12 whole cycles (60 Hz nominal) per basic
+    // record. With window=192 and the default grid config (12 cycles) the
+    // synthetic fallback cadence fires a cycle boundary every 16 frames
+    // (>= ~5k clocks per cycle: the pacing contract the per-cycle
+    // finalize needs at this bench's compressed frame rate); the
+    // single-cycle tier discards up to the first boundary (sample 16),
+    // so the first block spans 12 x 16 samples, 17..208.
+    for (int frame = 0; frame < 208; frame++)
       send_frame(frame);
 
-    wait (mtr1_tvalid);
+    $display("TB: scenario A frames sent, awaiting record 1");
+    fork : record1_watch
+      begin
+        wait (mtr1_tvalid);
+      end
+      begin
+        // Bounded diagnostic: if the record does not appear, dump the
+        // fabric's own view before the watchdog kills the run.
+        repeat (60000) @(posedge clock);
+        capture_read(8'h10, read_value);
+        $display("TB-DIAG capture frames: %0d", read_value);
+        processing_read(8'h74, read_value);
+        $display("TB-DIAG grid status: %08h", read_value);
+        processing_read(8'h98, read_value);
+        $display("TB-DIAG scyc shim drops: %0d", read_value);
+        processing_read(8'h28, read_value);
+        $display("TB-DIAG result drops: %0d", read_value);
+        processing_read(8'h0c, read_value);
+        $display("TB-DIAG processing status: %08h", read_value);
+        wait (mtr1_tvalid);
+      end
+    join_any
+    disable record1_watch;
     stalled_word = mtr1_tdata;
     stalled_last = mtr1_tlast;
     repeat (12) begin
@@ -818,29 +1037,38 @@ module meter_core_tb;
         else $fatal(1, "MTR1 output changed under DMA backpressure");
     end
 
-    // Capture another complete window while the first DMA record is stalled.
-    for (int frame = 4; frame < 8; frame++)
+    // Capture continues while the first DMA record is stalled (the
+    // single-cycle shim FIFO absorbs the backpressured chain).
+    for (int frame = 208; frame < 212; frame++)
       send_frame(frame);
     repeat (20) @(posedge clock);
     capture_read(8'h10, read_value);
-    assert (read_value == 8)
+    assert (read_value == 212)
       else $fatal(1, "capture stalled behind meter DMA: %0d frames", read_value);
 
-    // Cycle timing is enabled by default but CH6 never crosses zero with
-    // the legacy pattern and the 1 V default hysteresis, so blocks close on
-    // the free-run fallback: word 13 carries nominal 60 Hz, zero cycles,
-    // and the fallback flag (plus first-block after each APPLY).
-    consume_record(1, 42, 32'h0006_003c, 32'd1, 10, 2, 4, 5, 3, 4, 5);
-    consume_record(2, 42, 32'h0002_003c, 32'd5, 10, 2, 4, 5, 3, 4, 5);
+    // CH6 never crosses zero with the legacy pattern and the 1 V default
+    // hysteresis, so the chain runs on synthetic fallback cycles: word 13
+    // carries nominal 60 Hz, 12 cycles, and the fallback flag (plus
+    // first-block after each APPLY); status bit 2 marks the first block.
+    $display("TB: consuming record 1");
+    consume_record(1, 42, 32'd192, 32'h4, 32'h0006_0c3c, 32'd17, 32'd208,
+                   10, 2, 4, 5, 3, 4, 5);
+    for (int frame = 212; frame < 400; frame++)
+      send_frame(frame);
+    $display("TB: consuming record 2");
+    consume_record(2, 42, 32'd192, 32'h0, 32'h0002_0c3c, 32'd209, 32'd400,
+                   10, 2, 4, 5, 3, 4, 5);
 
     configure_meter(32'd43, 1'b0);
-    for (int frame = 8; frame < 12; frame++)
+    for (int frame = 400; frame < 608; frame++)
       send_frame(frame);
-    consume_record(3, 43, 32'h0006_003c, 32'd9, 22, 20, 8, 5, 10, 20, 8);
+    $display("TB: consuming record 3");
+    consume_record(3, 43, 32'd192, 32'h4, 32'h0006_0c3c, 32'd417, 32'd608,
+                   22, 20, 8, 5, 10, 20, 8);
 
     repeat (20) @(posedge clock);
     capture_read(8'h10, read_value);
-    assert (read_value == 12) else $fatal(1, "final frame count mismatch");
+    assert (read_value == 608) else $fatal(1, "final frame count mismatch");
     capture_read(8'h14, read_value);
     assert (read_value == 0) else $fatal(1, "unexpected FIFO overflow");
     capture_read(8'h18, read_value);
@@ -852,71 +1080,101 @@ module meter_core_tb;
     processing_read(8'h2c, read_value);
     assert (read_value == 0) else $fatal(1, "unexpected emit drop");
     waveform_read(8'h28, read_value);
-    assert (read_value == 12)
+    assert (read_value == 608)
       else $fatal(1, "waveform frame sequence mismatch");
-    waveform_read(8'h30, read_value);
-    assert (read_value == 0)
-      else $fatal(1, "waveform branch dropped frames before its FIFO filled");
+    // The waveform branch's ring is far shorter than this scenario's 608
+    // frames, so overflow drops are expected here; its no-early-drop
+    // property is pinned by the waveform branch's own bench.
 
-    // ---- Cycle-mode scenario: 50 Hz nominal, 2 cycles per basic block ----
-    // The grid waveform on CH6 has a 20-frame period, so each basic block
-    // spans 40 frames. Startup is unlocked, so the first qualified crossing
-    // (frame position 20, absolute sample 33) closes a 21-sample partial
-    // block flagged fallback + first-block; the following blocks are
-    // crossing-aligned, exactly 2 cycles / 40 samples each, and gapless:
-    // first sample 13, then 34, then 74.
+    // ---- Cycle-mode scenario: 50 Hz nominal, real 10-cycle blocks -------
+    // The grid waveform on CH6 has a 20-frame period. Startup is unlocked:
+    // synthetic boundaries run every 12 samples (window 120 / 10 cycles)
+    // until the first qualified crossing (position 20, absolute sample
+    // 629) relocks cycle counting. The single-cycle tier discards up to
+    // the first boundary (sample 620). The relock-seam cycle (621..629)
+    // still carries the PREVIOUS nominal — the grid publishes the closed
+    // block's nominal one block late by design — so the merge tier
+    // discards it on the nominal change (no result may mix nominals) and
+    // block 1 is the ten crossing-aligned cycles 630..829, marked
+    // first-after-gap; block 2 is 830..1029, clean and gapless.
     configure_meter_cycle(32'd44);
-    // Consume each record after its closing crossing. The HLS engine
-    // finalizes every close and emits directly on the MTR1 stream, so no
-    // record is ever replaced or dropped; pacing just keeps the checks in
-    // lockstep with the blocks.
-    for (int position = 0; position <= 20; position++)
+    for (int position = 0; position <= 220; position++)
       send_grid_frame(position);
-    consume_timing_record(4, 44, 32'd21, 32'h0006_0032, 32'd13);
-    for (int position = 21; position <= 60; position++)
+    $display("TB: consuming record 4");
+    fork : record4_watch
+      begin
+        wait (mtr1_tvalid);
+      end
+      begin
+        repeat (100000) @(posedge clock);
+        $display("TB-DIAG4 scyc records so far: %0d", scyc_records);
+        capture_read(8'h10, read_value);
+        $display("TB-DIAG4 capture frames: %0d", read_value);
+        processing_read(8'h74, read_value);
+        $display("TB-DIAG4 grid status: %08h", read_value);
+        processing_read(8'h98, read_value);
+        $display("TB-DIAG4 scyc shim drops: %0d", read_value);
+        wait (mtr1_tvalid);
+      end
+    join_any
+    disable record4_watch;
+    consume_timing_record(4, 44, 32'd200, 32'h4, 32'h0005_0a32, 32'd630);
+    for (int position = 221; position <= 420; position++)
       send_grid_frame(position);
-    consume_timing_record(5, 44, 32'd40, 32'h0001_0232, 32'd34);
-    for (int position = 61; position <= 100; position++)
-      send_grid_frame(position);
-    consume_timing_record(6, 44, 32'd40, 32'h0001_0232, 32'd74);
+    $display("TB: consuming record 5");
+    consume_timing_record(5, 44, 32'd200, 32'h0, 32'h0001_0a32, 32'd830);
 
     repeat (20) @(posedge clock);
     capture_read(8'h10, read_value);
-    assert (read_value == 113)
+    assert (read_value == 1029)
       else $fatal(1, "cycle-mode frame count mismatch: %0d", read_value);
     processing_read(8'h28, read_value);
     assert (read_value == 0) else $fatal(1, "cycle-mode RMS result drop");
     processing_read(8'h74, read_value);
     assert (read_value[0]) else $fatal(1, "grid timing not locked");
     waveform_read(8'h28, read_value);
-    assert (read_value == 113)
+    assert (read_value == 1029)
       else $fatal(1, "waveform sample index low word mismatch");
 
     // ---- 150-cycle aggregation scenario: 50 Hz, real 10-cycle blocks ----
-    // The relock block (9 samples, abs 114..122) is ineligible; the next 15
-    // locked 80-sample blocks (r8..r22) form exactly one 150-cycle
-    // aggregate: first sample 123, 1200 samples, uniform channel values so
-    // the aggregate equals the per-block RMS.
+    // After the APPLY the single-cycle tier discards up to the relock
+    // crossing (position 16, absolute sample 1046); the seam has no
+    // nominal change this time (50 both sides), so block 6 (samples
+    // 1047..1206) merges from the first whole cycle, carries the
+    // first-block flag, and is ineligible; the next 15 locked 160-sample
+    // blocks (r7..r21) form exactly one 150-cycle aggregate: first
+    // sample 1207, 2400 samples, uniform channel values so the aggregate
+    // equals the per-block RMS.
     configure_meter_aggregate(32'd45);
-    for (int position = 0; position <= 8; position++)
-      send_grid_frame8(position);
-    consume_timing_record(7, 45, 32'd9, 32'h0006_0032, 32'd114);
+    for (int position = 0; position <= 176; position++)
+      send_grid_frame16(position);
+    $display("TB: consuming record 6");
+    consume_timing_record(6, 45, 32'd160, 32'h4, 32'h0005_0a32, 32'd1047);
     for (int block = 0; block < 15; block++) begin
-      for (int position = 9 + block * 80; position <= 88 + block * 80;
+      for (int position = 177 + block * 160; position <= 336 + block * 160;
            position++)
-        send_grid_frame8(position);
-      consume_timing_record(8 + block, 45, 32'd80, 32'h0001_0a32,
-                            32'd123 + block * 80);
+        send_grid_frame16(position);
+      $display("TB: consuming record %0d", 7 + block);
+      consume_timing_record(7 + block, 45, 32'd160, 32'h0, 32'h0001_0a32,
+                            32'd1207 + block * 160);
     end
-    // Seven earlier basic results were ineligible for aggregation (the
-    // fallback and 2-cycle blocks r1..r6 plus the r7 relock partial), and
-    // the record's engine diagnostics must reflect that.
-    consume_mtr2_record(1, 45, 32'd1200, 32'd8, 32'd22,
-                        32'h0096_320f, 32'd123, 32'd7);
+    // Five earlier basic results were ineligible for aggregation (the
+    // three fallback blocks of the first scenario, the relock-seam block
+    // 4, and the first-flagged block 6); the cycle-mode block 5 was
+    // eligible and its partial aggregate was discarded by the APPLY,
+    // which the reset counter records.
+    $display("TB: consuming MTR2");
+    consume_mtr2_record(1, 45, 32'd2400, 32'd7, 32'd21,
+                        32'h0096_320f, 32'd1207, 32'd5);
+    // The aggregate quad (M11): drain the AGG-POWER/PHASOR/UNBAL
+    // siblings that follow every AGG-v3 record.
+    drain_agg_sibling(32'h0010_0001, 1);
+    drain_agg_sibling(32'h0011_0002, 1);
+    drain_agg_sibling(32'h0012_0002, 1);
 
     repeat (20) @(posedge clock);
     capture_read(8'h10, read_value);
-    assert (read_value == 1322)
+    assert (read_value == 3606)
       else $fatal(1, "aggregate scenario frame count: %0d", read_value);
     // AGG_RECORD_COUNT updates at the engine's emit; the record just
     // consumed was emitted directly on the MTR2 stream, so the counter
@@ -933,10 +1191,12 @@ module meter_core_tb;
     end
     assert (read_value == 1) else $fatal(1, "aggregate record count");
     processing_read(8'h84, read_value);
-    assert (read_value == 7)
+    assert (read_value == 5)
       else $fatal(1, "aggregate ineligible count: %0d", read_value);
     processing_read(8'h80, read_value);
-    assert (read_value == 0) else $fatal(1, "unexpected aggregate resets");
+    assert (read_value == 1)
+      else $fatal(1, "aggregate resets: %0d (the APPLY-discarded open aggregate)",
+                  read_value);
     processing_read(8'h88, read_value);
     assert (read_value == 0) else $fatal(1, "unexpected continuity errors");
     processing_read(8'h8c, read_value);
@@ -949,4 +1209,53 @@ module meter_core_tb;
     $display("PASS: meter_core_tb");
     $finish;
   end
+
+  // Passive SCYC monitor: 64-beat framing, magic and format on word 0/1.
+  always @(posedge clock) begin
+    if (scyc_tvalid) begin
+      assert (scyc_tkeep == 4'hf) else $fatal(1, "SCYC TKEEP");
+      if (scyc_beats == 0)
+        assert (scyc_tdata == 32'h3152544d)
+          else $fatal(1, "SCYC record magic mismatch: %08x", scyc_tdata);
+      if (scyc_beats == 1)
+        assert (scyc_tdata == 32'h000A0005)
+          else $fatal(1, "SCYC record format mismatch: %08x", scyc_tdata);
+      assert (scyc_tlast == (scyc_beats == 63))
+        else $fatal(1, "SCYC TLAST misplaced at beat %0d", scyc_beats);
+      if (scyc_beats == 63) begin
+        scyc_beats <= 0;
+        scyc_records <= scyc_records + 1;
+        $display("TB: SCYC record %0d complete at %t",
+                 scyc_records + 1, $time);
+      end else begin
+        scyc_beats <= scyc_beats + 1;
+      end
+    end
+  end
+
+  final begin
+    assert (scyc_records > 0)
+      else $fatal(1, "no single-cycle diagnostic record was produced");
+  end
+
+
+  // PQ stream monitor: every record is 64 beats with TLAST on the last,
+  // TKEEP full, and carries the PQEVT-v1 format word.
+  always @(posedge clock) begin
+    if (resetn && pq_tvalid) begin
+      assert (pq_tkeep == 4'hf) else $fatal(1, "PQ TKEEP not full");
+      if (pq_beats == 1)
+        assert (pq_tdata == 32'h000B_0001)
+          else $fatal(1, "bad PQ format %08h", pq_tdata);
+      assert (pq_tlast == (pq_beats == 63))
+        else $fatal(1, "PQ TLAST at beat %0d", pq_beats);
+      if (pq_beats == 63) begin
+        pq_beats <= 0;
+        pq_records <= pq_records + 1;
+      end else begin
+        pq_beats <= pq_beats + 1;
+      end
+    end
+  end
+
 endmodule

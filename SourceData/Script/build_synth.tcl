@@ -51,5 +51,9 @@ pl_build_write_reports synth_1 [list \
     synth_cdc            {report_cdc} \
 ]
 
+pl_build_utilization_summary [file join $pl_build_report_dir synth_utilization.rpt]
+pl_build_estimated_wns [file join $pl_build_report_dir synth_timing_summary.rpt]
+pl_build_message_summary synth_1
+
 puts "PL_BUILD_STAGE_COMPLETE=synth"
 pl_build_close_project

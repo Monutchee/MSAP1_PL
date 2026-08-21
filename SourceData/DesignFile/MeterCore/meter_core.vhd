@@ -1,5 +1,8 @@
 library ieee;
 use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+use work.pq_event_pkg.all;
 
 library xpm;
 use xpm.vcomponents.all;
@@ -9,6 +12,15 @@ use xpm.vcomponents.all;
 -- Record formats and engine contracts are normative in C++
 -- (SourceData/HLS_DesignFile/common/include and each engine's header).
 entity meter_core is
+  generic (
+    -- Dev/test infrastructure switch: the raw ADC simulator (waveform
+    -- engine, harmonic slots, register bank). true (default) elaborates
+    -- it exactly as before; false removes it from the netlist entirely
+    -- (K24 production target) and a minimal AXI-lite stub answers its
+    -- register window with zeros so the RPU probe fails cleanly (the
+    -- AdcController isolates simulator-init failure by design).
+    G_SIMULATOR_ENABLE : boolean := true
+  );
   port (
     aclk    : in std_logic;
     aresetn : in std_logic;
@@ -85,7 +97,7 @@ entity meter_core is
     s_axi_waveform_rvalid  : out std_logic;
     s_axi_waveform_rready  : in  std_logic;
 
-    s_axi_simulator_awaddr  : in  std_logic_vector(7 downto 0);
+    s_axi_simulator_awaddr  : in  std_logic_vector(11 downto 0);
     s_axi_simulator_awvalid : in  std_logic;
     s_axi_simulator_awready : out std_logic;
     s_axi_simulator_wdata   : in  std_logic_vector(31 downto 0);
@@ -95,7 +107,7 @@ entity meter_core is
     s_axi_simulator_bresp   : out std_logic_vector(1 downto 0);
     s_axi_simulator_bvalid  : out std_logic;
     s_axi_simulator_bready  : in  std_logic;
-    s_axi_simulator_araddr  : in  std_logic_vector(7 downto 0);
+    s_axi_simulator_araddr  : in  std_logic_vector(11 downto 0);
     s_axi_simulator_arvalid : in  std_logic;
     s_axi_simulator_arready : out std_logic;
     s_axi_simulator_rdata   : out std_logic_vector(31 downto 0);
@@ -117,6 +129,22 @@ entity meter_core is
     m_axis_mtr2_tvalid : out std_logic;
     m_axis_mtr2_tready : in  std_logic;
     m_axis_mtr2_tlast  : out std_logic;
+
+    -- PQEVT-v1 record stream: the sliding Urms(1/2) / event tier's own
+    -- producer port (metrology M12).
+    m_axis_pq_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_pq_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_pq_tvalid : out std_logic;
+    m_axis_pq_tready : in  std_logic;
+    m_axis_pq_tlast  : out std_logic;
+
+    -- Single-cycle diagnostic record stream (SCYC-v1, one per grid cycle
+    -- while cycle timing is locked; metrology roadmap M2).
+    m_axis_scyc_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_scyc_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_scyc_tvalid : out std_logic;
+    m_axis_scyc_tready : in  std_logic;
+    m_axis_scyc_tlast  : out std_logic;
 
     m_axis_waveform_tdata  : out std_logic_vector(31 downto 0);
     m_axis_waveform_tkeep  : out std_logic_vector(3 downto 0);
@@ -205,17 +233,27 @@ architecture structural of meter_core is
   signal apply_seen        : std_logic;
   signal processing_status : std_logic_vector(31 downto 0);
 
-  -- Both record producers are Vitis HLS engines that build and serialize
+  -- All record producers are Vitis HLS engines that build and serialize
   -- their own 256-byte records (normative contracts:
   -- HLS_DesignFile/common/include/measurement_record.hpp plus each
-  -- engine's header). meter_mtr1_hls_shim packs one sample beat per
-  -- accepted frame for the MTR1 engine; the engine's basic-result stream
-  -- feeds the 150/180-cycle aggregator directly (HLS-to-HLS AXIS, no
-  -- event conversion anywhere). Engine health counters ride inside the
+  -- engine's header). The single-cycle shim packs one sample beat per
+  -- accepted frame; the 10/12-cycle merge tier consumes its result beats
+  -- and its basic-result stream feeds the 150/180-cycle aggregator
+  -- directly (HLS-to-HLS AXIS, no event conversion anywhere). Engine
+  -- health counters ride inside the
   -- records; record_word_tap republishes them to the register file, "as
   -- of the last emitted record".
-  signal mtr1_shim_drop_count : std_logic_vector(31 downto 0);
-  signal mtr1_result_tdata    : std_logic_vector(807 downto 0);
+  signal scyc_shim_drop_count : std_logic_vector(31 downto 0);
+  signal grid_cycle_locked    : std_logic;
+  signal grid_cycle_fallback  : std_logic;
+  signal scyc_result_tready   : std_logic;
+  signal grid_cycle_boundary  : std_logic;
+  signal grid_cycle_sequence  : std_logic_vector(31 downto 0);
+  -- Single-cycle result beats: consumed by the 10/12-cycle tier from M7;
+  -- drained unconditionally until then so the engine can never stall.
+  signal scyc_result_tdata  : std_logic_vector(7071 downto 0);
+  signal scyc_result_tvalid : std_logic;
+  signal mtr1_result_tdata    : std_logic_vector(7071 downto 0);
   signal mtr1_result_tvalid   : std_logic;
   signal mtr1_result_tready   : std_logic;
 
@@ -223,6 +261,22 @@ architecture structural of meter_core is
   signal mtr1_axis_tkeep  : std_logic_vector(3 downto 0);
   signal mtr1_axis_tvalid : std_logic;
   signal mtr1_axis_tlast  : std_logic;
+  -- Sliding Urms(1/2) / PQ event producer (M12). Its shim observes the
+  -- same accepted-frame fan-out the single-cycle shim does.
+  signal pq_axis_tdata      : std_logic_vector(31 downto 0);
+  signal pq_axis_tkeep      : std_logic_vector(3 downto 0);
+  signal pq_axis_tvalid     : std_logic;
+  signal pq_axis_tlast      : std_logic;
+  signal pq_shim_drop_count : std_logic_vector(31 downto 0);
+  signal grid_half_boundary : std_logic;
+  signal pq_shadow_reference : std_logic_vector(31 downto 0);
+  signal pq_shadow_threshold : std_logic_vector(31 downto 0);
+  signal pq_shadow_limits    : std_logic_vector(31 downto 0);
+  signal pq_tap_kind         : std_logic_vector(31 downto 0);
+  signal pq_tap_event_seq    : std_logic_vector(31 downto 0);
+  signal pq_status           : std_logic_vector(31 downto 0);
+  signal pq_event_active     : std_logic;
+
   signal mtr2_axis_tdata  : std_logic_vector(31 downto 0);
   signal mtr2_axis_tkeep  : std_logic_vector(3 downto 0);
   signal mtr2_axis_tvalid : std_logic;
@@ -313,6 +367,7 @@ begin
       adc_convst_sar => adc_convst_sar
     );
 
+  simulator_enabled : if G_SIMULATOR_ENABLE generate
   simulator : entity work.adc_simulator
     generic map (
       G_ACLK_HZ => 99999001,
@@ -349,6 +404,76 @@ begin
       frame_rate_valid_o => simulator_frame_rate_valid,
       saturation_count_o => simulator_saturations
     );
+  end generate;
+
+  -- K24 production shape: the simulator does not exist. Its register
+  -- window still answers (zeros, OKAY) so the RPU's probe terminates
+  -- instead of hanging the interconnect; the source mux is pinned to the
+  -- physical front end and the status counters read zero.
+  simulator_absent : if not G_SIMULATOR_ENABLE generate
+    simulator_stub : block
+      signal write_pending : std_logic := '0';
+      signal read_pending  : std_logic := '0';
+      signal aw_seen       : std_logic := '0';
+      signal w_seen        : std_logic := '0';
+    begin
+      s_axi_simulator_awready <= not aw_seen and not write_pending;
+      s_axi_simulator_wready  <= not w_seen and not write_pending;
+      s_axi_simulator_bvalid  <= write_pending;
+      s_axi_simulator_bresp   <= "00";
+      s_axi_simulator_arready <= not read_pending;
+      s_axi_simulator_rvalid  <= read_pending;
+      s_axi_simulator_rdata   <= (others => '0');
+      s_axi_simulator_rresp   <= "00";
+
+      process (aclk)
+      begin
+        if rising_edge(aclk) then
+          if aresetn = '0' then
+            write_pending <= '0';
+            read_pending <= '0';
+            aw_seen <= '0';
+            w_seen <= '0';
+          else
+            if write_pending = '0' then
+              if s_axi_simulator_awvalid = '1' then
+                aw_seen <= '1';
+              end if;
+              if s_axi_simulator_wvalid = '1' then
+                w_seen <= '1';
+              end if;
+              if (aw_seen = '1' or s_axi_simulator_awvalid = '1') and
+                 (w_seen = '1' or s_axi_simulator_wvalid = '1') then
+                write_pending <= '1';
+              end if;
+            elsif s_axi_simulator_bready = '1' then
+              write_pending <= '0';
+              aw_seen <= '0';
+              w_seen <= '0';
+            end if;
+
+            if read_pending = '0' then
+              if s_axi_simulator_arvalid = '1' then
+                read_pending <= '1';
+              end if;
+            elsif s_axi_simulator_rready = '1' then
+              read_pending <= '0';
+            end if;
+          end if;
+        end if;
+      end process;
+    end block;
+
+    simulator_raw_stream.data <= (others => '0');
+    simulator_raw_stream.keep <= (others => '0');
+    simulator_raw_stream.valid <= '0';
+    simulator_raw_stream.last <= '0';
+    simulator_selected <= '0';
+    simulator_frame_count <= (others => '0');
+    simulator_frame_rate <= (others => '0');
+    simulator_frame_rate_valid <= '0';
+    simulator_saturations <= (others => '0');
+  end generate;
 
   source_mux : entity work.adc_source_mux
     port map (
@@ -583,6 +708,10 @@ begin
       frequency_measurement_sequence_i => frequency_sequence,
       frequency_rejected_count_i => frequency_rejected,
       grid_shadow_config_o => grid_shadow_config,
+      pq_shadow_reference_o => pq_shadow_reference,
+      pq_shadow_threshold_o => pq_shadow_threshold,
+      pq_shadow_limits_o => pq_shadow_limits,
+      pq_status_i => pq_status,
       grid_active_config_i => grid_active_config,
       grid_status_i => grid_status,
       -- Aggregation health from the MTR2 record tap ("as of the last
@@ -600,7 +729,9 @@ begin
       agg_drop_count_i => mtr2_tap_emit_drops,
       hls_agg_record_count_i => mtr2_tap_sequence,
       hls_agg_mismatch_count_i => (others => '0'),
-      hls_agg_drop_count_i => mtr1_shim_drop_count,
+      -- The sample-domain loss point is now the single-cycle shim's FIFO
+      -- (the retired Mtr1 shim's counter died with it).
+      hls_agg_drop_count_i => scyc_shim_drop_count,
       active_generation_i => active_generation,
       result_sequence_i => mtr1_tap_sequence,
       result_drop_count_i => mtr1_tap_result_drops,
@@ -663,40 +794,39 @@ begin
       status_o => grid_status,
       frame_closes_block_o => grid_frame_closes_block,
       cycle_mode_o => grid_cycle_mode,
-      cycle_boundary_o => open,
-      half_cycle_boundary_o => open,
-      cycle_sequence_o => open,
+      cycle_boundary_o => grid_cycle_boundary,
+      half_cycle_boundary_o => grid_half_boundary,
+      cycle_locked_o => grid_cycle_locked,
+      cycle_sequence_o => grid_cycle_sequence,
       block_first_sample_o => block_first_sample,
       block_cycle_count_o => block_cycle_count,
       block_nominal_hz_o => block_nominal_hz,
       block_flags_o => block_flags
     );
 
-  -- MTR1 producer: sample-beat shim + HLS engine (accumulation, block
-  -- finalization, MTR1-v3 record construction and serialization in one
-  -- IP). The engine's basic-result stream feeds the aggregator directly.
-  mtr1_producer : entity work.meter_mtr1_hls_shim
+  -- Live fallback view: enabled but running on synthetic boundaries.
+  grid_cycle_fallback <= grid_cycle_mode and not grid_cycle_locked;
+
+  -- 10/12-cycle basic producer (M7, replaces the retired Mtr1 pair): the
+  -- merge tier consumes the single-cycle engine's result beats, finalizes
+  -- BASIC-v4 records onto the retired producer's exported boundary, and
+  -- keeps emitting the unchanged basic-result beat for the 150/180-cycle
+  -- aggregator until M11 replaces it.
+  agg10_12_cycle_producer : entity work.meter_agg10_12_cycle_hls_shim
     port map (
       aclk => aclk,
       aresetn => aresetn,
-      frame_accept_i => engine_valid,
-      frame_data_i => converted_fifo.data,
-      frame_keep_i => converted_fifo.keep,
-      frame_user_i => converted_fifo.user,
-      frame_closes_block_i => grid_frame_closes_block,
-      cycle_mode_i => grid_cycle_mode,
-      block_first_sample_i => block_first_sample,
-      block_cycle_count_i => block_cycle_count,
-      block_nominal_hz_i => block_nominal_hz,
-      block_flags_i => block_flags,
+      s_result_tdata => scyc_result_tdata,
+      s_result_tvalid => scyc_result_tvalid,
+      s_result_tready => scyc_result_tready,
+      cycle_locked_i => grid_cycle_locked,
+      cycle_fallback_i => grid_cycle_fallback,
       shadow_generation_i => shadow_generation,
       shadow_sample_rate_i => shadow_sample_rate,
-      shadow_window_samples_i => shadow_window_samples,
       shadow_valid_mask_i => shadow_valid_mask,
       shadow_enable_i => shadow_enable,
       shadow_dc_remove_i => shadow_dc_remove,
       config_apply_toggle_i => apply_toggle,
-      frequency_millihz_i => frequency_millihz,
       frequency_status_i => frequency_status,
       frequency_period_i => frequency_period_q16,
       frequency_sequence_i => frequency_sequence,
@@ -704,18 +834,17 @@ begin
       capture_header_errors_i => capture_headers,
       capture_overflows_i => capture_overflows,
       capture_alerts_i => capture_alerts,
-      m_axis_mtr1_tdata => mtr1_axis_tdata,
-      m_axis_mtr1_tkeep => mtr1_axis_tkeep,
-      m_axis_mtr1_tvalid => mtr1_axis_tvalid,
-      m_axis_mtr1_tready => m_axis_mtr1_tready,
-      m_axis_mtr1_tlast => mtr1_axis_tlast,
+      m_axis_basic_tdata => mtr1_axis_tdata,
+      m_axis_basic_tkeep => mtr1_axis_tkeep,
+      m_axis_basic_tvalid => mtr1_axis_tvalid,
+      m_axis_basic_tready => m_axis_mtr1_tready,
+      m_axis_basic_tlast => mtr1_axis_tlast,
       m_result_tdata => mtr1_result_tdata,
       m_result_tvalid => mtr1_result_tvalid,
       m_result_tready => mtr1_result_tready,
       active_generation_o => active_generation,
       active_enable_o => active_enable,
-      apply_seen_o => apply_seen,
-      drop_count_o => mtr1_shim_drop_count
+      apply_seen_o => apply_seen
     );
 
   m_axis_mtr1_tdata <= mtr1_axis_tdata;
@@ -729,10 +858,12 @@ begin
   processing_status <= (31 downto 4 => '0') & mtr1_tap_status(0) & '0' &
                        (apply_toggle xor apply_seen) & active_enable;
 
-  -- MTR2 producer: the 150/180-cycle aggregation engine consumes the
-  -- MTR1 engine's basic-result beats and emits complete MTR2-v2 records
-  -- (HLS_DesignFile/MeterProcessing/Mtr2Engine, hosted by its shim).
-  mtr2_producer : entity work.meter_mtr2_hls_shim
+  -- Aggregate producer (M11): the 150/180-cycle aggregation engine
+  -- consumes the 10/12-cycle tier's block-result beats (provenance +
+  -- merge-safe accumulators) and emits the complete AGG record quad
+  -- (HLS_DesignFile/MeterProcessing/Agg150_180CycleEngine, hosted by its
+  -- pure-hosting shim). Mtr2Engine and the 808-bit basic beat retired.
+  mtr2_producer : entity work.meter_agg150_180_hls_shim
     port map (
       aclk => aclk,
       aresetn => aresetn,
@@ -753,6 +884,123 @@ begin
 
   -- Register-file taps on both record streams ("as of the last emitted
   -- record"); strictly observational.
+  -- Single-cycle producer: sample-beat shim + HLS engine (per-cycle
+  -- provenance in M2; statistics/power/phasor accumulate here from M3).
+  -- Its result stream feeds the 10/12-cycle merge tier (M7).
+  scyc_producer : entity work.meter_single_cycle_hls_shim
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      frame_accept_i => engine_valid,
+      frame_data_i => converted_fifo.data,
+      frame_keep_i => converted_fifo.keep,
+      frame_user_i => converted_fifo.user,
+      cycle_boundary_i => grid_cycle_boundary,
+      cycle_sequence_i => grid_cycle_sequence,
+      cycle_mode_i => grid_cycle_mode,
+      block_nominal_hz_i => block_nominal_hz,
+      block_flags_i => block_flags,
+      shadow_generation_i => shadow_generation,
+      shadow_sample_rate_i => shadow_sample_rate,
+      shadow_valid_mask_i => shadow_valid_mask,
+      shadow_enable_i => shadow_enable,
+      shadow_dc_remove_i => shadow_dc_remove,
+      config_apply_toggle_i => apply_toggle,
+      pl_tick_i => waveform_tick,
+      frequency_millihz_i => frequency_millihz,
+      frequency_status_i => frequency_status,
+      m_axis_scyc_tdata => m_axis_scyc_tdata,
+      m_axis_scyc_tkeep => m_axis_scyc_tkeep,
+      m_axis_scyc_tvalid => m_axis_scyc_tvalid,
+      m_axis_scyc_tready => m_axis_scyc_tready,
+      m_axis_scyc_tlast => m_axis_scyc_tlast,
+      m_result_tdata => scyc_result_tdata,
+      m_result_tvalid => scyc_result_tvalid,
+      m_result_tready => scyc_result_tready,
+      drop_count_o => scyc_shim_drop_count
+    );
+
+  -- Sliding Urms(1/2) / PQ event producer (M12). It observes the same
+  -- accepted-frame fan-out as the single-cycle producer -- frames are
+  -- broadcast signals, so the two observers never arbitrate -- and drives
+  -- its own exported record stream.
+  pq_producer : entity work.meter_sliding_rms_hls_shim
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      frame_accept_i => engine_valid,
+      frame_data_i => converted_fifo.data,
+      frame_keep_i => converted_fifo.keep,
+      frame_user_i => converted_fifo.user,
+      half_cycle_boundary_i => grid_half_boundary,
+      cycle_locked_i => grid_cycle_locked,
+      cycle_fallback_i => grid_cycle_fallback,
+      shadow_generation_i => shadow_generation,
+      shadow_sample_rate_i => shadow_sample_rate,
+      shadow_valid_mask_i => shadow_valid_mask,
+      shadow_enable_i => shadow_enable,
+      config_apply_toggle_i => apply_toggle,
+      shadow_pq_reference_i => pq_shadow_reference,
+      shadow_pq_threshold_i => pq_shadow_threshold,
+      shadow_pq_limits_i => pq_shadow_limits,
+      pl_tick_i => waveform_tick,
+      m_axis_pq_tdata => pq_axis_tdata,
+      m_axis_pq_tkeep => pq_axis_tkeep,
+      m_axis_pq_tvalid => pq_axis_tvalid,
+      m_axis_pq_tready => m_axis_pq_tready,
+      m_axis_pq_tlast => pq_axis_tlast,
+      drop_count_o => pq_shim_drop_count
+    );
+
+  m_axis_pq_tdata <= pq_axis_tdata;
+  m_axis_pq_tkeep <= pq_axis_tkeep;
+  m_axis_pq_tvalid <= pq_axis_tvalid;
+  m_axis_pq_tlast <= pq_axis_tlast;
+
+  pq_tap : entity work.record_word_tap
+    generic map (
+      -- The PQ producer emits one format, and its live event state lives
+      -- in the format-header word (13) and the event sequence (28).
+      G_AUX0_WORD => 13,
+      G_AUX1_WORD => 28,
+      -- Kind byte: refresh the PQ status register only on an event edge,
+      -- never on a periodic heartbeat (measured on target 2026-08-20 --
+      -- without this the register reads 0 outside the ~0.83 s window
+      -- between an edge record and the next heartbeat).
+      G_AUX_UPDATE_MASK => x"000000FF"
+    )
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      tdata_i => pq_axis_tdata,
+      tvalid_i => pq_axis_tvalid,
+      tready_i => m_axis_pq_tready,
+      tlast_i => pq_axis_tlast,
+      sequence_o => open,
+      status_o => open,
+      emit_drops_o => open,
+      result_drops_o => open,
+      reset_count_o => open,
+      ineligible_count_o => open,
+      continuity_count_o => open,
+      aux0_o => pq_tap_kind,
+      aux1_o => pq_tap_event_seq,
+      framing_error_o => open,
+      framing_error_count_o => open
+    );
+
+  -- PQ_STATUS (pq_event_pkg layout), composed from the last emitted
+  -- record: an event is "in progress" exactly when the newest record was
+  -- an event START, since an END always follows the same event.
+  pq_event_active <= '1'
+    when unsigned(pq_tap_kind(7 downto 0)) = PQ_KIND_EVENT_START else '0';
+  pq_status <= pq_tap_event_seq(15 downto 0) &  -- [31:16] completed events
+               "00000" &                        -- [15:11] reserved
+               pq_tap_kind(18 downto 16) &      -- [10:8]  affected phases
+               "0000" &                         -- [7:4]   reserved
+               pq_tap_kind(10 downto 8) &       -- [3:1]   event type
+               pq_event_active;                 -- [0]     event in progress
+
   mtr1_tap : entity work.record_word_tap
     port map (
       aclk => aclk,
@@ -768,11 +1016,18 @@ begin
       reset_count_o => open,
       ineligible_count_o => open,
       continuity_count_o => open,
+      aux0_o => open,
+      aux1_o => open,
       framing_error_o => open,
       framing_error_count_o => open
     );
 
   mtr2_tap : entity work.record_word_tap
+    generic map (
+      -- Words 33..35 belong to AGG-v3; the sibling records reuse them
+      -- as payload/reserved space and must not reach the registers.
+      G_DIAG_FORMAT => x"00020003"
+    )
     port map (
       aclk => aclk,
       aresetn => aresetn,
@@ -787,6 +1042,8 @@ begin
       reset_count_o => mtr2_tap_reset,
       ineligible_count_o => mtr2_tap_ineligible,
       continuity_count_o => mtr2_tap_continuity,
+      aux0_o => open,
+      aux1_o => open,
       framing_error_o => open,
       framing_error_count_o => open
     );
