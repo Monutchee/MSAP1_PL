@@ -37,11 +37,14 @@ if {![file exists $routed]} {
 puts "PL_BUILD_ROUTED=$routed"
 
 pl_build_write_reports impl_1 [list \
-    impl_utilization    {report_utilization} \
-    impl_timing_summary {report_timing_summary} \
-    impl_cdc            {report_cdc} \
-    impl_drc            {report_drc} \
-    impl_io             {report_io} \
+    impl_utilization              {report_utilization} \
+    impl_utilization_hierarchical {report_utilization -hierarchical -hierarchical_depth 5} \
+    impl_congestion               {report_design_analysis -congestion} \
+    impl_control_sets             {report_control_sets -verbose} \
+    impl_timing_summary           {report_timing_summary} \
+    impl_cdc                      {report_cdc} \
+    impl_drc                      {report_drc} \
+    impl_io                       {report_io} \
 ]
 
 pl_build_utilization_summary [file join $pl_build_report_dir impl_utilization.rpt]

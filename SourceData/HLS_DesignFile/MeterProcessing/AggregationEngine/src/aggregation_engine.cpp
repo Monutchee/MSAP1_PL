@@ -203,73 +203,73 @@ static void emit_open_interval_records(
       status |
       (ap_uint<32>(phasor_invalid) << PHASOR_STATUS_INVALID_BIT);
 
-  record_image_t fundamental;
-  clear_record(fundamental);
-  fill_envelope(fundamental, sequence, generation, sample_rate, sample_count,
+  // All four sibling records are emitted sequentially.  Reusing one record
+  // image prevents HLS from building four independent 2048-bit staging banks
+  // and the wide selection network needed to feed the shared serializer.
+  record_image_t image;
+  clear_record(image);
+  fill_envelope(image, sequence, generation, sample_rate, sample_count,
                 valid_mask, status, first_sample);
-  fundamental.word[MTR2_SHAPE_WORD] = shape_word;
-  fundamental.word[MTR2_FIRST_BASIC_SEQ_WORD] = first_sequence;
-  fundamental.word[MTR2_LAST_BASIC_SEQ_WORD] = last_sequence;
+  image.word[MTR2_SHAPE_WORD] = shape_word;
+  image.word[MTR2_FIRST_BASIC_SEQ_WORD] = first_sequence;
+  image.word[MTR2_LAST_BASIC_SEQ_WORD] = last_sequence;
 open_record_lanes:
   for (int lane = 0; lane < MET_CHANNEL_LANES; ++lane) {
 #pragma HLS PIPELINE off
     if (lane < MET_ACTIVE_CHANNELS) {
       const ap_uint<64> rms_units = fin.rms_q16[lane] >> 16;
       const int base = MTR2_CH_BASE_WORD + lane * MTR2_CH_STRIDE_WORDS;
-      fundamental.word[base + 0] = rms_units.range(31, 0);
-      fundamental.word[base + 1] = rms_units.range(63, 32);
+      image.word[base + 0] = rms_units.range(31, 0);
+      image.word[base + 1] = rms_units.range(63, 32);
     }
   }
-  fundamental.word[MTR2_RESET_COUNT_WORD] = reset_count;
-  fundamental.word[MTR2_INELIGIBLE_COUNT_WORD] = ineligible_count;
-  fundamental.word[MTR2_CONTINUITY_COUNT_WORD] = continuity_count;
-  fundamental.word[AGG_LAST_SAMPLE_LOW_WORD] = last_sample.range(31, 0);
-  fundamental.word[AGG_LAST_SAMPLE_HIGH_WORD] = last_sample.range(63, 32);
+  image.word[MTR2_RESET_COUNT_WORD] = reset_count;
+  image.word[MTR2_INELIGIBLE_COUNT_WORD] = ineligible_count;
+  image.word[MTR2_CONTINUITY_COUNT_WORD] = continuity_count;
+  image.word[AGG_LAST_SAMPLE_LOW_WORD] = last_sample.range(31, 0);
+  image.word[AGG_LAST_SAMPLE_HIGH_WORD] = last_sample.range(63, 32);
 open_record_pairs:
   for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
 #pragma HLS PIPELINE off
-    fundamental.word[AGG_VLL_BASE_WORD + pair] =
+    image.word[AGG_VLL_BASE_WORD + pair] =
         ap_uint<64>(fin.vll_rms[pair] >> 16).range(31, 0);
   }
-  fundamental.word[TEN_MINUTE_TOTAL_CYCLES_WORD] = total_cycles;
-  fundamental.word[TEN_MINUTE_TARGET_SAMPLE_LOW_WORD] =
+  image.word[TEN_MINUTE_TOTAL_CYCLES_WORD] = total_cycles;
+  image.word[TEN_MINUTE_TARGET_SAMPLE_LOW_WORD] =
       expected_end.range(31, 0);
-  fundamental.word[TEN_MINUTE_TARGET_SAMPLE_HIGH_WORD] =
+  image.word[TEN_MINUTE_TARGET_SAMPLE_HIGH_WORD] =
       expected_end.range(63, 32);
   // An open interval has not crossed its target, so overshoot is undefined
   // and encoded as zero. expected_end plus last_sample expresses progress.
-  fundamental.word[TEN_MINUTE_OVERSHOOT_SAMPLES_WORD] = 0;
-  serialize_record<FUND_FORMAT>(fundamental, output);
+  image.word[TEN_MINUTE_OVERSHOOT_SAMPLES_WORD] = 0;
+  serialize_record<FUND_FORMAT>(image, output);
 
-  record_image_t power;
-  clear_record(power);
-  fill_envelope(power, sequence, generation, sample_rate, sample_count,
+  clear_record(image);
+  fill_envelope(image, sequence, generation, sample_rate, sample_count,
                 valid_mask, status, first_sample);
-  power.word[MTR2_SHAPE_WORD] = shape_word;
-  power.word[MTR2_FIRST_BASIC_SEQ_WORD] = first_sequence;
-  power.word[MTR2_LAST_BASIC_SEQ_WORD] = last_sequence;
-  fill_power_payload(fin, power);
-  serialize_record<POWER_FORMAT>(power, output);
+  image.word[MTR2_SHAPE_WORD] = shape_word;
+  image.word[MTR2_FIRST_BASIC_SEQ_WORD] = first_sequence;
+  image.word[MTR2_LAST_BASIC_SEQ_WORD] = last_sequence;
+  fill_power_payload(fin, image);
+  serialize_record<POWER_FORMAT>(image, output);
 
-  record_image_t phasor;
-  clear_record(phasor);
-  fill_envelope(phasor, sequence, generation, sample_rate, sample_count,
+  clear_record(image);
+  fill_envelope(image, sequence, generation, sample_rate, sample_count,
                 valid_mask, phasor_status, first_sample);
-  phasor.word[MTR2_SHAPE_WORD] = shape_word;
-  phasor.word[MTR2_FIRST_BASIC_SEQ_WORD] = first_sequence;
-  phasor.word[MTR2_LAST_BASIC_SEQ_WORD] = last_sequence;
-  fill_phasor_payload(fin, phasor);
-  serialize_record<PHASOR_FORMAT>(phasor, output);
+  image.word[MTR2_SHAPE_WORD] = shape_word;
+  image.word[MTR2_FIRST_BASIC_SEQ_WORD] = first_sequence;
+  image.word[MTR2_LAST_BASIC_SEQ_WORD] = last_sequence;
+  fill_phasor_payload(fin, image);
+  serialize_record<PHASOR_FORMAT>(image, output);
 
-  record_image_t unbalance;
-  clear_record(unbalance);
-  fill_envelope(unbalance, sequence, generation, sample_rate, sample_count,
+  clear_record(image);
+  fill_envelope(image, sequence, generation, sample_rate, sample_count,
                 valid_mask, phasor_status, first_sample);
-  unbalance.word[MTR2_SHAPE_WORD] = shape_word;
-  unbalance.word[MTR2_FIRST_BASIC_SEQ_WORD] = first_sequence;
-  unbalance.word[MTR2_LAST_BASIC_SEQ_WORD] = last_sequence;
-  fill_unbal_payload(fin, unbalance);
-  serialize_record<UNBAL_FORMAT>(unbalance, output);
+  image.word[MTR2_SHAPE_WORD] = shape_word;
+  image.word[MTR2_FIRST_BASIC_SEQ_WORD] = first_sequence;
+  image.word[MTR2_LAST_BASIC_SEQ_WORD] = last_sequence;
+  fill_unbal_payload(fin, image);
+  serialize_record<UNBAL_FORMAT>(image, output);
 }
 
 void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
@@ -981,51 +981,47 @@ finalize_passes:
     image.word[MTR1_ADC_ALERTS_WORD] =
         ctx_cap_alerts;
 
+    const ap_uint<32> record_timing_word = image.word[MTR1_TIMING_WORD];
+    const ap_uint<32> record_last_sample_low =
+        image.word[BASIC_LAST_SAMPLE_LOW_WORD];
+    const ap_uint<32> record_last_sample_high =
+        image.word[BASIC_LAST_SAMPLE_HIGH_WORD];
     serialize_record<MREC_FORMAT_BASIC_V4>(image, m_basic);
 
     // POWER-v1 record on the same stream, describing the same block (same
     // sequence, generation, anchors, status).
-    record_image_t power_image;
-    clear_record(power_image);
-    fill_envelope(power_image, sequence, active_generation, active_sample_rate,
+    clear_record(image);
+    fill_envelope(image, sequence, active_generation, active_sample_rate,
                   count_now, result_mask, status, block_first_sample);
-    power_image.word[MTR1_TIMING_WORD] = image.word[MTR1_TIMING_WORD];
-    power_image.word[BASIC_LAST_SAMPLE_LOW_WORD] =
-        image.word[BASIC_LAST_SAMPLE_LOW_WORD];
-    power_image.word[BASIC_LAST_SAMPLE_HIGH_WORD] =
-        image.word[BASIC_LAST_SAMPLE_HIGH_WORD];
-    fill_power_payload(fin_out, power_image);
-    serialize_record<MREC_FORMAT_POWER_V1>(power_image, m_basic);
+    image.word[MTR1_TIMING_WORD] = record_timing_word;
+    image.word[BASIC_LAST_SAMPLE_LOW_WORD] = record_last_sample_low;
+    image.word[BASIC_LAST_SAMPLE_HIGH_WORD] = record_last_sample_high;
+    fill_power_payload(fin_out, image);
+    serialize_record<MREC_FORMAT_POWER_V1>(image, m_basic);
 
     // PHASOR-v1 record, third on the stream for the same block. Only the
     // PHASOR and UNBAL records carry the block phasor-invalid status bit.
-    record_image_t phasor_image;
-    clear_record(phasor_image);
+    clear_record(image);
     const ap_uint<32> phasor_status =
         status |
         (ap_uint<32>(block_phasor_invalid) << PHASOR_STATUS_INVALID_BIT);
-    fill_envelope(phasor_image, sequence, active_generation, active_sample_rate,
+    fill_envelope(image, sequence, active_generation, active_sample_rate,
                   count_now, result_mask, phasor_status, block_first_sample);
-    phasor_image.word[MTR1_TIMING_WORD] = image.word[MTR1_TIMING_WORD];
-    phasor_image.word[BASIC_LAST_SAMPLE_LOW_WORD] =
-        image.word[BASIC_LAST_SAMPLE_LOW_WORD];
-    phasor_image.word[BASIC_LAST_SAMPLE_HIGH_WORD] =
-        image.word[BASIC_LAST_SAMPLE_HIGH_WORD];
-    fill_phasor_payload(fin_out, phasor_image);
-    serialize_record<MREC_FORMAT_PHASOR_V2>(phasor_image, m_basic);
+    image.word[MTR1_TIMING_WORD] = record_timing_word;
+    image.word[BASIC_LAST_SAMPLE_LOW_WORD] = record_last_sample_low;
+    image.word[BASIC_LAST_SAMPLE_HIGH_WORD] = record_last_sample_high;
+    fill_phasor_payload(fin_out, image);
+    serialize_record<MREC_FORMAT_PHASOR_V2>(image, m_basic);
 
     // UNBALANCE-v1 record, fourth on the stream (M10).
-    record_image_t unbal_image;
-    clear_record(unbal_image);
-    fill_envelope(unbal_image, sequence, active_generation, active_sample_rate,
+    clear_record(image);
+    fill_envelope(image, sequence, active_generation, active_sample_rate,
                   count_now, result_mask, phasor_status, block_first_sample);
-    unbal_image.word[MTR1_TIMING_WORD] = image.word[MTR1_TIMING_WORD];
-    unbal_image.word[BASIC_LAST_SAMPLE_LOW_WORD] =
-        image.word[BASIC_LAST_SAMPLE_LOW_WORD];
-    unbal_image.word[BASIC_LAST_SAMPLE_HIGH_WORD] =
-        image.word[BASIC_LAST_SAMPLE_HIGH_WORD];
-    fill_unbal_payload(fin_out, unbal_image);
-    serialize_record<MREC_FORMAT_UNBAL_V2>(unbal_image, m_basic);
+    image.word[MTR1_TIMING_WORD] = record_timing_word;
+    image.word[BASIC_LAST_SAMPLE_LOW_WORD] = record_last_sample_low;
+    image.word[BASIC_LAST_SAMPLE_HIGH_WORD] = record_last_sample_high;
+    fill_unbal_payload(fin_out, image);
+    serialize_record<MREC_FORMAT_UNBAL_V2>(image, m_basic);
 
     // ==== Clock-aligned ten-minute interval tier (M13) ===================
     // This consumes the BASIC result directly, in parallel with the 3 s
@@ -1380,37 +1376,34 @@ finalize_passes:
         (ap_uint<32>(a3s_phasor_invalid_or) << PHASOR_STATUS_INVALID_BIT);
 
     // ---- AGG-POWER: payload map identical to POWER-v1. ------------------
-    record_image_t a3s_power_image;
-    clear_record(a3s_power_image);
-    fill_envelope(a3s_power_image, a3s_out_sequence, a3s_agg_generation, a3s_agg_sample_rate,
+    clear_record(a3s_image);
+    fill_envelope(a3s_image, a3s_out_sequence, a3s_agg_generation, a3s_agg_sample_rate,
                   a3s_count_now, a3s_result_mask, sibling_status, a3s_agg_first_sample);
-    a3s_power_image.word[MTR2_SHAPE_WORD] = a3s_shape_word;
-    a3s_power_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = a3s_agg_first_seq;
-    a3s_power_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a3s_agg_last_seq;
-    fill_power_payload(fin_out, a3s_power_image);
-    serialize_record<MREC_FORMAT_AGG_POWER_V1>(a3s_power_image, m_agg);
+    a3s_image.word[MTR2_SHAPE_WORD] = a3s_shape_word;
+    a3s_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = a3s_agg_first_seq;
+    a3s_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a3s_agg_last_seq;
+    fill_power_payload(fin_out, a3s_image);
+    serialize_record<MREC_FORMAT_AGG_POWER_V1>(a3s_image, m_agg);
 
     // ---- AGG-PHASOR: payload map identical to PHASOR-v1. ----------------
-    record_image_t a3s_phasor_image;
-    clear_record(a3s_phasor_image);
-    fill_envelope(a3s_phasor_image, a3s_out_sequence, a3s_agg_generation, a3s_agg_sample_rate,
+    clear_record(a3s_image);
+    fill_envelope(a3s_image, a3s_out_sequence, a3s_agg_generation, a3s_agg_sample_rate,
                   a3s_count_now, a3s_result_mask, a3s_phasor_status, a3s_agg_first_sample);
-    a3s_phasor_image.word[MTR2_SHAPE_WORD] = a3s_shape_word;
-    a3s_phasor_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = a3s_agg_first_seq;
-    a3s_phasor_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a3s_agg_last_seq;
-    fill_phasor_payload(fin_out, a3s_phasor_image);
-    serialize_record<MREC_FORMAT_AGG_PHASOR_V2>(a3s_phasor_image, m_agg);
+    a3s_image.word[MTR2_SHAPE_WORD] = a3s_shape_word;
+    a3s_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = a3s_agg_first_seq;
+    a3s_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a3s_agg_last_seq;
+    fill_phasor_payload(fin_out, a3s_image);
+    serialize_record<MREC_FORMAT_AGG_PHASOR_V2>(a3s_image, m_agg);
 
     // ---- AGG-UNBAL: payload map identical to UNBAL-v1. ------------------
-    record_image_t a3s_unbal_image;
-    clear_record(a3s_unbal_image);
-    fill_envelope(a3s_unbal_image, a3s_out_sequence, a3s_agg_generation, a3s_agg_sample_rate,
+    clear_record(a3s_image);
+    fill_envelope(a3s_image, a3s_out_sequence, a3s_agg_generation, a3s_agg_sample_rate,
                   a3s_count_now, a3s_result_mask, a3s_phasor_status, a3s_agg_first_sample);
-    a3s_unbal_image.word[MTR2_SHAPE_WORD] = a3s_shape_word;
-    a3s_unbal_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = a3s_agg_first_seq;
-    a3s_unbal_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a3s_agg_last_seq;
-    fill_unbal_payload(fin_out, a3s_unbal_image);
-    serialize_record<MREC_FORMAT_AGG_UNBAL_V2>(a3s_unbal_image, m_agg);
+    a3s_image.word[MTR2_SHAPE_WORD] = a3s_shape_word;
+    a3s_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = a3s_agg_first_seq;
+    a3s_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a3s_agg_last_seq;
+    fill_unbal_payload(fin_out, a3s_image);
+    serialize_record<MREC_FORMAT_AGG_UNBAL_V2>(a3s_image, m_agg);
 
     // The 150/180-cycle cadence is the publication cadence for the open
     // ten-minute view.  Never queue a preview when this same Basic block
@@ -1641,40 +1634,37 @@ finalize_passes:
           (ap_uint<32>(t10m_phasor_invalid_or)
            << PHASOR_STATUS_INVALID_BIT);
 
-      record_image_t t10m_power_image;
-      clear_record(t10m_power_image);
-      fill_envelope(t10m_power_image, t10m_out_sequence, t10m_generation,
+      clear_record(t10m_image);
+      fill_envelope(t10m_image, t10m_out_sequence, t10m_generation,
                     t10m_sample_rate, t10m_count_now, t10m_result_mask,
                     t10m_sibling_status, t10m_first_sample);
-      t10m_power_image.word[MTR2_SHAPE_WORD] = t10m_shape_word;
-      t10m_power_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = t10m_first_seq;
-      t10m_power_image.word[MTR2_LAST_BASIC_SEQ_WORD] = t10m_last_seq;
-      fill_power_payload(fin_out, t10m_power_image);
-      serialize_record<MREC_FORMAT_TEN_MINUTE_POWER_V1>(t10m_power_image,
+      t10m_image.word[MTR2_SHAPE_WORD] = t10m_shape_word;
+      t10m_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = t10m_first_seq;
+      t10m_image.word[MTR2_LAST_BASIC_SEQ_WORD] = t10m_last_seq;
+      fill_power_payload(fin_out, t10m_image);
+      serialize_record<MREC_FORMAT_TEN_MINUTE_POWER_V1>(t10m_image,
                                                          m_agg);
 
-      record_image_t t10m_phasor_image;
-      clear_record(t10m_phasor_image);
-      fill_envelope(t10m_phasor_image, t10m_out_sequence, t10m_generation,
+      clear_record(t10m_image);
+      fill_envelope(t10m_image, t10m_out_sequence, t10m_generation,
                     t10m_sample_rate, t10m_count_now, t10m_result_mask,
                     t10m_phasor_status, t10m_first_sample);
-      t10m_phasor_image.word[MTR2_SHAPE_WORD] = t10m_shape_word;
-      t10m_phasor_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = t10m_first_seq;
-      t10m_phasor_image.word[MTR2_LAST_BASIC_SEQ_WORD] = t10m_last_seq;
-      fill_phasor_payload(fin_out, t10m_phasor_image);
-      serialize_record<MREC_FORMAT_TEN_MINUTE_PHASOR_V2>(t10m_phasor_image,
+      t10m_image.word[MTR2_SHAPE_WORD] = t10m_shape_word;
+      t10m_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = t10m_first_seq;
+      t10m_image.word[MTR2_LAST_BASIC_SEQ_WORD] = t10m_last_seq;
+      fill_phasor_payload(fin_out, t10m_image);
+      serialize_record<MREC_FORMAT_TEN_MINUTE_PHASOR_V2>(t10m_image,
                                                           m_agg);
 
-      record_image_t t10m_unbal_image;
-      clear_record(t10m_unbal_image);
-      fill_envelope(t10m_unbal_image, t10m_out_sequence, t10m_generation,
+      clear_record(t10m_image);
+      fill_envelope(t10m_image, t10m_out_sequence, t10m_generation,
                     t10m_sample_rate, t10m_count_now, t10m_result_mask,
                     t10m_phasor_status, t10m_first_sample);
-      t10m_unbal_image.word[MTR2_SHAPE_WORD] = t10m_shape_word;
-      t10m_unbal_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = t10m_first_seq;
-      t10m_unbal_image.word[MTR2_LAST_BASIC_SEQ_WORD] = t10m_last_seq;
-      fill_unbal_payload(fin_out, t10m_unbal_image);
-      serialize_record<MREC_FORMAT_TEN_MINUTE_UNBAL_V2>(t10m_unbal_image,
+      t10m_image.word[MTR2_SHAPE_WORD] = t10m_shape_word;
+      t10m_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = t10m_first_seq;
+      t10m_image.word[MTR2_LAST_BASIC_SEQ_WORD] = t10m_last_seq;
+      fill_unbal_payload(fin_out, t10m_image);
+      serialize_record<MREC_FORMAT_TEN_MINUTE_UNBAL_V2>(t10m_image,
                                                          m_agg);
 
       t10m_blocks_accumulated = 0;
@@ -1755,40 +1745,37 @@ finalize_passes:
           (ap_uint<32>(a2h_phasor_invalid_or)
            << PHASOR_STATUS_INVALID_BIT);
 
-      record_image_t a2h_power_image;
-      clear_record(a2h_power_image);
-      fill_envelope(a2h_power_image, a2h_out_sequence, a2h_generation,
+      clear_record(a2h_image);
+      fill_envelope(a2h_image, a2h_out_sequence, a2h_generation,
                     a2h_sample_rate, a2h_count_now, a2h_result_mask,
                     a2h_sibling_status, a2h_first_sample);
-      a2h_power_image.word[MTR2_SHAPE_WORD] = a2h_shape_word;
-      a2h_power_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = a2h_first_seq;
-      a2h_power_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a2h_last_seq;
-      fill_power_payload(fin_out, a2h_power_image);
-      serialize_record<MREC_FORMAT_TWO_HOUR_POWER_V1>(a2h_power_image,
+      a2h_image.word[MTR2_SHAPE_WORD] = a2h_shape_word;
+      a2h_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = a2h_first_seq;
+      a2h_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a2h_last_seq;
+      fill_power_payload(fin_out, a2h_image);
+      serialize_record<MREC_FORMAT_TWO_HOUR_POWER_V1>(a2h_image,
                                                        m_agg);
 
-      record_image_t a2h_phasor_image;
-      clear_record(a2h_phasor_image);
-      fill_envelope(a2h_phasor_image, a2h_out_sequence, a2h_generation,
+      clear_record(a2h_image);
+      fill_envelope(a2h_image, a2h_out_sequence, a2h_generation,
                     a2h_sample_rate, a2h_count_now, a2h_result_mask,
                     a2h_phasor_status, a2h_first_sample);
-      a2h_phasor_image.word[MTR2_SHAPE_WORD] = a2h_shape_word;
-      a2h_phasor_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = a2h_first_seq;
-      a2h_phasor_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a2h_last_seq;
-      fill_phasor_payload(fin_out, a2h_phasor_image);
-      serialize_record<MREC_FORMAT_TWO_HOUR_PHASOR_V2>(a2h_phasor_image,
+      a2h_image.word[MTR2_SHAPE_WORD] = a2h_shape_word;
+      a2h_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = a2h_first_seq;
+      a2h_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a2h_last_seq;
+      fill_phasor_payload(fin_out, a2h_image);
+      serialize_record<MREC_FORMAT_TWO_HOUR_PHASOR_V2>(a2h_image,
                                                         m_agg);
 
-      record_image_t a2h_unbal_image;
-      clear_record(a2h_unbal_image);
-      fill_envelope(a2h_unbal_image, a2h_out_sequence, a2h_generation,
+      clear_record(a2h_image);
+      fill_envelope(a2h_image, a2h_out_sequence, a2h_generation,
                     a2h_sample_rate, a2h_count_now, a2h_result_mask,
                     a2h_phasor_status, a2h_first_sample);
-      a2h_unbal_image.word[MTR2_SHAPE_WORD] = a2h_shape_word;
-      a2h_unbal_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = a2h_first_seq;
-      a2h_unbal_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a2h_last_seq;
-      fill_unbal_payload(fin_out, a2h_unbal_image);
-      serialize_record<MREC_FORMAT_TWO_HOUR_UNBAL_V2>(a2h_unbal_image,
+      a2h_image.word[MTR2_SHAPE_WORD] = a2h_shape_word;
+      a2h_image.word[MTR2_FIRST_BASIC_SEQ_WORD] = a2h_first_seq;
+      a2h_image.word[MTR2_LAST_BASIC_SEQ_WORD] = a2h_last_seq;
+      fill_unbal_payload(fin_out, a2h_image);
+      serialize_record<MREC_FORMAT_TWO_HOUR_UNBAL_V2>(a2h_image,
                                                        m_agg);
 
       a2h_intervals_accumulated = 0;
