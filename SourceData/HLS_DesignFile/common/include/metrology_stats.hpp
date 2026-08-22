@@ -91,17 +91,23 @@ ap_int<OUT_WIDTH> met_floor_mean_signed(const ap_int<SUM_WIDTH> sum,
 
 // Mean-corrected RMS from a window's accumulators:
 //
-//   variance = (square*count [saturate+flag above 2**128]
-//               - |sum|**2 when dc_remove [flag+clamp rules])
+//   variance = (square*count - |sum|**2 when dc_remove [clamp rules])
 //              / count**2, floor
 //   rms      = floor(sqrt(variance))
 //
-// The |sum|-too-wide rule (RTL variance_sum_too_wide): a magnitude that
-// does not fit 64 bits cannot be squared exactly in 128, so the
-// numerator zeroes with the flag. Accumulators whose sums cannot exceed
-// 64 bits (SUM_WIDTH <= 64, e.g. the raw-count path) can never trip it,
-// preserving that path's behaviour without a separate variant.
-template <int SQUARE_WIDTH, int SUM_WIDTH>
+// The numerator width is derived from the accumulator width plus the complete
+// 32-bit sample count.  This is not optional headroom: at 120 V Q16 a valid
+// 10-minute result needs about 139 numerator bits and a 2-hour result needs
+// about 146.  The former 128-bit intermediate therefore reported a false
+// arithmetic saturation even though the stored 128-bit square accumulator was
+// still in range.
+//
+// Half the numerator width is available to |sum| before squaring.  That gives
+// the engineering path 80 bits (enough for the supported 2-hour interval) and
+// preserves the raw-count path's original 64-bit contract.  A true value
+// outside those declared bounds still sets the sticky arithmetic flag.
+template <int SQUARE_WIDTH, int SUM_WIDTH,
+          int NUMERATOR_WIDTH = SQUARE_WIDTH + 32>
 ap_uint<64> met_rms_from_accumulators(const ap_uint<SQUARE_WIDTH> square,
                                       const ap_int<SUM_WIDTH> sum,
                                       const ap_uint<32> count,
@@ -110,26 +116,26 @@ ap_uint<64> met_rms_from_accumulators(const ap_uint<SQUARE_WIDTH> square,
 #pragma HLS INLINE off
   static_assert(SQUARE_WIDTH <= 128, "square accumulator exceeds the recurrence");
   static_assert(SUM_WIDTH <= 128, "sum accumulator exceeds the recurrence");
-  const ap_uint<160> product = ap_uint<160>(square) * count;
-  ap_uint<128> numerator;
-  if (product.range(159, 128) != 0) {
-    overflow = 1;
-    numerator = ~ap_uint<128>(0);
-  } else {
-    numerator = product.range(127, 0);
-  }
+  static_assert(NUMERATOR_WIDTH == SQUARE_WIDTH + 32,
+                "numerator must retain every square*count product bit");
+  static_assert((NUMERATOR_WIDTH % 2) == 0,
+                "mean-correction square root width must be integral");
+  static const int SUM_MAGNITUDE_WIDTH = NUMERATOR_WIDTH / 2;
+  static_assert(SUM_MAGNITUDE_WIDTH <= SUM_WIDTH,
+                "sum accumulator is narrower than the correction operand");
+
+  ap_uint<NUMERATOR_WIDTH> numerator =
+      ap_uint<NUMERATOR_WIDTH>(square) * ap_uint<32>(count);
   if (dc_remove == 1) {
     const ap_uint<SUM_WIDTH> magnitude = met_abs<SUM_WIDTH>(sum);
-    // Shifts of >= the operand width yield zero, so a <= 64-bit sum
-    // reduces this to the plain subtract-with-clamp path.
-    const ap_uint<SUM_WIDTH> high = magnitude >> 64;
+    const ap_uint<SUM_WIDTH> high = magnitude >> SUM_MAGNITUDE_WIDTH;
     if (high != 0) {
       overflow = 1;
       numerator = 0;
     } else {
-      const ap_uint<64> low = magnitude.range(
-          (SUM_WIDTH > 64 ? 64 : SUM_WIDTH) - 1, 0);
-      const ap_uint<128> sum_square = ap_uint<128>(low) * low;
+      const ap_uint<SUM_MAGNITUDE_WIDTH> low =
+          magnitude.range(SUM_MAGNITUDE_WIDTH - 1, 0);
+      const ap_uint<NUMERATOR_WIDTH> sum_square = low * low;
       if (numerator >= sum_square) {
         numerator -= sum_square;
       } else {
@@ -138,8 +144,18 @@ ap_uint<64> met_rms_from_accumulators(const ap_uint<SQUARE_WIDTH> square,
       }
     }
   }
-  const ap_uint<128> denominator = ap_uint<128>(ap_uint<64>(count) * count);
-  return floor_sqrt_128(floor_div<128>(numerator, denominator));
+  const ap_uint<64> denominator = ap_uint<64>(count) * count;
+  const ap_uint<NUMERATOR_WIDTH> mean_square =
+      floor_div_narrow<NUMERATOR_WIDTH, 64>(numerator, denominator);
+
+  // The public result is a 64-bit Q16 magnitude, so its squared value must fit
+  // 128 bits.  Clamp only genuine out-of-contract magnitudes here; supported
+  // long windows have a wide numerator but their divided mean square is small.
+  if ((mean_square >> 128) != 0) {
+    overflow = 1;
+    return ~ap_uint<64>(0);
+  }
+  return floor_sqrt_128(ap_uint<128>(mean_square));
 }
 
 

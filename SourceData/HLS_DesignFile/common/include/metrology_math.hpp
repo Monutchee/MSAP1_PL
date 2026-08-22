@@ -39,6 +39,34 @@ div_bits:
   return quotient;
 }
 
+// floor(dividend / divisor) when the divisor is narrower than the dividend.
+// The restoring remainder is always below the divisor before the shift and
+// below 2*divisor afterwards, so DIVISOR_WIDTH+1 bits are sufficient.  This is
+// particularly important for long metrology windows: their variance numerator
+// is 160 bits, but count^2 remains 64 bits.  Carrying a 161-bit remainder and
+// comparator through all 160 serial steps would add area without changing one
+// result bit.
+template <int DIVIDEND_WIDTH, int DIVISOR_WIDTH>
+ap_uint<DIVIDEND_WIDTH> floor_div_narrow(
+    ap_uint<DIVIDEND_WIDTH> dividend,
+    ap_uint<DIVISOR_WIDTH> divisor) {
+  static_assert(DIVISOR_WIDTH <= DIVIDEND_WIDTH,
+                "narrow divisor cannot exceed the dividend width");
+  ap_uint<DIVIDEND_WIDTH> quotient = 0;
+  ap_uint<DIVISOR_WIDTH + 1> remainder = 0;
+div_narrow_bits:
+  for (int bit = DIVIDEND_WIDTH - 1; bit >= 0; --bit) {
+#pragma HLS PIPELINE off
+    remainder = (remainder << 1) |
+                ap_uint<DIVISOR_WIDTH + 1>(dividend.bit(bit));
+    if (remainder >= ap_uint<DIVISOR_WIDTH + 1>(divisor)) {
+      remainder -= ap_uint<DIVISOR_WIDTH + 1>(divisor);
+      quotient.bit(bit) = 1;
+    }
+  }
+  return quotient;
+}
+
 // Smallest bit count that can represent VALUE (met_bit_width<29>::value
 // is 5). Used to size compile-time-known remainders exactly.
 template <unsigned long long VALUE>

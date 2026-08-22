@@ -227,6 +227,35 @@ static void test_metrology_primitives() {
   CHECK((met_rms_from_accumulators<128, 128>(square, sum, count, 0, overflow) ==
              ap_uint<64>(1000)),
         "constant signal without dc_remove must report its magnitude");
+
+  // Regression: valid 10-minute and 2-hour engineering accumulators need a
+  // wider finalize numerator even though both stored accumulators fit their
+  // existing 128-bit fields.  The old 128-bit square*count intermediate set
+  // overflow for both of these ordinary 120 V windows.
+  const ap_uint<64> volts_120_q16 = ap_uint<64>(7864320000000ULL);
+  const ap_uint<32> long_counts[] = {ap_uint<32>(76799997U),
+                                     ap_uint<32>(921599963U)};
+  for (const auto &long_count : long_counts) {
+    const ap_int<128> long_sum =
+        ap_int<128>(volts_120_q16) * ap_int<128>(long_count);
+    ap_uint<128> long_square =
+        ap_uint<128>(volts_120_q16) * ap_uint<128>(volts_120_q16);
+    long_square *= long_count;
+
+    overflow = 0;
+    CHECK((met_rms_from_accumulators<128, 128>(
+               long_square, long_sum, long_count, 0, overflow) ==
+               volts_120_q16 &&
+           overflow == 0),
+          "long-window total RMS must not report false saturation");
+
+    overflow = 0;
+    CHECK((met_rms_from_accumulators<128, 128>(
+               long_square, long_sum, long_count, 1, overflow) ==
+               ap_uint<64>(0) &&
+           overflow == 0),
+          "long-window DC correction must retain the full-width numerator");
+  }
   CHECK((met_expected_cycles(50) == MET_GRID_CYCLES_50HZ &&
              met_expected_cycles(60) == MET_GRID_CYCLES_60HZ),
         "nominal-to-cycles mapping");
