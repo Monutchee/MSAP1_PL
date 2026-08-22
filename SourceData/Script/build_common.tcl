@@ -169,6 +169,113 @@ proc pl_build_run_dir {run} {
     return [get_property DIRECTORY [get_runs $run]]
 }
 
+# Reset a top-level run and verify that Vivado actually accepted the reset.
+#
+# reset_run can return normally after printing Vivado 12-1017 ("Attempt to
+# kill process failed").  A following launch_runs then fails with Common
+# 17-69 because the run still owns a stale .vivado.begin.rst marker.  This is
+# common after a build process is interrupted or the host is rebooted.
+#
+# Retry once first, since Vivado may still be finishing an asynchronous
+# launcher shutdown.  If the run remains non-reset, quarantine the begin
+# marker only when all of the following prove that it is stale:
+#
+#   * the marker contains a numeric PID;
+#   * it was written by this host; and
+#   * /proc/<pid> no longer exists.
+#
+# A live or remotely-owned marker is never removed automatically.  That keeps
+# the recovery path from damaging a real build while making an abandoned run
+# self-healing.  The quarantine file is restored if the final reset fails.
+proc pl_build_reset_run {run} {
+    set object [get_runs -quiet $run]
+    if {$object eq ""} {
+        error "cannot reset missing Vivado run $run"
+    }
+
+    for {set attempt 1} {$attempt <= 2} {incr attempt} {
+        set reset_error ""
+        if {[catch {reset_run $run} reset_error]} {
+            puts "WARNING: reset_run $run attempt $attempt failed: $reset_error"
+        }
+
+        set status [pl_build_property [get_runs $run] STATUS]
+        set progress [pl_build_property [get_runs $run] PROGRESS]
+        if {$status eq "Not started" && ($progress eq "0%" || $progress eq "n/a")} {
+            puts "PL_BUILD_RUN_RESET=$run"
+            return
+        }
+
+        puts "WARNING: reset_run $run attempt $attempt did not reset the run\
+ (status: $status, progress: $progress)"
+        if {$attempt < 2} {
+            after 1000
+        }
+    }
+
+    set marker [file join [pl_build_run_dir $run] .vivado.begin.rst]
+    if {![file exists $marker]} {
+        error "$run did not reset and has no process marker to recover\
+ (status: [pl_build_property [get_runs $run] STATUS])"
+    }
+
+    set handle [open $marker r]
+    set marker_xml [read $handle]
+    close $handle
+
+    if {![regexp {Pid="([0-9]+)"} $marker_xml -> marker_pid]} {
+        error "$run did not reset; refusing to remove process marker without\
+ a numeric PID: $marker"
+    }
+    if {![regexp {Host="([^"]+)"} $marker_xml -> marker_host]} {
+        error "$run did not reset; refusing to remove process marker without\
+ a host name: $marker"
+    }
+
+    set local_host [info hostname]
+    set marker_host_short [lindex [split $marker_host .] 0]
+    set local_host_short [lindex [split $local_host .] 0]
+    if {![string equal -nocase $marker_host_short $local_host_short]} {
+        error "$run did not reset; process marker belongs to host\
+ $marker_host, not $local_host -- verify the remote process before removing\
+ $marker"
+    }
+    if {[file exists "/proc/$marker_pid"]} {
+        error "$run did not reset because its Vivado process is still alive\
+ (PID $marker_pid on $marker_host); stop that process before retrying"
+    }
+
+    set quarantine "$marker.stale.[pid].[clock seconds]"
+    puts "WARNING: recovering $run from stale Vivado process marker\
+ (dead PID $marker_pid): $marker"
+    file rename -force $marker $quarantine
+
+    set final_error ""
+    if {[catch {reset_run $run} final_error]} {
+        if {[file exists $quarantine] && ![file exists $marker]} {
+            file rename -force $quarantine $marker
+        }
+        error "reset_run $run still failed after stale-marker recovery:\
+ $final_error"
+    }
+
+    set status [pl_build_property [get_runs $run] STATUS]
+    set progress [pl_build_property [get_runs $run] PROGRESS]
+    if {$status ne "Not started" || ($progress ne "0%" && $progress ne "n/a")} {
+        if {[file exists $quarantine] && ![file exists $marker]} {
+            file rename -force $quarantine $marker
+        }
+        error "$run still did not reset after stale-marker recovery\
+ (status: $status, progress: $progress)"
+    }
+
+    if {[file exists $quarantine]} {
+        file delete -force $quarantine
+    }
+    puts "PL_BUILD_STALE_RUN_RECOVERED=$run"
+    puts "PL_BUILD_RUN_RESET=$run"
+}
+
 # Property sets differ between Vivado releases and between run states, and a
 # run that never started has no statistics at all. Report what the project
 # actually exposes instead of failing on an absent property.

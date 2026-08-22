@@ -35,7 +35,7 @@ if {[llength $locked] > 0} {
  'mnc HLS build'"
 }
 
-reset_run synth_1
+pl_build_reset_run synth_1
 launch_runs synth_1 -jobs $jobs
 pl_build_finish_run synth_1
 

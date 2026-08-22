@@ -26,7 +26,7 @@ puts "PL_BUILD_JOBS=$jobs"
 
 pl_build_apply_incremental impl_1
 
-reset_run impl_1
+pl_build_reset_run impl_1
 launch_runs impl_1 -to_step route_design -jobs $jobs
 pl_build_finish_run impl_1
 
