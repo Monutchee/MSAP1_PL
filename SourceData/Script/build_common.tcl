@@ -498,14 +498,17 @@ proc pl_build_running_runs {} {
 # continue over an unfinished run.
 # Headline utilization from a report_utilization file: the GUI Project
 # Summary numbers (LUT/FF/BRAM/DSP used, available, percent) as parseable
-# stage output. Silent if the report is missing (a failed stage already
-# said why).
+# stage output.  A routed implementation report also contains physical CLB
+# occupancy; synthesis cannot report that value because its cells have not
+# been placed yet.  Silent if either the report or an individual row is
+# missing (a failed stage already said why).
 proc pl_build_utilization_summary {rpt {prefix PL_BUILD_UTIL}} {
     if {![file exists $rpt]} {
         return
     }
     set rows {
         LUT  "CLB LUTs"
+        CLB  "CLB"
         FF   "CLB Registers"
         BRAM "Block RAM Tile"
         DSP  "DSPs"
