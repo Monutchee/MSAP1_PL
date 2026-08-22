@@ -160,6 +160,19 @@ static const uint32_t MREC_FORMAT_TWO_HOUR_V1        = 0x000D0001u;
 static const uint32_t MREC_FORMAT_TWO_HOUR_POWER_V1  = 0x00160001u;
 static const uint32_t MREC_FORMAT_TWO_HOUR_PHASOR_V2 = 0x00170002u;
 static const uint32_t MREC_FORMAT_TWO_HOUR_UNBAL_V2  = 0x00180002u;
+// M15 live-partial records. These are operational previews of the open
+// accumulator images, not normative IEC interval results. Their layouts are
+// identical to the completed long-period families so consumers can share the
+// decoder, while the distinct format IDs and status flags prevent an open
+// result from replacing or masquerading as a completed result.
+static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_V1        = 0x000E0001u;
+static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_POWER_V1  = 0x00190001u;
+static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_PHASOR_V2 = 0x001A0002u;
+static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_UNBAL_V2  = 0x001B0002u;
+static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_V1        = 0x000F0001u;
+static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_POWER_V1  = 0x001C0001u;
+static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_PHASOR_V2 = 0x001D0002u;
+static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_UNBAL_V2  = 0x001E0002u;
 // PQEVT v1 (M12): the sliding Urms(1/2) tier's record, emitted by
 // SlidingOneCycleRmsEngine on its OWN producer port (M_AXIS_PQ). Three
 // kinds share the format, distinguished by the format-header word 13:
@@ -414,6 +427,8 @@ static const int TEN_MINUTE_STATUS_COMPLETE_BIT     = 1;
 static const int TEN_MINUTE_STATUS_TIME_ALIGNED_BIT = 2;
 static const int TEN_MINUTE_STATUS_CONTAMINATED_BIT = 3;
 static const int TEN_MINUTE_STATUS_BOUNDARY_VALID_BIT = 4;
+static const int TEN_MINUTE_STATUS_OPEN_INTERVAL_BIT   = 5;
+static const int TEN_MINUTE_STATUS_NON_NORMATIVE_BIT   = 6;
 
 // ---------------------------------------------------------------------------
 // SCYC-v4 interior: the single-cycle diagnostic record. One record per

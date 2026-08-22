@@ -3,7 +3,7 @@
   "ip_inst": {
     "xci_name": "hls_aggregation_engine_ip",
     "component_reference": "monutchee:msap1:hls_aggregation_engine:1.0",
-    "ip_revision": "2114751088",
+    "ip_revision": "2114751566",
     "gen_directory": ".",
     "parameters": {
       "component_parameters": {
@@ -12,7 +12,7 @@
         "machine": [ { "value": "64", "enabled": false, "usage": "all" } ],
         "combinational": [ { "value": "0", "enabled": false, "usage": "all" } ],
         "latency": [ { "value": "1", "enabled": false, "usage": "all" } ],
-        "II": [ { "value": "2 ~ 34938", "enabled": false, "usage": "all" } ]
+        "II": [ { "value": "2 ~ 46522", "enabled": false, "usage": "all" } ]
       },
       "project_parameters": {
         "ARCHITECTURE": [ { "value": "zynquplus", "resolve_type": "generated", "usage": "all" } ],
@@ -29,7 +29,7 @@
       },
       "runtime_parameters": {
         "IPCONTEXT": [ { "value": "IP_Flow" } ],
-        "IPREVISION": [ { "value": "2114751088" } ],
+        "IPREVISION": [ { "value": "2114751566" } ],
         "MANAGED": [ { "value": "TRUE" } ],
         "OUTPUTDIR": [ { "value": "." } ],
         "SELECTEDSIMMODEL": [ { "value": "" } ],
@@ -173,5 +173,5 @@
       }
     }
   },
-  "checksum": "be817fa4"
+  "checksum": "75635056"
 }
