@@ -102,9 +102,10 @@ ap_int<OUT_WIDTH> met_floor_mean_signed(const ap_int<SUM_WIDTH> sum,
 // arithmetic saturation even though the stored 128-bit square accumulator was
 // still in range.
 //
-// Half the numerator width is available to |sum| before squaring.  That gives
-// the engineering path 80 bits (enough for the supported 2-hour interval) and
-// preserves the raw-count path's original 64-bit contract.  A true value
+// At most half the numerator width is available to |sum| before squaring.  A
+// narrower caller keeps its declared sum width: the engineering path uses 80
+// bits (enough for the supported 2-hour interval), while the raw-count and
+// sliding-window paths retain their existing 64-bit sums.  A true value
 // outside those declared bounds still sets the sticky arithmetic flag.
 template <int SQUARE_WIDTH, int SUM_WIDTH,
           int NUMERATOR_WIDTH = SQUARE_WIDTH + 32>
@@ -120,9 +121,9 @@ ap_uint<64> met_rms_from_accumulators(const ap_uint<SQUARE_WIDTH> square,
                 "numerator must retain every square*count product bit");
   static_assert((NUMERATOR_WIDTH % 2) == 0,
                 "mean-correction square root width must be integral");
-  static const int SUM_MAGNITUDE_WIDTH = NUMERATOR_WIDTH / 2;
-  static_assert(SUM_MAGNITUDE_WIDTH <= SUM_WIDTH,
-                "sum accumulator is narrower than the correction operand");
+  static const int SUM_MAGNITUDE_WIDTH =
+      (SUM_WIDTH < (NUMERATOR_WIDTH / 2)) ? SUM_WIDTH
+                                          : (NUMERATOR_WIDTH / 2);
 
   ap_uint<NUMERATOR_WIDTH> numerator =
       ap_uint<NUMERATOR_WIDTH>(square) * ap_uint<32>(count);
@@ -135,7 +136,8 @@ ap_uint<64> met_rms_from_accumulators(const ap_uint<SQUARE_WIDTH> square,
     } else {
       const ap_uint<SUM_MAGNITUDE_WIDTH> low =
           magnitude.range(SUM_MAGNITUDE_WIDTH - 1, 0);
-      const ap_uint<NUMERATOR_WIDTH> sum_square = low * low;
+      const ap_uint<2 * SUM_MAGNITUDE_WIDTH> sum_square_narrow = low * low;
+      const ap_uint<NUMERATOR_WIDTH> sum_square = sum_square_narrow;
       if (numerator >= sum_square) {
         numerator -= sum_square;
       } else {
@@ -202,33 +204,35 @@ inline ap_uint<64> met_phasor_rms_q16(const ap_int<64> re_counts,
 // micro-unit publication grain at every contract-legal magnitude.
 static const ap_int<31> MET_SQRT3_HALF_Q30 = 929887697;
 
-// Rotate a mean-phasor vector by +120 degrees (the 'a' operator):
-// re' = -re/2 - im*sqrt(3)/2, im' = re*sqrt(3)/2 - im/2, floor semantics
-// via one arithmetic >> 30. Components stay below 2^41 for contract-max
-// inputs, so the 64-bit outputs cannot wrap outside
+// Rotate a mean-phasor vector by either +120 degrees (the 'a' operator) or
+// +240 degrees ('a squared').  One direction-selectable function is
+// intentional: the aggregation engine invokes the rotations sequentially,
+// so HLS can time-share one pair of constant multipliers instead of creating
+// separate +120 and +240 degree datapaths.  This trades a few cycles at the
+// low-rate interval finalizer for substantially less placed arithmetic.
+//
+// a:  re' = -re/2 - im*sqrt(3)/2, im' =  re*sqrt(3)/2 - im/2
+// a2: re' = -re/2 + im*sqrt(3)/2, im' = -re*sqrt(3)/2 - im/2
+//
+// Floor semantics come from the arithmetic >> 30. Components stay below
+// 2^41 for contract-max inputs, so the 64-bit outputs cannot wrap outside
 // already-flagged results.
-inline void met_rotate_a(const ap_int<64> re, const ap_int<64> im,
-                         ap_int<64> &out_re, ap_int<64> &out_im) {
+inline void met_rotate_120(const ap_int<64> re, const ap_int<64> im,
+                           const bool squared,
+                           ap_int<64> &out_re, ap_int<64> &out_im) {
 #pragma HLS INLINE off
   const ap_int<96> re_half = ap_int<96>(re) << 29;
   const ap_int<96> im_half = ap_int<96>(im) << 29;
   const ap_int<96> re_s3 = ap_int<96>(ap_int<96>(re) * MET_SQRT3_HALF_Q30);
   const ap_int<96> im_s3 = ap_int<96>(ap_int<96>(im) * MET_SQRT3_HALF_Q30);
-  out_re = ap_int<64>(((-re_half - im_s3) >> 30).range(63, 0));
-  out_im = ap_int<64>(((re_s3 - im_half) >> 30).range(63, 0));
-}
-
-// Rotate by +240 degrees (the 'a squared' operator):
-// re' = -re/2 + im*sqrt(3)/2, im' = -re*sqrt(3)/2 - im/2.
-inline void met_rotate_a2(const ap_int<64> re, const ap_int<64> im,
-                          ap_int<64> &out_re, ap_int<64> &out_im) {
-#pragma HLS INLINE off
-  const ap_int<96> re_half = ap_int<96>(re) << 29;
-  const ap_int<96> im_half = ap_int<96>(im) << 29;
-  const ap_int<96> re_s3 = ap_int<96>(ap_int<96>(re) * MET_SQRT3_HALF_Q30);
-  const ap_int<96> im_s3 = ap_int<96>(ap_int<96>(im) * MET_SQRT3_HALF_Q30);
-  out_re = ap_int<64>(((-re_half + im_s3) >> 30).range(63, 0));
-  out_im = ap_int<64>(((-re_s3 - im_half) >> 30).range(63, 0));
+  const ap_int<96> rotated_re =
+      squared ? ap_int<96>(-re_half + im_s3)
+              : ap_int<96>(-re_half - im_s3);
+  const ap_int<96> rotated_im =
+      squared ? ap_int<96>(-re_s3 - im_half)
+              : ap_int<96>( re_s3 - im_half);
+  out_re = ap_int<64>((rotated_re >> 30).range(63, 0));
+  out_im = ap_int<64>((rotated_im >> 30).range(63, 0));
 }
 
 // Symmetrical components of three mean phasors given in A/B/C order:
@@ -241,10 +245,10 @@ inline void met_sequence_components(const ap_int<64> re[3],
 #pragma HLS INLINE off
   ap_int<64> b_a_re, b_a_im, b_a2_re, b_a2_im;
   ap_int<64> c_a_re, c_a_im, c_a2_re, c_a2_im;
-  met_rotate_a(re[1], im[1], b_a_re, b_a_im);
-  met_rotate_a2(re[1], im[1], b_a2_re, b_a2_im);
-  met_rotate_a(re[2], im[2], c_a_re, c_a_im);
-  met_rotate_a2(re[2], im[2], c_a2_re, c_a2_im);
+  met_rotate_120(re[1], im[1], false, b_a_re, b_a_im);
+  met_rotate_120(re[1], im[1], true, b_a2_re, b_a2_im);
+  met_rotate_120(re[2], im[2], false, c_a_re, c_a_im);
+  met_rotate_120(re[2], im[2], true, c_a2_re, c_a2_im);
   const ap_uint<32> three = 3;
   seq_re[0] = met_floor_mean_signed<66, 64>(
       ap_int<66>(re[0]) + re[1] + re[2], three);
