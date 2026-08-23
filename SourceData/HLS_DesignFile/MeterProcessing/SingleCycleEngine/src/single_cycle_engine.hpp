@@ -5,7 +5,8 @@
 
 #include "measurement_record.hpp"
 #include "metering_types.hpp"
-#include "single_cycle_result.hpp"
+#include "single_cycle_packet.hpp"
+#include "single_cycle_sample_packet.hpp"
 
 // The single-cycle measurement engine (normative source): the foundation
 // tier of the metrology redesign. It reduces the accepted converted-frame
@@ -20,15 +21,20 @@
 // authority: the engine never re-derives cycle boundaries, it registers
 // the per-cycle close marker travelling with each frame.
 //
-//   s_sample : one beat per accepted converted frame (layout below),
-//              assembled by meter_single_cycle_hls_shim.vhd in lock step.
+//   s_sample : one fixed SCYC_SAMPLE_PACKET_WORDS x 32-bit packet per
+//              accepted converted frame, assembled by
+//              meter_single_cycle_hls_shim.vhd in lock step. The engine
+//              accepts one word per invocation and processes the frame only
+//              after the complete packet has arrived.
 //   m_axis   : SCYC-v2 diagnostic records (measurement_record.hpp), one
 //              per completed cycle — the observability path until the
 //              10/12-cycle tier consumes the result stream (M7). The
 //              per-lane and line-line RMS words are diagnostics; the
 //              mergeable statistics on m_result stay authoritative.
-//   m_result : one single_cycle_beat_t per completed cycle — the input
-//              contract of Agg10_12MeasurementEngine.
+//   m_result : one fixed SCYC_PACKET_WORDS x 32-bit packet per completed
+//              cycle — the internal contract of AggregationEngine.  The
+//              narrow stream avoids a 7,072-bit physical interface while
+//              preserving every field of single_cycle_result_t.
 //
 // Window rules (the mtr1 conventions, applied per cycle):
 //   - a cycle closes on the beat whose closes_cycle flag is set;
@@ -45,42 +51,12 @@
 //     nothing here can drop a cycle; the shim FIFO absorbs the record
 //     serialization latency.
 
-// ---------------------------------------------------------------------------
-// Input beat. Every field is byte aligned; [MSB:LSB] positions are
-// normative and meter_single_cycle_hls_shim.vhd mirrors them. The sample
-// lanes are carried from M2 onward but consumed only from M3 (statistics
-// accumulation) — the shim wiring does not change when the math lands.
-// ---------------------------------------------------------------------------
-static const int SCYC_IN_SAMPLES_LSB      = 0;     // [383:0]    8 x 48b Q16
-static const int SCYC_IN_RAW_LSB          = 384;   // [639:384]  8 x 32b raw
-static const int SCYC_IN_FRAME_MASK_LSB   = 640;   // [647:640]  frame valid mask
-static const int SCYC_IN_FRAME_GEN_LSB    = 648;   // [679:648]  frame generation
-static const int SCYC_IN_MALFORMED_BIT    = 680;   // TKEEP was not all-ones
-static const int SCYC_IN_CLOSES_BIT       = 681;   // frame completes a cycle
-static const int SCYC_IN_CYCLE_MODE_BIT   = 682;   // cycle timing locked (level)
-static const int SCYC_IN_APPLY_BIT        = 683;   // config APPLY toggle (level)
-static const int SCYC_IN_ENABLE_BIT       = 684;   // shadow enable
-static const int SCYC_IN_DC_REMOVE_BIT    = 685;   // shadow dc_remove (M3)
-static const int SCYC_IN_CFG_GEN_LSB      = 688;   // [719:688]  shadow generation
-static const int SCYC_IN_CFG_RATE_LSB     = 720;   // [751:720]  shadow sample rate
-static const int SCYC_IN_CFG_MASK_LSB     = 752;   // [759:752]  shadow valid mask
-static const int SCYC_IN_CYCLE_SEQ_LSB    = 768;   // [799:768]  grid cycle sequence
-static const int SCYC_IN_NOMINAL_LSB      = 800;   // [807:800]  declared nominal Hz
-static const int SCYC_IN_FLAGS_LSB        = 808;   // [810:808]  MET_FLAG_*
-static const int SCYC_IN_SAMPLE_IDX_LSB   = 832;   // [895:832]  frame's sample index
-static const int SCYC_IN_PL_TICK_LSB      = 896;   // [959:896]  free-running PL tick
-static const int SCYC_IN_FREQ_MHZ_LSB     = 960;   // [991:960]  frequency millihertz
-static const int SCYC_IN_FREQ_STATUS_LSB  = 992;   // [1023:992] frequency status word
-static const int SCYC_IN_BITS             = 1024;  // 128 bytes on AXIS
-
-typedef ap_uint<SCYC_IN_BITS> single_cycle_sample_beat_t;
-
 // FREQUENCY_STATUS bit consumed for frequency_valid (meter_frequency_pkg
 // FREQUENCY_STATUS_VALID) — same convention as the mtr1 engine.
 static const int SCYC_FREQ_STATUS_VALID_BIT = 1;
 
-void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
+void hls_single_cycle_engine(hls::stream<single_cycle_sample_word_t> &s_sample,
                              hls::stream<record_axis_t> &m_axis,
-                             hls::stream<single_cycle_beat_t> &m_result);
+                             hls::stream<single_cycle_word_t> &m_result);
 
 #endif  // SINGLE_CYCLE_ENGINE_HPP

@@ -11,9 +11,9 @@
 // emissions inline. StatisticsCore (statistics_core.hpp) accumulates on
 // every accepted frame; the finalize computes the diagnostic RMS words
 // with the shared met_rms_from_accumulators recurrence.
-void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
+void hls_single_cycle_engine(hls::stream<single_cycle_sample_word_t> &s_sample,
                              hls::stream<record_axis_t> &m_axis,
-                             hls::stream<single_cycle_beat_t> &m_result) {
+                             hls::stream<single_cycle_word_t> &m_result) {
 #pragma HLS INTERFACE mode=axis port=s_sample register_mode=off
 #pragma HLS INTERFACE mode=axis port=m_result register_mode=both
 #pragma HLS INTERFACE mode=axis port=m_axis
@@ -30,6 +30,14 @@ void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
   static ap_uint<32> sample_count = 0;
   static ap_uint<64> window_first_sample = 0;
   static ap_uint<32> sequence = 0;  // first emitted result carries 1
+  // Narrow input-packet assembler.  Consume one 32-bit word per top-level
+  // invocation instead of asking HLS to schedule 32 blocking reads in one
+  // control step.  All words are overwritten before packet_assembly is used,
+  // so the wide datapath deliberately needs no reset mux; packet_word_index is
+  // the only state that establishes validity after reset.
+  static single_cycle_sample_beat_t packet_assembly = 0;
+#pragma HLS reset variable=packet_assembly off
+  static ap_uint<6> packet_word_index = 0;
   // Validity/generation contract (handover: no result may span a
   // discontinuity; the first result after one is marked). await_close
   // discards frames until a cycle boundary passes, so accumulation only
@@ -61,7 +69,24 @@ void hls_single_cycle_engine(hls::stream<single_cycle_sample_beat_t> &s_sample,
   if (s_sample.empty()) {
     return;
   }
-  const single_cycle_sample_beat_t beat = s_sample.read();
+  const single_cycle_sample_word_t packet_word = s_sample.read();
+  // Words arrive least-significant first.  A constant right shift plus a
+  // high-word insert forms the packet after 32 clocks without synthesizing a
+  // 32-way dynamic part-select mux.
+  single_cycle_sample_beat_t next_packet =
+      packet_assembly >> SCYC_SAMPLE_PACKET_WORD_BITS;
+  next_packet.range(SCYC_IN_BITS - 1,
+                    SCYC_IN_BITS - SCYC_SAMPLE_PACKET_WORD_BITS) = packet_word;
+  packet_assembly = next_packet;
+  if (packet_word_index != SCYC_SAMPLE_PACKET_WORDS - 1) {
+    packet_word_index = packet_word_index + 1;
+    return;
+  }
+
+  // next_packet includes the just-read final word.  The asymmetric XPM FIFO
+  // exposes a packet only after its complete 1,024-bit write has committed.
+  const single_cycle_sample_beat_t beat = next_packet;
+  packet_word_index = 0;
 
   const ap_uint<1> beat_apply = beat.bit(SCYC_IN_APPLY_BIT);
   if (beat_apply != apply_seen) {
@@ -286,7 +311,7 @@ zero_phasor:
       result.phasor_im[lane] = 0;
     }
   }
-  m_result.write(pack_single_cycle_result(result));
+  write_single_cycle_packet(result, m_result);
 
   // SCYC-v5 diagnostic record.
   record_image_t image;

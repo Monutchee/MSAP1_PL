@@ -1,33 +1,34 @@
 library ieee;
 use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
 
--- Integration shim for the HLS 10/12-cycle basic measurement engine
--- (M7, replaces meter_mtr1_hls_shim + the retired Mtr1Engine). The
--- engine consumes the single-cycle tier's result beats — one per whole
--- grid cycle — so unlike the retired sample-domain shim there is no
--- frame assembly and no drop-counting FIFO: the input cadence (~17-20 ms)
--- dwarfs the engine's finalize busy window (~tens of us), and the
--- single-cycle engine's registered master plus this shim's one skid
--- stage absorb the brief backpressure without loss.
+library xpm;
+use xpm.vcomponents.all;
+
+-- Integration shim for the shared HLS aggregation engine.
 --
--- The shim's only work is widening: each result beat is captured into
--- the skid stage together with the configuration shadows and the live
--- context sampled AT THAT MOMENT (grid lock view, frequency words,
--- capture counters and the UTC ten-minute boundary), packed to the engine's
--- 7488-bit input layout
--- (normative in HLS_DesignFile/MeterProcessing/AggregationEngine/
--- src/aggregation_engine.hpp) and held stable until the engine accepts it.
+-- The single-cycle engine emits one fixed packet of 221 ordered 32-bit
+-- words.  This shim captures the live configuration/context when word zero
+-- is accepted, forwards all 221 measurement words, and appends 13 captured
+-- context words.  The aggregation engine therefore receives one fixed
+-- 234-word packet per grid cycle.
 --
--- The register-file mirror (active generation / enable / apply) commits
--- immediately on the APPLY toggle, exactly like the retired shim: the
--- engine commits the identical values when the toggled beat reaches it.
+-- This narrow serializer replaces the former 7,488-bit AXI beat and skid
+-- register.  It preserves packet atomicity and every measurement field while
+-- removing a high-fanout, independently enabled datapath that prevented
+-- efficient physical CLB packing.
+--
+-- A BRAM-backed XPM FIFO decouples packet capture from the deliberately
+-- serialized aggregation/finalize engine.  Real grid cycles provide ample
+-- processing time, while the FIFO also absorbs diagnostic bursts whose cycle
+-- cadence is intentionally much faster than a physical 50/60 Hz source.
 entity meter_aggregation_hls_shim is
   port (
     aclk    : in std_logic;
     aresetn : in std_logic;
 
-    -- Single-cycle result beats (SCYC-v5 contract, 7072 bits).
-    s_result_tdata  : in  std_logic_vector(7071 downto 0);
+    -- Single-cycle result packet (221 ordered 32-bit words).
+    s_result_tdata  : in  std_logic_vector(31 downto 0);
     s_result_tvalid : in  std_logic;
     s_result_tready : out std_logic;
 
@@ -36,17 +37,17 @@ entity meter_aggregation_hls_shim is
     cycle_fallback_i : in std_logic;
 
     -- Shadow configuration and the shared APPLY toggle.
-    shadow_generation_i  : in std_logic_vector(31 downto 0);
-    shadow_sample_rate_i : in std_logic_vector(31 downto 0);
-    shadow_valid_mask_i  : in std_logic_vector(7 downto 0);
-    shadow_enable_i      : in std_logic;
-    shadow_dc_remove_i   : in std_logic;
+    shadow_generation_i   : in std_logic_vector(31 downto 0);
+    shadow_sample_rate_i  : in std_logic_vector(31 downto 0);
+    shadow_valid_mask_i   : in std_logic_vector(7 downto 0);
+    shadow_enable_i       : in std_logic;
+    shadow_dc_remove_i    : in std_logic;
     config_apply_toggle_i : in std_logic;
 
     -- Frequency and capture context (record words 56..63).
-    frequency_status_i   : in std_logic_vector(31 downto 0);
-    frequency_period_i   : in std_logic_vector(31 downto 0);
-    frequency_sequence_i : in std_logic_vector(31 downto 0);
+    frequency_status_i     : in std_logic_vector(31 downto 0);
+    frequency_period_i     : in std_logic_vector(31 downto 0);
+    frequency_sequence_i   : in std_logic_vector(31 downto 0);
     capture_frame_count_i   : in std_logic_vector(31 downto 0);
     capture_header_errors_i : in std_logic_vector(31 downto 0);
     capture_overflows_i     : in std_logic_vector(31 downto 0);
@@ -63,8 +64,7 @@ entity meter_aggregation_hls_shim is
     m_axis_basic_tready : in  std_logic;
     m_axis_basic_tlast  : out std_logic;
 
-    -- Block-result beats to the 150/180-cycle aggregator (M11 contract:
-    -- agg_block_result.hpp — provenance + merge-safe accumulators).
+    -- Completed/open aggregate record stream.
     m_axis_agg_tdata  : out std_logic_vector(31 downto 0);
     m_axis_agg_tkeep  : out std_logic_vector(3 downto 0);
     m_axis_agg_tvalid : out std_logic;
@@ -79,41 +79,44 @@ entity meter_aggregation_hls_shim is
 end entity;
 
 architecture rtl of meter_aggregation_hls_shim is
-  -- Engine input layout (agg10_12_engine.hpp, normative there).
-  constant IN_RESULT_LSB       : natural := 0;
-  constant IN_CFG_GEN_LSB      : natural := 7072;
-  constant IN_CFG_RATE_LSB     : natural := 7104;
-  constant IN_CFG_MASK_LSB     : natural := 7136;
-  constant IN_ENABLE_BIT       : natural := 7144;
-  constant IN_DC_REMOVE_BIT    : natural := 7145;
-  constant IN_APPLY_BIT        : natural := 7146;
-  constant IN_LOCKED_BIT       : natural := 7147;
-  constant IN_FALLBACK_BIT     : natural := 7148;
-  constant IN_FREQ_STATUS_LSB  : natural := 7168;
-  constant IN_FREQ_PERIOD_LSB  : natural := 7200;
-  constant IN_FREQ_SEQ_LSB     : natural := 7232;
-  constant IN_CAP_FRAMES_LSB   : natural := 7264;
-  constant IN_CAP_HDRERR_LSB   : natural := 7296;
-  constant IN_CAP_OVERFLOW_LSB : natural := 7328;
-  constant IN_CAP_ALERTS_LSB   : natural := 7360;
-  constant IN_TEN_MIN_TARGET_LSB : natural := 7392;
-  constant IN_TEN_MIN_VALID_BIT  : natural := 7456;
-  constant IN_TEN_MIN_UPDATE_BIT : natural := 7457;
-  constant IN_BITS               : natural := 7488;
+  constant RESULT_WORDS  : positive := 221;
+  constant CONTEXT_WORDS : positive := 13;
 
-  -- Bound to the packaged-IP customization (SourceData/IP/
-  -- hls_aggregation_engine_ip) in the Vivado project; the non-project check
-  -- flows bind the same name through tb/hls_aggregation_engine_ip.v.
-  --
-  -- ONE engine now owns both finalized tiers (roadmap A1), so this shim
-  -- hosts two record masters instead of one record master plus a 7072-bit
-  -- block-result beat: the inter-tier hand-off became an internal variable
-  -- and the 150/180 shim it used to feed is gone.
+  -- Sixteen packet contexts cap the number of accepted in-flight packets.
+  -- Sixteen complete result packets occupy 3,536 of the 4,096 result-word
+  -- entries, so a packet that has started can always finish without being
+  -- backpressured part-way through its 221-word transfer.
+  constant RESULT_FIFO_DEPTH       : positive := 4096;
+  constant RESULT_FIFO_COUNT_WIDTH : positive := 13;
+  constant CONTEXT_FIFO_DEPTH       : positive := 16;
+  constant CONTEXT_FIFO_COUNT_WIDTH : positive := 5;
+  constant CONTEXT_BITS             : positive := CONTEXT_WORDS * 32;
+
+  -- Context word layout; mirrored by aggregation_engine.hpp.
+  constant CONTEXT_INDEX_CFG_GENERATION : natural := 0;
+  constant CONTEXT_INDEX_CFG_RATE       : natural := 1;
+  constant CONTEXT_INDEX_CONTROL        : natural := 2;
+  constant CONTEXT_INDEX_FREQ_STATUS    : natural := 3;
+  constant CONTEXT_INDEX_FREQ_PERIOD    : natural := 4;
+  constant CONTEXT_INDEX_FREQ_SEQUENCE  : natural := 5;
+  constant CONTEXT_INDEX_CAP_FRAMES     : natural := 6;
+  constant CONTEXT_INDEX_CAP_HDRERR     : natural := 7;
+  constant CONTEXT_INDEX_CAP_OVERFLOW   : natural := 8;
+  constant CONTEXT_INDEX_CAP_ALERTS     : natural := 9;
+  constant CONTEXT_INDEX_TARGET_LOW     : natural := 10;
+  constant CONTEXT_INDEX_TARGET_HIGH    : natural := 11;
+
+  constant CTL_ENABLE_BIT    : natural := 8;
+  constant CTL_DC_REMOVE_BIT : natural := 9;
+  constant CTL_APPLY_BIT     : natural := 10;
+  constant CTL_LOCKED_BIT    : natural := 11;
+  constant CTL_FALLBACK_BIT  : natural := 12;
+
   component hls_aggregation_engine_ip is
     port (
       ap_clk          : in  std_logic;
       ap_rst_n        : in  std_logic;
-      s_result_TDATA  : in  std_logic_vector(IN_BITS - 1 downto 0);
+      s_result_TDATA  : in  std_logic_vector(31 downto 0);
       s_result_TVALID : in  std_logic;
       s_result_TREADY : out std_logic;
       m_basic_TDATA   : out std_logic_vector(31 downto 0);
@@ -131,15 +134,44 @@ architecture rtl of meter_aggregation_hls_shim is
     );
   end component;
 
-  signal stage_valid : std_logic := '0';
-  signal stage_beat  : std_logic_vector(IN_BITS - 1 downto 0) :=
-    (others => '0');
-  signal engine_ready : std_logic;
-  signal tlast_vec     : std_logic_vector(0 downto 0);
-  signal agg_tlast_vec : std_logic_vector(0 downto 0);
-  -- Records are never sparse: TSTRB duplicates TKEEP and terminates here.
-  signal tstrb_nc      : std_logic_vector(3 downto 0);
-  signal agg_tstrb_nc  : std_logic_vector(3 downto 0);
+  type output_phase_t is (OUTPUT_RESULT, OUTPUT_CONTEXT);
+  signal output_phase         : output_phase_t := OUTPUT_RESULT;
+  signal input_result_index   : natural range 0 to RESULT_WORDS - 1 := 0;
+  signal output_result_index  : natural range 0 to RESULT_WORDS - 1 := 0;
+  signal output_context_index : natural range 0 to CONTEXT_WORDS - 1 := 0;
+
+  -- Result words and their context snapshots use independent AMD FIFOs.
+  -- This is intentionally not one interleaved FIFO: appending 13 context
+  -- words to a single write port briefly deasserted s_result_tready and could
+  -- overflow the observational sample FIFO in compressed simulations.  With
+  -- two queues, context serialization on the read side never pauses capture.
+  signal result_fifo_write   : std_logic;
+  signal result_fifo_read    : std_logic;
+  signal result_fifo_dout    : std_logic_vector(31 downto 0);
+  signal result_fifo_full    : std_logic;
+  signal result_fifo_empty   : std_logic;
+  signal result_fifo_wr_busy : std_logic;
+  signal result_fifo_rd_busy : std_logic;
+
+  signal context_fifo_write   : std_logic;
+  signal context_fifo_read    : std_logic;
+  signal context_fifo_din     : std_logic_vector(CONTEXT_BITS - 1 downto 0);
+  signal context_fifo_dout    : std_logic_vector(CONTEXT_BITS - 1 downto 0);
+  signal context_fifo_full    : std_logic;
+  signal context_fifo_empty   : std_logic;
+  signal context_fifo_wr_busy : std_logic;
+  signal context_fifo_rd_busy : std_logic;
+
+  signal input_ready_word      : std_logic;
+  signal engine_data           : std_logic_vector(31 downto 0);
+  signal engine_valid          : std_logic;
+  signal engine_ready          : std_logic;
+  signal selected_context_word : std_logic_vector(31 downto 0);
+
+  signal basic_tlast_vec : std_logic_vector(0 downto 0);
+  signal agg_tlast_vec   : std_logic_vector(0 downto 0);
+  signal basic_tstrb_nc  : std_logic_vector(3 downto 0);
+  signal agg_tstrb_nc    : std_logic_vector(3 downto 0);
 
   signal active_generation : std_logic_vector(31 downto 0) := (others => '0');
   signal active_enable     : std_logic := '0';
@@ -149,15 +181,15 @@ begin
     port map (
       ap_clk          => aclk,
       ap_rst_n        => aresetn,
-      s_result_TDATA  => stage_beat,
-      s_result_TVALID => stage_valid,
+      s_result_TDATA  => engine_data,
+      s_result_TVALID => engine_valid,
       s_result_TREADY => engine_ready,
       m_basic_TDATA   => m_axis_basic_tdata,
       m_basic_TVALID  => m_axis_basic_tvalid,
       m_basic_TREADY  => m_axis_basic_tready,
       m_basic_TKEEP   => m_axis_basic_tkeep,
-      m_basic_TSTRB   => tstrb_nc,
-      m_basic_TLAST   => tlast_vec,
+      m_basic_TSTRB   => basic_tstrb_nc,
+      m_basic_TLAST   => basic_tlast_vec,
       m_agg_TDATA     => m_axis_agg_tdata,
       m_agg_TVALID    => m_axis_agg_tvalid,
       m_agg_TREADY    => m_axis_agg_tready,
@@ -165,72 +197,238 @@ begin
       m_agg_TSTRB     => agg_tstrb_nc,
       m_agg_TLAST     => agg_tlast_vec
     );
-  m_axis_basic_tlast <= tlast_vec(0);
-  m_axis_agg_tlast <= agg_tlast_vec(0);
 
+  m_axis_basic_tlast <= basic_tlast_vec(0);
+  m_axis_agg_tlast <= agg_tlast_vec(0);
   active_generation_o <= active_generation;
   active_enable_o <= active_enable;
   apply_seen_o <= apply_seen;
 
-  -- Skid stage: accept when empty, or in the same cycle the engine
-  -- consumes the held beat. The context is sampled at capture time and
-  -- stays stable for as long as the engine holds off.
-  s_result_tready <= (not stage_valid) or engine_ready;
+  -- A context slot is reserved together with word zero.  Once a packet has
+  -- started, the context queue limits guarantee enough result-word capacity
+  -- for the remaining 220 words, so READY does not pulse low within a packet.
+  input_ready_word <= '1' when result_fifo_full = '0' and
+                              result_fifo_wr_busy = '0' and
+                              (input_result_index /= 0 or
+                               (context_fifo_full = '0' and
+                                context_fifo_wr_busy = '0')) else '0';
+  s_result_tready <= input_ready_word;
+  result_fifo_write <= s_result_tvalid and input_ready_word;
+  context_fifo_write <= result_fifo_write when input_result_index = 0 else '0';
+
+  result_word_fifo : xpm_fifo_sync
+    generic map (
+      DOUT_RESET_VALUE    => "0",
+      ECC_MODE            => "no_ecc",
+      FIFO_MEMORY_TYPE    => "block",
+      FIFO_READ_LATENCY   => 0,
+      FIFO_WRITE_DEPTH    => RESULT_FIFO_DEPTH,
+      FULL_RESET_VALUE    => 0,
+      PROG_EMPTY_THRESH   => 10,
+      PROG_FULL_THRESH    => RESULT_FIFO_DEPTH - 8,
+      RD_DATA_COUNT_WIDTH => RESULT_FIFO_COUNT_WIDTH,
+      READ_DATA_WIDTH     => 32,
+      READ_MODE           => "fwft",
+      SIM_ASSERT_CHK      => 1,
+      USE_ADV_FEATURES    => "1000",
+      WAKEUP_TIME         => 0,
+      WRITE_DATA_WIDTH    => 32,
+      WR_DATA_COUNT_WIDTH => RESULT_FIFO_COUNT_WIDTH
+    )
+    port map (
+      sleep => '0',
+      rst => not aresetn,
+      wr_clk => aclk,
+      wr_en => result_fifo_write,
+      din => s_result_tdata,
+      full => result_fifo_full,
+      overflow => open,
+      wr_rst_busy => result_fifo_wr_busy,
+      rd_en => result_fifo_read,
+      dout => result_fifo_dout,
+      empty => result_fifo_empty,
+      underflow => open,
+      rd_rst_busy => result_fifo_rd_busy,
+      data_valid => open,
+      almost_empty => open,
+      almost_full => open,
+      prog_empty => open,
+      prog_full => open,
+      rd_data_count => open,
+      wr_data_count => open,
+      wr_ack => open,
+      injectsbiterr => '0',
+      injectdbiterr => '0',
+      sbiterr => open,
+      dbiterr => open
+    );
+
+  -- Capture all 13 words atomically at the first result-word handshake.  The
+  -- wide value exists only at this small BRAM FIFO boundary; it is not a
+  -- high-fanout datapath and is read out one 32-bit word at a time.
+  process (all)
+    variable snapshot       : std_logic_vector(CONTEXT_BITS - 1 downto 0);
+    variable control_word   : std_logic_vector(31 downto 0);
+    variable target_control : std_logic_vector(31 downto 0);
+  begin
+    snapshot := (others => '0');
+    control_word := (others => '0');
+    control_word(7 downto 0) := shadow_valid_mask_i;
+    control_word(CTL_ENABLE_BIT) := shadow_enable_i;
+    control_word(CTL_DC_REMOVE_BIT) := shadow_dc_remove_i;
+    control_word(CTL_APPLY_BIT) := config_apply_toggle_i;
+    control_word(CTL_LOCKED_BIT) := cycle_locked_i;
+    control_word(CTL_FALLBACK_BIT) := cycle_fallback_i;
+
+    target_control := (others => '0');
+    target_control(0) := ten_minute_target_valid_i;
+    target_control(1) := ten_minute_target_update_i;
+
+    snapshot((CONTEXT_INDEX_CFG_GENERATION + 1) * 32 - 1 downto
+             CONTEXT_INDEX_CFG_GENERATION * 32) := shadow_generation_i;
+    snapshot((CONTEXT_INDEX_CFG_RATE + 1) * 32 - 1 downto
+             CONTEXT_INDEX_CFG_RATE * 32) := shadow_sample_rate_i;
+    snapshot((CONTEXT_INDEX_CONTROL + 1) * 32 - 1 downto
+             CONTEXT_INDEX_CONTROL * 32) := control_word;
+    snapshot((CONTEXT_INDEX_FREQ_STATUS + 1) * 32 - 1 downto
+             CONTEXT_INDEX_FREQ_STATUS * 32) := frequency_status_i;
+    snapshot((CONTEXT_INDEX_FREQ_PERIOD + 1) * 32 - 1 downto
+             CONTEXT_INDEX_FREQ_PERIOD * 32) := frequency_period_i;
+    snapshot((CONTEXT_INDEX_FREQ_SEQUENCE + 1) * 32 - 1 downto
+             CONTEXT_INDEX_FREQ_SEQUENCE * 32) := frequency_sequence_i;
+    snapshot((CONTEXT_INDEX_CAP_FRAMES + 1) * 32 - 1 downto
+             CONTEXT_INDEX_CAP_FRAMES * 32) := capture_frame_count_i;
+    snapshot((CONTEXT_INDEX_CAP_HDRERR + 1) * 32 - 1 downto
+             CONTEXT_INDEX_CAP_HDRERR * 32) := capture_header_errors_i;
+    snapshot((CONTEXT_INDEX_CAP_OVERFLOW + 1) * 32 - 1 downto
+             CONTEXT_INDEX_CAP_OVERFLOW * 32) := capture_overflows_i;
+    snapshot((CONTEXT_INDEX_CAP_ALERTS + 1) * 32 - 1 downto
+             CONTEXT_INDEX_CAP_ALERTS * 32) := capture_alerts_i;
+    snapshot((CONTEXT_INDEX_TARGET_LOW + 1) * 32 - 1 downto
+             CONTEXT_INDEX_TARGET_LOW * 32) :=
+      ten_minute_target_sample_i(31 downto 0);
+    snapshot((CONTEXT_INDEX_TARGET_HIGH + 1) * 32 - 1 downto
+             CONTEXT_INDEX_TARGET_HIGH * 32) :=
+      ten_minute_target_sample_i(63 downto 32);
+    snapshot(CONTEXT_BITS - 1 downto (CONTEXT_WORDS - 1) * 32) :=
+      target_control;
+    context_fifo_din <= snapshot;
+  end process;
+
+  context_snapshot_fifo : xpm_fifo_sync
+    generic map (
+      DOUT_RESET_VALUE    => "0",
+      ECC_MODE            => "no_ecc",
+      FIFO_MEMORY_TYPE    => "block",
+      FIFO_READ_LATENCY   => 0,
+      FIFO_WRITE_DEPTH    => CONTEXT_FIFO_DEPTH,
+      FULL_RESET_VALUE    => 0,
+      PROG_EMPTY_THRESH   => 10,
+      PROG_FULL_THRESH    => CONTEXT_FIFO_DEPTH - 8,
+      RD_DATA_COUNT_WIDTH => CONTEXT_FIFO_COUNT_WIDTH,
+      READ_DATA_WIDTH     => CONTEXT_BITS,
+      READ_MODE           => "fwft",
+      SIM_ASSERT_CHK      => 1,
+      USE_ADV_FEATURES    => "1000",
+      WAKEUP_TIME         => 0,
+      WRITE_DATA_WIDTH    => CONTEXT_BITS,
+      WR_DATA_COUNT_WIDTH => CONTEXT_FIFO_COUNT_WIDTH
+    )
+    port map (
+      sleep => '0',
+      rst => not aresetn,
+      wr_clk => aclk,
+      wr_en => context_fifo_write,
+      din => context_fifo_din,
+      full => context_fifo_full,
+      overflow => open,
+      wr_rst_busy => context_fifo_wr_busy,
+      rd_en => context_fifo_read,
+      dout => context_fifo_dout,
+      empty => context_fifo_empty,
+      underflow => open,
+      rd_rst_busy => context_fifo_rd_busy,
+      data_valid => open,
+      almost_empty => open,
+      almost_full => open,
+      prog_empty => open,
+      prog_full => open,
+      rd_data_count => open,
+      wr_data_count => open,
+      wr_ack => open,
+      injectsbiterr => '0',
+      injectdbiterr => '0',
+      sbiterr => open,
+      dbiterr => open
+    );
+
+  -- The read side reconstructs the HLS input packet without widening the AXI
+  -- boundary: 221 result words followed by the matching 13-word snapshot.
+  selected_context_word <= context_fifo_dout(
+    (output_context_index + 1) * 32 - 1 downto
+    output_context_index * 32);
+  engine_data <= result_fifo_dout when output_phase = OUTPUT_RESULT else
+                 selected_context_word;
+  engine_valid <= '1' when output_phase = OUTPUT_RESULT and
+                           result_fifo_empty = '0' and
+                           result_fifo_rd_busy = '0' and
+                           context_fifo_empty = '0' and
+                           context_fifo_rd_busy = '0' else
+                  '1' when output_phase = OUTPUT_CONTEXT and
+                           context_fifo_empty = '0' and
+                           context_fifo_rd_busy = '0' else
+                  '0';
+  result_fifo_read <= engine_valid and engine_ready
+    when output_phase = OUTPUT_RESULT else '0';
+  context_fifo_read <= engine_valid and engine_ready
+    when output_phase = OUTPUT_CONTEXT and
+         output_context_index = CONTEXT_WORDS - 1 else '0';
 
   process (aclk)
   begin
     if rising_edge(aclk) then
       if aresetn = '0' then
-        stage_valid <= '0';
+        input_result_index <= 0;
+        output_phase <= OUTPUT_RESULT;
+        output_result_index <= 0;
+        output_context_index <= 0;
         active_generation <= (others => '0');
         active_enable <= '0';
         apply_seen <= '0';
       else
-        -- Immediate APPLY-commit mirror (register-file view). The engine
-        -- commits the identical values when the toggled beat reaches it.
+        -- Immediate APPLY mirror for the processing register file.  The HLS
+        -- engine observes the same captured level in the next packet.
         if config_apply_toggle_i /= apply_seen then
           apply_seen <= config_apply_toggle_i;
           active_generation <= shadow_generation_i;
           active_enable <= shadow_enable_i;
         end if;
 
-        if s_result_tvalid = '1' and
-           (stage_valid = '0' or engine_ready = '1') then
-          stage_beat <= (others => '0');
-          stage_beat(IN_RESULT_LSB + 7071 downto IN_RESULT_LSB) <=
-            s_result_tdata;
-          stage_beat(IN_CFG_GEN_LSB + 31 downto IN_CFG_GEN_LSB) <=
-            shadow_generation_i;
-          stage_beat(IN_CFG_RATE_LSB + 31 downto IN_CFG_RATE_LSB) <=
-            shadow_sample_rate_i;
-          stage_beat(IN_CFG_MASK_LSB + 7 downto IN_CFG_MASK_LSB) <=
-            shadow_valid_mask_i;
-          stage_beat(IN_ENABLE_BIT) <= shadow_enable_i;
-          stage_beat(IN_DC_REMOVE_BIT) <= shadow_dc_remove_i;
-          stage_beat(IN_APPLY_BIT) <= config_apply_toggle_i;
-          stage_beat(IN_LOCKED_BIT) <= cycle_locked_i;
-          stage_beat(IN_FALLBACK_BIT) <= cycle_fallback_i;
-          stage_beat(IN_FREQ_STATUS_LSB + 31 downto IN_FREQ_STATUS_LSB) <=
-            frequency_status_i;
-          stage_beat(IN_FREQ_PERIOD_LSB + 31 downto IN_FREQ_PERIOD_LSB) <=
-            frequency_period_i;
-          stage_beat(IN_FREQ_SEQ_LSB + 31 downto IN_FREQ_SEQ_LSB) <=
-            frequency_sequence_i;
-          stage_beat(IN_CAP_FRAMES_LSB + 31 downto IN_CAP_FRAMES_LSB) <=
-            capture_frame_count_i;
-          stage_beat(IN_CAP_HDRERR_LSB + 31 downto IN_CAP_HDRERR_LSB) <=
-            capture_header_errors_i;
-          stage_beat(IN_CAP_OVERFLOW_LSB + 31 downto IN_CAP_OVERFLOW_LSB) <=
-            capture_overflows_i;
-          stage_beat(IN_CAP_ALERTS_LSB + 31 downto IN_CAP_ALERTS_LSB) <=
-            capture_alerts_i;
-          stage_beat(IN_TEN_MIN_TARGET_LSB + 63 downto
-                     IN_TEN_MIN_TARGET_LSB) <= ten_minute_target_sample_i;
-          stage_beat(IN_TEN_MIN_VALID_BIT) <= ten_minute_target_valid_i;
-          stage_beat(IN_TEN_MIN_UPDATE_BIT) <= ten_minute_target_update_i;
-          stage_valid <= '1';
-        elsif stage_valid = '1' and engine_ready = '1' then
-          stage_valid <= '0';
+        if result_fifo_write = '1' then
+          if input_result_index = RESULT_WORDS - 1 then
+            input_result_index <= 0;
+          else
+            input_result_index <= input_result_index + 1;
+          end if;
+        end if;
+
+        if engine_valid = '1' and engine_ready = '1' then
+          if output_phase = OUTPUT_RESULT then
+            if output_result_index = RESULT_WORDS - 1 then
+              output_result_index <= 0;
+              output_context_index <= 0;
+              output_phase <= OUTPUT_CONTEXT;
+            else
+              output_result_index <= output_result_index + 1;
+            end if;
+          else
+            if output_context_index = CONTEXT_WORDS - 1 then
+              output_context_index <= 0;
+              output_phase <= OUTPUT_RESULT;
+            else
+              output_context_index <= output_context_index + 1;
+            end if;
+          end if;
         end if;
       end if;
     end if;

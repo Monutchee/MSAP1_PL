@@ -238,9 +238,9 @@ architecture structural of meter_core is
   -- their own 256-byte records (normative contracts:
   -- HLS_DesignFile/common/include/measurement_record.hpp plus each
   -- engine's header). The single-cycle shim packs one sample beat per
-  -- accepted frame; the 10/12-cycle merge tier consumes its result beats
-  -- and its basic-result stream feeds the 150/180-cycle aggregator
-  -- directly (HLS-to-HLS AXIS, no event conversion anywhere). Engine
+  -- accepted frame; the shared aggregation tier consumes its ordered result
+  -- packets and emits every completed/open aggregate record directly
+  -- (HLS-to-HLS AXIS, no event conversion anywhere). Engine
   -- health counters ride inside the
   -- records; record_word_tap republishes them to the register file, "as
   -- of the last emitted record".
@@ -250,9 +250,10 @@ architecture structural of meter_core is
   signal scyc_result_tready   : std_logic;
   signal grid_cycle_boundary  : std_logic;
   signal grid_cycle_sequence  : std_logic_vector(31 downto 0);
-  -- Single-cycle result beats: consumed by the 10/12-cycle tier from M7;
-  -- drained unconditionally until then so the engine can never stall.
-  signal scyc_result_tdata  : std_logic_vector(7071 downto 0);
+  -- Internal single-cycle result transport: 221 ordered 32-bit words.
+  -- Keeping this boundary narrow avoids a 7,488-bit routed datapath after
+  -- the aggregation shim appends its context.
+  signal scyc_result_tdata  : std_logic_vector(31 downto 0);
   signal scyc_result_tvalid : std_logic;
 
   signal mtr1_axis_tdata  : std_logic_vector(31 downto 0);
@@ -812,10 +813,9 @@ begin
   grid_cycle_fallback <= grid_cycle_mode and not grid_cycle_locked;
 
   -- 10/12-cycle basic producer (M7, replaces the retired Mtr1 pair): the
-  -- merge tier consumes the single-cycle engine's result beats, finalizes
+  -- merge tier consumes the single-cycle engine's result packets, finalizes
   -- BASIC-v4 records onto the retired producer's exported boundary, and
-  -- keeps emitting the unchanged basic-result beat for the 150/180-cycle
-  -- aggregator until M11 replaces it.
+  -- also merges the completed Basic value into the longer interval tiers.
   aggregation_producer : entity work.meter_aggregation_hls_shim
     port map (
       aclk => aclk,

@@ -7,20 +7,22 @@
 #include <ap_int.h>
 
 #if AP_INT_MAX_W < 8192
-#error "single_cycle_result.hpp needs AP_INT_MAX_W >= 8192 (4896-bit beat)"
+#error "single_cycle_result.hpp needs AP_INT_MAX_W >= 8192 (7072-bit logical image)"
 #endif
 
-// The single-cycle measurement result — one beat per complete,
+// The single-cycle measurement result — one value per complete,
 // non-overlapping grid cycle, produced by the single-cycle engine and
-// consumed by the 10/12-cycle tier (Agg10_12MeasurementEngine, roadmap
-// M7). This is the reusable-primitive contract of the metrology
-// redesign: higher tiers merge these, they never re-derive from samples.
+// consumed by the shared aggregation engine. This is the reusable-primitive
+// contract of the metrology redesign: higher tiers merge these sufficient
+// statistics; they never re-derive them from samples.
 //
 // M2 defined the timing/provenance section (bits 0..511); M3 appends the
 // statistics sections below. Power (M4) and phasor (M5) sections APPEND
-// after SCYC_BEAT_BITS in the same way — the beat has exactly one
-// producer and one consumer inside this repository, so growing it is a
-// lock-step header change, not a wire-compatibility event.
+// after SCYC_BEAT_BITS in the same way. SCYC_BEAT_BITS describes the logical
+// packed image retained for golden/equivalence tests. The physical HLS-to-HLS
+// boundary is the ordered 32-bit packet in single_cycle_packet.hpp, so growing
+// this value is a lock-step internal-contract change, not an external wire ABI
+// change.
 //
 // STATISTICS WIDTH ANALYSIS (normative — the M3 "do not guess" rule).
 // The per-lane accumulators use the LEGACY BLOCK widths on purpose:
@@ -99,7 +101,7 @@ static const int SCYC_POWER_SUM_LSB       = 4896;  // 3 x s128 sum(v*i) Q32
 // --- headroom and the 10/12-cycle merge stays a pure addition). --------
 static const int SCYC_PHASOR_RE_LSB       = 5280;  // 7 x s128
 static const int SCYC_PHASOR_IM_LSB       = 6176;  // 7 x s128
-static const int SCYC_BEAT_BITS           = 7072;  // 884 bytes on AXIS
+static const int SCYC_BEAT_BITS           = 7072;  // 884-byte logical image
 
 typedef ap_uint<SCYC_BEAT_BITS> single_cycle_beat_t;
 

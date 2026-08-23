@@ -6,7 +6,7 @@
 #include "agg_block_result.hpp"
 #include "measurement_record.hpp"
 #include "metering_types.hpp"
-#include "single_cycle_result.hpp"
+#include "single_cycle_packet.hpp"
 
 // Synthesis experiment switch for the non-normative live 10-minute and
 // 2-hour previews.  Completed records are unaffected.  Keep previews enabled
@@ -56,7 +56,7 @@
 //   - four accumulator sets, not a pipeline of one: blk (10/12), a3s
 //     (150/180), a10m, a2h. A closing block adds itself into BOTH a3s and
 //     a10m; a closing 10 min interval adds itself into a2h.
-//   - the finalize loop runs up to FOUR passes on one input beat, since a
+//   - the finalize loop runs up to FOUR passes on one input packet, since a
 //     single block can close 10/12 and 3 s and 10 min and 2 h together.
 //   - the 10 min boundary is NOT a block count. It is clock-aligned to
 //     absolute time (the Class-A requirement), so that tier closes on an
@@ -82,9 +82,10 @@
 // accumulator set for the pass is selected by a ROLLED copy loop rather
 // than a parallel mux: ~1.3 kLUT of selection instead of ~9 k.
 //
-//   s_result : one beat per whole grid cycle plus the config/context the
-//              hosting shim appends (layout below) — unchanged contract,
-//              meter_agg10_12_cycle_hls_shim.vhd needs no edit.
+//   s_result : one fixed packet per whole grid cycle.  The first 221
+//              32-bit words carry single_cycle_result_t; the hosting shim
+//              appends 13 context words.  This replaces the former 7,488-bit
+//              beat without changing measurement content.
 //   m_basic  : the 10/12-cycle record quad, back to back, each MREC_WORDS
 //              x 32 beats with TLAST on the last and shared correlation
 //              fields (sequence, generation, anchors, block status):
@@ -111,35 +112,39 @@
 // complete intervals emitted, the AGG_* diagnostic counters).
 
 // ---------------------------------------------------------------------------
-// Input beat: the SingleCycleResult verbatim plus shim-appended config
-// and context. Every field is byte aligned unless noted; [MSB:LSB]
-// positions are normative and meter_agg10_12_cycle_hls_shim.vhd mirrors
-// them — the names and values below must never move.
+// Input packet: SCYC_PACKET_WORDS SingleCycleResult words followed by the
+// shim-appended context below.  The word positions are an internal lock-step
+// contract mirrored by meter_aggregation_hls_shim.vhd.
 // ---------------------------------------------------------------------------
-static const int AGG_IN_RESULT_LSB       = 0;     // [7071:0] SCYC result beat
-static const int AGG_IN_CFG_GEN_LSB      = 7072;  // [7103:7072] shadow generation
-static const int AGG_IN_CFG_RATE_LSB     = 7104;  // [7135:7104] shadow sample rate
-static const int AGG_IN_CFG_MASK_LSB     = 7136;  // [7143:7136] shadow valid mask
-static const int AGG_IN_ENABLE_BIT       = 7144;  // shadow enable
-static const int AGG_IN_DC_REMOVE_BIT    = 7145;  // shadow dc_remove
-static const int AGG_IN_APPLY_BIT        = 7146;  // config APPLY toggle (level)
-static const int AGG_IN_LOCKED_BIT       = 7147;  // live grid lock at arrival
-static const int AGG_IN_FALLBACK_BIT     = 7148;  // live fallback view
-static const int AGG_IN_FREQ_STATUS_LSB  = 7168;  // [7199:7168] frequency status word
-static const int AGG_IN_FREQ_PERIOD_LSB  = 7200;  // [7231:7200] averaged Q16 period
-static const int AGG_IN_FREQ_SEQ_LSB     = 7232;  // [7263:7232] frequency meas. sequence
-static const int AGG_IN_CAP_FRAMES_LSB   = 7264;  // [7295:7264] capture frame count
-static const int AGG_IN_CAP_HDRERR_LSB   = 7296;  // [7327:7296] capture header errors
-static const int AGG_IN_CAP_OVERFLOW_LSB = 7328;  // [7359:7328] capture FIFO overflows
-static const int AGG_IN_CAP_ALERTS_LSB   = 7360;  // [7391:7360] ADC alert count
-static const int AGG_IN_TEN_MIN_TARGET_LSB = 7392; // [7455:7392] UTC boundary sample
-static const int AGG_IN_TEN_MIN_VALID_BIT  = 7456; // boundary mapping is usable
-static const int AGG_IN_TEN_MIN_UPDATE_BIT = 7457; // boundary commit toggle
-static const int AGG_IN_BITS               = 7488; // 936 bytes on AXIS
+static const int AGG_CONTEXT_CFG_GEN_WORD = 0;
+static const int AGG_CONTEXT_CFG_RATE_WORD = 1;
+static const int AGG_CONTEXT_CONTROL_WORD = 2;
+static const int AGG_CONTEXT_FREQ_STATUS_WORD = 3;
+static const int AGG_CONTEXT_FREQ_PERIOD_WORD = 4;
+static const int AGG_CONTEXT_FREQ_SEQ_WORD = 5;
+static const int AGG_CONTEXT_CAP_FRAMES_WORD = 6;
+static const int AGG_CONTEXT_CAP_HDRERR_WORD = 7;
+static const int AGG_CONTEXT_CAP_OVERFLOW_WORD = 8;
+static const int AGG_CONTEXT_CAP_ALERTS_WORD = 9;
+static const int AGG_CONTEXT_TEN_MIN_TARGET_LOW_WORD = 10;
+static const int AGG_CONTEXT_TEN_MIN_TARGET_HIGH_WORD = 11;
+static const int AGG_CONTEXT_TARGET_CONTROL_WORD = 12;
+static const int AGG_CONTEXT_WORDS = 13;
+static const int AGG_INPUT_PACKET_WORDS = SCYC_PACKET_WORDS + AGG_CONTEXT_WORDS;
 
-typedef ap_uint<AGG_IN_BITS> agg_input_beat_t;
+static const int AGG_CONTEXT_MASK_LSB = 0;
+static const int AGG_CONTEXT_ENABLE_BIT = 8;
+static const int AGG_CONTEXT_DC_REMOVE_BIT = 9;
+static const int AGG_CONTEXT_APPLY_BIT = 10;
+static const int AGG_CONTEXT_LOCKED_BIT = 11;
+static const int AGG_CONTEXT_FALLBACK_BIT = 12;
+static const int AGG_CONTEXT_TARGET_VALID_BIT = 0;
+static const int AGG_CONTEXT_TARGET_UPDATE_BIT = 1;
 
-void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
+static_assert(AGG_INPUT_PACKET_WORDS == 234,
+              "aggregation packet layout changed; update the RTL shim");
+
+void hls_aggregation_engine(hls::stream<single_cycle_word_t> &s_result,
                             hls::stream<record_axis_t> &m_basic,
                             hls::stream<record_axis_t> &m_agg);
 

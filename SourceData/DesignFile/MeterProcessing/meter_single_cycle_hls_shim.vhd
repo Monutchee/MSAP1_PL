@@ -2,6 +2,9 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
+library xpm;
+use xpm.vcomponents.all;
+
 library work;
 use work.metering_pkg.all;
 
@@ -16,8 +19,11 @@ use work.metering_pkg.all;
 --     REGISTERED strobes, asserted one aclk after the crossing frame --
 --     exactly when that frame sits staged -- so the close marker and the
 --     cycle sequence land on the frame that ends the cycle.
---   * the beat FIFO absorbs the engine's record-serialization latency
---     and counts a drop if it ever overflows (never backpressure).
+--   * an asymmetric AMD XPM FIFO accepts one complete 1,024-bit frame and
+--     emits 32 ordered 32-bit words to HLS.  BRAM absorbs the engine's
+--     finalize/record-serialization latency without a custom wide FIFO or a
+--     1,024-bit routed HLS interface.  Overflow is still observational: the
+--     capture path is never backpressured and every discarded frame counts.
 --   * APPLY is carried as a level; the engine detects the edge.
 entity meter_single_cycle_hls_shim is
   port (
@@ -59,8 +65,9 @@ entity meter_single_cycle_hls_shim is
     m_axis_scyc_tready : in  std_logic;
     m_axis_scyc_tlast  : out std_logic;
 
-    -- Single-cycle result beats (the 10/12-cycle tier's input, M7).
-    m_result_tdata  : out std_logic_vector(7071 downto 0);
+    -- Single-cycle result packet (221 ordered 32-bit words; the
+    -- aggregation tier's internal input contract).
+    m_result_tdata  : out std_logic_vector(31 downto 0);
     m_result_tvalid : out std_logic;
     m_result_tready : in  std_logic;
 
@@ -70,8 +77,9 @@ entity meter_single_cycle_hls_shim is
 end entity;
 
 architecture rtl of meter_single_cycle_hls_shim is
-  -- Sample beat geometry (single_cycle_engine.hpp SCYC_IN_*).
+  -- Logical sample beat geometry (single_cycle_sample_packet.hpp SCYC_IN_*).
   constant BEAT_BITS          : natural := 1024;
+  constant SAMPLE_WORD_BITS   : natural := 32;
   constant IN_SAMPLES_LSB     : natural := 0;
   constant IN_RAW_LSB         : natural := 384;
   constant IN_FRAME_MASK_LSB  : natural := 640;
@@ -97,7 +105,7 @@ architecture rtl of meter_single_cycle_hls_shim is
     port (
       ap_clk          : in  std_logic;
       ap_rst_n        : in  std_logic;
-      s_sample_TDATA  : in  std_logic_vector(BEAT_BITS - 1 downto 0);
+      s_sample_TDATA  : in  std_logic_vector(SAMPLE_WORD_BITS - 1 downto 0);
       s_sample_TVALID : in  std_logic;
       s_sample_TREADY : out std_logic;
       m_axis_TDATA    : out std_logic_vector(31 downto 0);
@@ -106,24 +114,31 @@ architecture rtl of meter_single_cycle_hls_shim is
       m_axis_TKEEP    : out std_logic_vector(3 downto 0);
       m_axis_TSTRB    : out std_logic_vector(3 downto 0);
       m_axis_TLAST    : out std_logic_vector(0 downto 0);
-      m_result_TDATA  : out std_logic_vector(7071 downto 0);
+      m_result_TDATA  : out std_logic_vector(31 downto 0);
       m_result_TVALID : out std_logic;
       m_result_TREADY : in  std_logic
     );
   end component;
 
-  constant FIFO_DEPTH : natural := 8;
-  type beat_fifo_t is array (0 to FIFO_DEPTH - 1) of
-    std_logic_vector(BEAT_BITS - 1 downto 0);
-  signal fifo_mem   : beat_fifo_t := (others => (others => '0'));
-  signal wr_ptr     : natural range 0 to FIFO_DEPTH - 1 := 0;
-  signal rd_ptr     : natural range 0 to FIFO_DEPTH - 1 := 0;
-  signal fill_level : natural range 0 to FIFO_DEPTH := 0;
-  signal drop_count : unsigned(31 downto 0) := (others => '0');
+  -- FIFO_WRITE_DEPTH is expressed in complete 1,024-bit frames.  At the
+  -- asymmetric 32-bit read port this is 4,096 words.  A 128-frame queue is
+  -- deliberately much deeper than the close/finalize burst while remaining
+  -- compact BRAM storage; it is not a replacement metrology history buffer.
+  constant SAMPLE_FIFO_WRITE_DEPTH     : positive := 128;
+  constant SAMPLE_FIFO_WR_COUNT_WIDTH  : positive := 8;
+  constant SAMPLE_FIFO_RD_COUNT_WIDTH  : positive := 13;
 
-  signal head_valid : std_logic;
-  signal head_data  : std_logic_vector(BEAT_BITS - 1 downto 0);
-  signal in_ready   : std_logic;
+  signal sample_fifo_din     : std_logic_vector(BEAT_BITS - 1 downto 0);
+  signal sample_fifo_dout    : std_logic_vector(SAMPLE_WORD_BITS - 1 downto 0);
+  signal sample_fifo_write   : std_logic;
+  signal sample_fifo_read    : std_logic;
+  signal sample_fifo_full    : std_logic;
+  signal sample_fifo_empty   : std_logic;
+  signal sample_fifo_wr_busy : std_logic;
+  signal sample_fifo_rd_busy : std_logic;
+  signal sample_fifo_valid   : std_logic;
+  signal in_ready            : std_logic;
+  signal drop_count          : unsigned(31 downto 0) := (others => '0');
 
   -- One-cycle frame stage: payload captured with the frame, context
   -- (cycle boundary/sequence, shadow set, tick, frequency) at the push.
@@ -138,15 +153,20 @@ architecture rtl of meter_single_cycle_hls_shim is
   signal m_axis_tlast_vec : std_logic_vector(0 downto 0);
   signal m_axis_tstrb     : std_logic_vector(3 downto 0);
 begin
-  head_valid <= '1' when fill_level /= 0 else '0';
-  head_data <= fifo_mem(rd_ptr);
+  -- XPM asymmetric width conversion emits the least-significant 32-bit word
+  -- first.  That is the packet order defined by single_cycle_sample_packet.
+  sample_fifo_valid <= '1' when sample_fifo_empty = '0' and
+                                sample_fifo_rd_busy = '0' else '0';
+  sample_fifo_read <= sample_fifo_valid and in_ready;
+  sample_fifo_write <= staged_valid and not sample_fifo_full and
+                       not sample_fifo_wr_busy;
 
   core : hls_single_cycle_engine_ip
     port map (
       ap_clk          => aclk,
       ap_rst_n        => aresetn,
-      s_sample_TDATA  => head_data,
-      s_sample_TVALID => head_valid,
+      s_sample_TDATA  => sample_fifo_dout,
+      s_sample_TVALID => sample_fifo_valid,
       s_sample_TREADY => in_ready,
       m_axis_TDATA    => m_axis_scyc_tdata,
       m_axis_TVALID   => m_axis_scyc_tvalid,
@@ -162,67 +182,99 @@ begin
 
   drop_count_o <= std_logic_vector(drop_count);
 
+  sample_frame_fifo : xpm_fifo_sync
+    generic map (
+      DOUT_RESET_VALUE    => "0",
+      ECC_MODE            => "no_ecc",
+      FIFO_MEMORY_TYPE    => "block",
+      FIFO_READ_LATENCY   => 0,
+      FIFO_WRITE_DEPTH    => SAMPLE_FIFO_WRITE_DEPTH,
+      FULL_RESET_VALUE    => 0,
+      PROG_EMPTY_THRESH   => 10,
+      PROG_FULL_THRESH    => SAMPLE_FIFO_WRITE_DEPTH - 8,
+      RD_DATA_COUNT_WIDTH => SAMPLE_FIFO_RD_COUNT_WIDTH,
+      READ_DATA_WIDTH     => SAMPLE_WORD_BITS,
+      READ_MODE           => "fwft",
+      SIM_ASSERT_CHK      => 1,
+      USE_ADV_FEATURES    => "1000",
+      WAKEUP_TIME         => 0,
+      WRITE_DATA_WIDTH    => BEAT_BITS,
+      WR_DATA_COUNT_WIDTH => SAMPLE_FIFO_WR_COUNT_WIDTH
+    )
+    port map (
+      sleep => '0',
+      rst => not aresetn,
+      wr_clk => aclk,
+      wr_en => sample_fifo_write,
+      din => sample_fifo_din,
+      full => sample_fifo_full,
+      overflow => open,
+      wr_rst_busy => sample_fifo_wr_busy,
+      rd_en => sample_fifo_read,
+      dout => sample_fifo_dout,
+      empty => sample_fifo_empty,
+      underflow => open,
+      rd_rst_busy => sample_fifo_rd_busy,
+      data_valid => open,
+      almost_empty => open,
+      almost_full => open,
+      prog_empty => open,
+      prog_full => open,
+      rd_data_count => open,
+      wr_data_count => open,
+      wr_ack => open,
+      injectsbiterr => '0',
+      injectdbiterr => '0',
+      sbiterr => open,
+      dbiterr => open
+    );
+
+  -- Assemble the atomic wide write from the staged frame and the registered
+  -- one-cycle-later timing context.  This wide vector is local to the XPM
+  -- write port; it no longer crosses the HLS hierarchy or feeds custom
+  -- distributed storage.
+  process (all)
+    variable beat : std_logic_vector(BEAT_BITS - 1 downto 0);
+  begin
+    beat := (others => '0');
+    beat(IN_SAMPLES_LSB + METER_CONVERTED_FRAME_BITS - 1 downto
+         IN_SAMPLES_LSB) := staged_data;
+    beat(IN_RAW_LSB + 255 downto IN_RAW_LSB) := staged_raw;
+    beat(IN_FRAME_MASK_LSB + 7 downto IN_FRAME_MASK_LSB) := staged_mask;
+    beat(IN_FRAME_GEN_LSB + 31 downto IN_FRAME_GEN_LSB) := staged_gen;
+    beat(IN_MALFORMED_BIT) := staged_malformed;
+    beat(IN_CLOSES_BIT) := cycle_boundary_i;
+    beat(IN_CYCLE_MODE_BIT) := cycle_mode_i;
+    beat(IN_APPLY_BIT) := config_apply_toggle_i;
+    beat(IN_ENABLE_BIT) := shadow_enable_i;
+    beat(IN_DC_REMOVE_BIT) := shadow_dc_remove_i;
+    beat(IN_CFG_GEN_LSB + 31 downto IN_CFG_GEN_LSB) := shadow_generation_i;
+    beat(IN_CFG_RATE_LSB + 31 downto IN_CFG_RATE_LSB) := shadow_sample_rate_i;
+    beat(IN_CFG_MASK_LSB + 7 downto IN_CFG_MASK_LSB) := shadow_valid_mask_i;
+    beat(IN_CYCLE_SEQ_LSB + 31 downto IN_CYCLE_SEQ_LSB) := cycle_sequence_i;
+    beat(IN_NOMINAL_LSB + 7 downto IN_NOMINAL_LSB) := block_nominal_hz_i;
+    beat(IN_FLAGS_LSB + 2 downto IN_FLAGS_LSB) := block_flags_i;
+    beat(IN_SAMPLE_IDX_LSB + 63 downto IN_SAMPLE_IDX_LSB) := staged_index;
+    beat(IN_PL_TICK_LSB + 63 downto IN_PL_TICK_LSB) := pl_tick_i;
+    beat(IN_FREQ_MHZ_LSB + 31 downto IN_FREQ_MHZ_LSB) :=
+      frequency_millihz_i;
+    beat(IN_FREQ_STATUS_LSB + 31 downto IN_FREQ_STATUS_LSB) :=
+      frequency_status_i;
+    sample_fifo_din <= beat;
+  end process;
+
   process (aclk)
-    variable beat    : std_logic_vector(BEAT_BITS - 1 downto 0);
-    variable pushing : boolean;
-    variable popping : boolean;
   begin
     if rising_edge(aclk) then
       if aresetn = '0' then
-        wr_ptr <= 0;
-        rd_ptr <= 0;
-        fill_level <= 0;
         drop_count <= (others => '0');
         staged_valid <= '0';
       else
-        popping := head_valid = '1' and in_ready = '1';
-        pushing := false;
-
-        -- Push the staged frame; context sampled now, one cycle after the
-        -- frame, so grid_cycle_timing's registered boundary/sequence pair
-        -- lands on the frame that completed the cycle.
+        -- The write port consumes staged_valid on this edge.  If XPM cannot
+        -- accept it, report the drop but never drive capture backpressure.
         if staged_valid = '1' then
-          if fill_level = FIFO_DEPTH and not popping then
+          if sample_fifo_full = '1' or sample_fifo_wr_busy = '1' then
             drop_count <= drop_count + 1;
-          else
-            pushing := true;
-            beat := (others => '0');
-            beat(IN_SAMPLES_LSB + METER_CONVERTED_FRAME_BITS - 1 downto
-                 IN_SAMPLES_LSB) := staged_data;
-            beat(IN_RAW_LSB + 255 downto IN_RAW_LSB) := staged_raw;
-            beat(IN_FRAME_MASK_LSB + 7 downto IN_FRAME_MASK_LSB) :=
-              staged_mask;
-            beat(IN_FRAME_GEN_LSB + 31 downto IN_FRAME_GEN_LSB) := staged_gen;
-            beat(IN_MALFORMED_BIT) := staged_malformed;
-            beat(IN_CLOSES_BIT) := cycle_boundary_i;
-            beat(IN_CYCLE_MODE_BIT) := cycle_mode_i;
-            beat(IN_APPLY_BIT) := config_apply_toggle_i;
-            beat(IN_ENABLE_BIT) := shadow_enable_i;
-            beat(IN_DC_REMOVE_BIT) := shadow_dc_remove_i;
-            beat(IN_CFG_GEN_LSB + 31 downto IN_CFG_GEN_LSB) :=
-              shadow_generation_i;
-            beat(IN_CFG_RATE_LSB + 31 downto IN_CFG_RATE_LSB) :=
-              shadow_sample_rate_i;
-            beat(IN_CFG_MASK_LSB + 7 downto IN_CFG_MASK_LSB) :=
-              shadow_valid_mask_i;
-            beat(IN_CYCLE_SEQ_LSB + 31 downto IN_CYCLE_SEQ_LSB) :=
-              cycle_sequence_i;
-            beat(IN_NOMINAL_LSB + 7 downto IN_NOMINAL_LSB) :=
-              block_nominal_hz_i;
-            beat(IN_FLAGS_LSB + 2 downto IN_FLAGS_LSB) := block_flags_i;
-            beat(IN_SAMPLE_IDX_LSB + 63 downto IN_SAMPLE_IDX_LSB) :=
-              staged_index;
-            beat(IN_PL_TICK_LSB + 63 downto IN_PL_TICK_LSB) := pl_tick_i;
-            beat(IN_FREQ_MHZ_LSB + 31 downto IN_FREQ_MHZ_LSB) :=
-              frequency_millihz_i;
-            beat(IN_FREQ_STATUS_LSB + 31 downto IN_FREQ_STATUS_LSB) :=
-              frequency_status_i;
-            fifo_mem(wr_ptr) <= beat;
-            if wr_ptr = FIFO_DEPTH - 1 then
-              wr_ptr <= 0;
-            else
-              wr_ptr <= wr_ptr + 1;
-            end if;
           end if;
           staged_valid <= '0';
         end if;
@@ -246,19 +298,6 @@ begin
           end if;
         end if;
 
-        if popping then
-          if rd_ptr = FIFO_DEPTH - 1 then
-            rd_ptr <= 0;
-          else
-            rd_ptr <= rd_ptr + 1;
-          end if;
-        end if;
-
-        if pushing and not popping then
-          fill_level <= fill_level + 1;
-        elsif popping and not pushing then
-          fill_level <= fill_level - 1;
-        end if;
       end if;
     end if;
   end process;

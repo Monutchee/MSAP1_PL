@@ -14,7 +14,7 @@
 module hls_aggregation_engine_ip (
     input           ap_clk,
     input           ap_rst_n,
-    input  [7391:0] s_result_TDATA,
+    input  [31:0]   s_result_TDATA,
     input           s_result_TVALID,
     output          s_result_TREADY,
     output [31:0]   m_basic_TDATA,

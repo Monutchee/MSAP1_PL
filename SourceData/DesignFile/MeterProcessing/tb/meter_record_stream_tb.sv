@@ -84,7 +84,7 @@ module meter_record_stream_tb;
   wire [3:0] scyc_tkeep;
   wire scyc_tvalid;
   wire scyc_tlast;
-  wire [7071:0] scyc_result_tdata;
+  wire [31:0] scyc_result_tdata;
   wire scyc_result_tvalid;
   wire scyc_result_tready;
   wire [31:0] basic_tdata;

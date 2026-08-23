@@ -444,7 +444,7 @@ static single_cycle_result_t make_cycle(const CycleSpec &c, GoldenBlock &g) {
 }
 
 struct Bench {
-  hls::stream<agg_input_beat_t> s_result{"s_result"};
+  hls::stream<single_cycle_word_t> s_result{"s_result"};
   hls::stream<record_axis_t> m_axis{"m_axis"};
   hls::stream<record_axis_t> m_agg{"m_agg"};
   bool apply_level = false;
@@ -464,31 +464,34 @@ struct Bench {
 
   void send(const single_cycle_result_t &r, bool apply_toggles = false) {
     if (apply_toggles) apply_level = !apply_level;
-    agg_input_beat_t beat = 0;
-    beat.range(SCYC_BEAT_BITS - 1, 0) = pack_single_cycle_result(r);
-    beat.range(AGG_IN_CFG_GEN_LSB + 31, AGG_IN_CFG_GEN_LSB) = cfg_generation;
-    beat.range(AGG_IN_CFG_RATE_LSB + 31, AGG_IN_CFG_RATE_LSB) = sample_rate;
-    beat.range(AGG_IN_CFG_MASK_LSB + 7, AGG_IN_CFG_MASK_LSB) = 0x7F;
-    beat[AGG_IN_ENABLE_BIT] = enable ? 1 : 0;
-    beat[AGG_IN_DC_REMOVE_BIT] = dc_remove ? 1 : 0;
-    beat[AGG_IN_APPLY_BIT] = apply_level ? 1 : 0;
-    beat[AGG_IN_LOCKED_BIT] = locked ? 1 : 0;
-    beat[AGG_IN_FALLBACK_BIT] = fallback ? 1 : 0;
-    beat.range(AGG_IN_FREQ_STATUS_LSB + 31, AGG_IN_FREQ_STATUS_LSB) =
-        freq_status;
-    beat.range(AGG_IN_FREQ_PERIOD_LSB + 31, AGG_IN_FREQ_PERIOD_LSB) =
-        freq_period;
-    beat.range(AGG_IN_FREQ_SEQ_LSB + 31, AGG_IN_FREQ_SEQ_LSB) = freq_seq;
-    beat.range(AGG_IN_CAP_FRAMES_LSB + 31, AGG_IN_CAP_FRAMES_LSB) = cap_frames;
-    beat.range(AGG_IN_CAP_HDRERR_LSB + 31, AGG_IN_CAP_HDRERR_LSB) = cap_hdrerr;
-    beat.range(AGG_IN_CAP_OVERFLOW_LSB + 31, AGG_IN_CAP_OVERFLOW_LSB) =
-        cap_overflow;
-    beat.range(AGG_IN_CAP_ALERTS_LSB + 31, AGG_IN_CAP_ALERTS_LSB) = cap_alerts;
-    beat.range(AGG_IN_TEN_MIN_TARGET_LSB + 63,
-               AGG_IN_TEN_MIN_TARGET_LSB) = ten_minute_target;
-    beat[AGG_IN_TEN_MIN_VALID_BIT] = ten_minute_valid ? 1 : 0;
-    beat[AGG_IN_TEN_MIN_UPDATE_BIT] = ten_minute_update ? 1 : 0;
-    s_result.write(beat);
+    write_single_cycle_packet(r, s_result);
+
+    single_cycle_word_t controls = 0;
+    controls.range(7, 0) = 0x7F;
+    controls.bit(AGG_CONTEXT_ENABLE_BIT) = enable;
+    controls.bit(AGG_CONTEXT_DC_REMOVE_BIT) = dc_remove;
+    controls.bit(AGG_CONTEXT_APPLY_BIT) = apply_level;
+    controls.bit(AGG_CONTEXT_LOCKED_BIT) = locked;
+    controls.bit(AGG_CONTEXT_FALLBACK_BIT) = fallback;
+
+    single_cycle_word_t target_controls = 0;
+    target_controls.bit(AGG_CONTEXT_TARGET_VALID_BIT) = ten_minute_valid;
+    target_controls.bit(AGG_CONTEXT_TARGET_UPDATE_BIT) = ten_minute_update;
+
+    // Append the same 13-word context packet produced by the RTL shim.
+    s_result.write(cfg_generation);
+    s_result.write(sample_rate);
+    s_result.write(controls);
+    s_result.write(freq_status);
+    s_result.write(freq_period);
+    s_result.write(freq_seq);
+    s_result.write(cap_frames);
+    s_result.write(cap_hdrerr);
+    s_result.write(cap_overflow);
+    s_result.write(cap_alerts);
+    s_result.write(ap_uint<64>(ten_minute_target).range(31, 0));
+    s_result.write(ap_uint<64>(ten_minute_target).range(63, 32));
+    s_result.write(target_controls);
     // In hardware the engine is free-running, invoked every clock. Since A1
     // it may spend an invocation on a DEFERRED interval pass and consume no
     // beat, so a single call per send would leave the beat queued. Pump
@@ -666,7 +669,10 @@ static void take_open_quad(Bench &b, ap_uint<32> (&words)[MREC_WORDS],
 #endif
 
 int main() {
-  static_assert(AGG_IN_BITS == 7488, "input beat width is normative");
+  static_assert(SCYC_PACKET_WORDS == 221,
+                "single-cycle packet length is normative");
+  static_assert(AGG_INPUT_PACKET_WORDS == 234,
+                "aggregation input packet length is normative");
 
   if (const char *path = std::getenv("MNC_COMPLETED_RECORD_TRACE")) {
     completed_trace = std::fopen(path, "wb");

@@ -9,9 +9,9 @@
 // tier rules: see aggregation_engine.hpp.
 //
 // Structure: one free-running single-shot process (the house pattern):
-// each invocation consumes at most one result beat; the invocation
+// each invocation consumes at most one result packet; the invocation
 // closing a block runs the whole finalize + every emission inline. Input
-// cadence is one beat per grid cycle (~16-20 ms), four orders of
+// cadence is one packet per grid cycle (~16-20 ms), four orders of
 // magnitude slower than the sample-domain engines, so the brief finalize
 // backpressure is absorbed by the AXIS register slices upstream.
 //
@@ -274,7 +274,7 @@ open_record_pairs:
 }
 #endif
 
-void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
+void hls_aggregation_engine(hls::stream<single_cycle_word_t> &s_result,
                             hls::stream<record_axis_t> &m_basic,
                             hls::stream<record_axis_t> &m_agg) {
   // s_result unregistered (the shim registers its side); both record
@@ -509,7 +509,7 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
   // A block close and an interval close used to happen in the SAME
   // invocation: two finalizes plus eight records, 22,935 clocks worst
   // case against the 6,684 of the engine this replaced. That is 74x
-  // inside the 1.67 M clocks between result beats at 60 Hz, so it was
+  // inside the 1.67 M clocks between result packets at 60 Hz, so it was
   // never a product risk -- but the whole-chain stream bench feeds
   // samples far faster than real time, the single-cycle shim's 8-deep
   // FIFO overflowed, and the dropped beat surfaced as a spurious
@@ -518,8 +518,8 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
   // free, and keeps the finalize at ONE call site.
   single_cycle_result_t cycle;
   // Only the shim-appended CONTEXT pass 0 needs for record words 56..63 is
-  // hoisted, not the whole beat: hoisting all 7392 bits out of the
-  // conditional cost ~7.4k FF (measured), where these seven words cost 224.
+  // hoisted. The result now arrives as 32-bit words, so no 7,488-bit AXIS
+  // register or whole-packet selection network exists at this boundary.
   ap_uint<32> ctx_freq_status = 0, ctx_freq_period = 0, ctx_freq_seq = 0;
   ap_uint<32> ctx_cap_frames = 0, ctx_cap_hdrerr = 0, ctx_cap_overflow = 0,
               ctx_cap_alerts = 0;
@@ -551,22 +551,28 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
     if (s_result.empty()) {
       return;
     }
-    const agg_input_beat_t beat = s_result.read();
-    ctx_freq_status =
-        beat.range(AGG_IN_FREQ_STATUS_LSB + 31, AGG_IN_FREQ_STATUS_LSB);
-    ctx_freq_period =
-        beat.range(AGG_IN_FREQ_PERIOD_LSB + 31, AGG_IN_FREQ_PERIOD_LSB);
-    ctx_freq_seq = beat.range(AGG_IN_FREQ_SEQ_LSB + 31, AGG_IN_FREQ_SEQ_LSB);
-    ctx_cap_frames =
-        beat.range(AGG_IN_CAP_FRAMES_LSB + 31, AGG_IN_CAP_FRAMES_LSB);
-    ctx_cap_hdrerr =
-        beat.range(AGG_IN_CAP_HDRERR_LSB + 31, AGG_IN_CAP_HDRERR_LSB);
-    ctx_cap_overflow =
-        beat.range(AGG_IN_CAP_OVERFLOW_LSB + 31, AGG_IN_CAP_OVERFLOW_LSB);
-    ctx_cap_alerts =
-        beat.range(AGG_IN_CAP_ALERTS_LSB + 31, AGG_IN_CAP_ALERTS_LSB);
+    // The packet is fixed length. Once its first word is available, the
+    // blocking reads consume exactly one complete result and its captured
+    // context; an incomplete packet therefore cannot be mistaken for the
+    // next grid cycle.
+    cycle = read_single_cycle_packet(s_result);
+    const single_cycle_word_t ctx_cfg_generation = s_result.read();
+    const single_cycle_word_t ctx_cfg_rate = s_result.read();
+    const single_cycle_word_t ctx_controls = s_result.read();
+    ctx_freq_status = s_result.read();
+    ctx_freq_period = s_result.read();
+    ctx_freq_seq = s_result.read();
+    ctx_cap_frames = s_result.read();
+    ctx_cap_hdrerr = s_result.read();
+    ctx_cap_overflow = s_result.read();
+    ctx_cap_alerts = s_result.read();
+    ap_uint<64> ctx_t10m_target = 0;
+    ctx_t10m_target.range(31, 0) = s_result.read();
+    ctx_t10m_target.range(63, 32) = s_result.read();
+    const single_cycle_word_t ctx_target_controls = s_result.read();
 
-    const ap_uint<1> beat_t10m_update = beat.bit(AGG_IN_TEN_MIN_UPDATE_BIT);
+    const ap_uint<1> beat_t10m_update =
+        ctx_target_controls.bit(AGG_CONTEXT_TARGET_UPDATE_BIT);
     if (beat_t10m_update != t10m_update_seen) {
       t10m_update_seen = beat_t10m_update;
       if (t10m_blocks_accumulated != 0) {
@@ -576,9 +582,9 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
 #if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
       interval_pending.bit(3) = 0;
 #endif
-      t10m_target_sample = beat.range(AGG_IN_TEN_MIN_TARGET_LSB + 63,
-                                      AGG_IN_TEN_MIN_TARGET_LSB);
-      t10m_target_valid = beat.bit(AGG_IN_TEN_MIN_VALID_BIT);
+      t10m_target_sample = ctx_t10m_target;
+      t10m_target_valid =
+          ctx_target_controls.bit(AGG_CONTEXT_TARGET_VALID_BIT);
       // Linux normally programs the next UTC mark while capture is already
       // inside the interval, so the first emitted result is explicitly
       // partial.  The following auto-advanced intervals are complete.
@@ -595,17 +601,16 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
 #endif
     }
 
-    const ap_uint<1> beat_apply = beat.bit(AGG_IN_APPLY_BIT);
+    const ap_uint<1> beat_apply = ctx_controls.bit(AGG_CONTEXT_APPLY_BIT);
     if (beat_apply != apply_seen) {
       apply_seen = beat_apply;
-      active_generation =
-          beat.range(AGG_IN_CFG_GEN_LSB + 31, AGG_IN_CFG_GEN_LSB);
-      active_sample_rate =
-          beat.range(AGG_IN_CFG_RATE_LSB + 31, AGG_IN_CFG_RATE_LSB);
+      active_generation = ctx_cfg_generation;
+      active_sample_rate = ctx_cfg_rate;
       active_valid_mask =
-          beat.range(AGG_IN_CFG_MASK_LSB + 7, AGG_IN_CFG_MASK_LSB);
-      active_enable = beat.bit(AGG_IN_ENABLE_BIT);
-      active_dc_remove = beat.bit(AGG_IN_DC_REMOVE_BIT);
+          ctx_controls.range(AGG_CONTEXT_MASK_LSB + 7,
+                             AGG_CONTEXT_MASK_LSB);
+      active_enable = ctx_controls.bit(AGG_CONTEXT_ENABLE_BIT);
+      active_dc_remove = ctx_controls.bit(AGG_CONTEXT_DC_REMOVE_BIT);
       arithmetic_overflow = 0;
       cycles_in_block = 0;
       have_expectation = 0;
@@ -623,9 +628,6 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
     if (active_enable == 0) {
       return;
     }
-
-    cycle = unpack_single_cycle_result(
-        ap_uint<SCYC_BEAT_BITS>(beat.range(SCYC_BEAT_BITS - 1, 0)));
 
     // Generation boundary: results of another generation never merge.
     if (cycle.generation != active_generation) {
@@ -668,8 +670,8 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
     }
     block_sample_count += cycle.sample_count;
     block_mask &= cycle.valid_mask;
-    block_locked_and &= beat.bit(AGG_IN_LOCKED_BIT);
-    block_fallback_or |= beat.bit(AGG_IN_FALLBACK_BIT);
+    block_locked_and &= ctx_controls.bit(AGG_CONTEXT_LOCKED_BIT);
+    block_fallback_or |= ctx_controls.bit(AGG_CONTEXT_FALLBACK_BIT);
     const ap_uint<1> cycle_phasor_invalid =
         cycle.status.bit(SCYC_STATUS_PHASOR_INVALID_BIT);
     block_phasor_invalid =
@@ -873,9 +875,8 @@ finalize_passes:
     flags[MET_FLAG_FALLBACK] = block_fallback_or;
     flags[MET_FLAG_FIRST_BLOCK] = first_block;
 
-    // Block-result beat for the 150/180-cycle aggregator: the block's
-    // provenance plus its MERGE-SAFE ACCUMULATORS (agg_block_result.hpp) —
-    // the higher tier merges by pure addition, never re-derives.
+    // Local Basic result: provenance plus merge-safe accumulators. The longer
+    // tiers merge this value by pure addition and never re-derive it.
     agg_block_result_t result;
     result.sequence = sequence;
     result.generation = active_generation;

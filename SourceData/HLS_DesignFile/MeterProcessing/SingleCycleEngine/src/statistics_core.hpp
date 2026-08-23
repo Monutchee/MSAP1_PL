@@ -101,7 +101,8 @@ vll_pairs:
   }
 }
 
-// Copy the cycle's statistics into the result beat sections.
+// Copy the cycle's statistics into the logical result fields. The result is
+// serialized later by single_cycle_packet.hpp.
 inline void export_statistics(const cycle_statistics_t &acc,
                               single_cycle_result_t &result) {
 #pragma HLS INLINE

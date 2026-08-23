@@ -88,14 +88,18 @@ static single_cycle_sample_beat_t pack_frame(const FrameSpec &f) {
 }
 
 struct Bench {
-  hls::stream<single_cycle_sample_beat_t> s_sample{"s_sample"};
+  hls::stream<single_cycle_sample_word_t> s_sample{"s_sample"};
   hls::stream<record_axis_t> m_axis{"m_axis"};
-  hls::stream<single_cycle_beat_t> m_result{"m_result"};
+  hls::stream<single_cycle_word_t> m_result{"m_result"};
   bool apply_level = false;
 
   void send(const FrameSpec &f) {
-    s_sample.write(pack_frame(f));
-    hls_single_cycle_engine(s_sample, m_axis, m_result);
+    write_single_cycle_sample_packet(pack_frame(f), s_sample);
+    // ap_ctrl_none keeps invoking the RTL process every clock.  C simulation
+    // calls the top explicitly, so advance it once for every physical input
+    // word in the narrow transport packet.
+    for (int word = 0; word < SCYC_SAMPLE_PACKET_WORDS; ++word)
+      hls_single_cycle_engine(s_sample, m_axis, m_result);
   }
   // Toggle APPLY on the next frame (level convention).
   FrameSpec applied(FrameSpec f) {
@@ -108,6 +112,16 @@ struct Bench {
     return f;
   }
 };
+
+// Consume exactly one fixed-length internal result packet.  Keeping packet
+// decoding in one helper makes every existing golden check independent of the
+// transport width while still proving every field survived serialization.
+static single_cycle_result_t take_result(Bench &b) {
+  CHECK(b.m_result.size() == SCYC_PACKET_WORDS,
+        "single-cycle result must contain %d words, got %u",
+        SCYC_PACKET_WORDS, (unsigned)b.m_result.size());
+  return read_single_cycle_packet(b.m_result);
+}
 
 // Drain and validate one 64-beat record; returns the words.
 static void take_record(Bench &b, ap_uint<32> (&words)[MREC_WORDS]) {
@@ -135,8 +149,9 @@ static unsigned long long settle(Bench &b, const FrameSpec &f,
     g.closes = (i == 1) || (i == 3);
     b.send(g);
   }
-  CHECK(b.m_result.size() == 1, "settle must emit exactly one throwaway");
-  const single_cycle_result_t r = unpack_single_cycle_result(b.m_result.read());
+  CHECK(b.m_result.size() == SCYC_PACKET_WORDS,
+        "settle must emit exactly one throwaway packet");
+  const single_cycle_result_t r = take_result(b);
   CHECK(((r.status >> SCYC_STATUS_FIRST_AFTER_GAP_BIT) & 1) == 1,
         "the settle throwaway must carry the first-after-gap mark");
   ap_uint<32> words[MREC_WORDS];
@@ -204,8 +219,9 @@ static single_cycle_result_t run_wave(Bench &b, const FrameSpec &base_frame,
     b.send(g);
   }
 
-  CHECK(b.m_result.size() == 1, "%s: one cycle must yield one result", name);
-  const single_cycle_result_t r = unpack_single_cycle_result(b.m_result.read());
+  CHECK(b.m_result.size() == SCYC_PACKET_WORDS,
+        "%s: one cycle must yield one result packet", name);
+  const single_cycle_result_t r = take_result(b);
   CHECK(r.status == w.expected_status, "%s: status 0x%x expected 0x%x", name,
         (unsigned)r.status, w.expected_status);
   CHECK(r.sample_count == (unsigned)w.samples && r.first_sample == base &&
@@ -282,7 +298,11 @@ static single_cycle_result_t run_wave(Bench &b, const FrameSpec &base_frame,
 
 int main() {
   static_assert(SCYC_IN_BITS == 1024, "input beat width is normative");
-  static_assert(SCYC_BEAT_BITS == 7072, "result beat width is normative");
+  static_assert(SCYC_SAMPLE_PACKET_WORDS == 32,
+                "input packet length is normative");
+  static_assert(SCYC_BEAT_BITS == 7072, "result field layout is normative");
+  static_assert(SCYC_PACKET_WORDS == 221,
+                "internal result packet length is normative");
 
   Bench b;
   FrameSpec f;
@@ -312,9 +332,9 @@ int main() {
       h.closes = (i == 4);
       b.send(h);
     }
-    CHECK(b.m_result.size() == 1, "one cycle must yield one result beat");
-    const single_cycle_result_t r =
-        unpack_single_cycle_result(b.m_result.read());
+    CHECK(b.m_result.size() == SCYC_PACKET_WORDS,
+          "one cycle must yield one result packet");
+    const single_cycle_result_t r = take_result(b);
     CHECK(r.sequence == 1, "first result carries sequence 1, got %u",
           (unsigned)r.sequence);
     CHECK(r.first_sample == 1005 && r.last_sample == 1009,
@@ -363,8 +383,7 @@ int main() {
       h.closes = (i == 2);
       b.send(h);
     }
-    const single_cycle_result_t r2 =
-        unpack_single_cycle_result(b.m_result.read());
+    const single_cycle_result_t r2 = take_result(b);
     CHECK(r2.sequence == 2 && r2.first_sample == 1010 &&
               r2.last_sample == 1012 && r2.status == 0,
           "cycles must chain gaplessly with a clean status");
@@ -416,8 +435,7 @@ int main() {
         g_power[phase] += (__int128)g.q16[pv[phase]] * g.q16[pi_[phase]];
       b.send(g);
     }
-    const single_cycle_result_t rs =
-        unpack_single_cycle_result(b.m_result.read());
+    const single_cycle_result_t rs = take_result(b);
     CHECK(rs.sample_count == (unsigned)frames && rs.status == 0,
           "statistics cycle count/status");
     for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
@@ -571,8 +589,7 @@ int main() {
         h.closes = (i == 3);
         b.send(h);
       }
-      const single_cycle_result_t rs =
-          unpack_single_cycle_result(b.m_result.read());
+      const single_cycle_result_t rs = take_result(b);
       CHECK(rs.status == (1u << SCYC_STATUS_FIRST_AFTER_GAP_BIT),
             "dc_remove pass %d: only the APPLY gap mark, got 0x%x", pass,
             (unsigned)rs.status);
@@ -598,8 +615,7 @@ int main() {
       h.closes = (i == 4);
       b.send(h);
     }
-    const single_cycle_result_t rs =
-        unpack_single_cycle_result(b.m_result.read());
+    const single_cycle_result_t rs = take_result(b);
     take_record(b, words);
     const ap_uint<96> one_square =
         ap_uint<48>(full_scale) * ap_uint<48>(full_scale);
@@ -635,8 +651,7 @@ int main() {
         b.send(h);
       }
       base += cycle_samples;
-      const single_cycle_result_t rs =
-          unpack_single_cycle_result(b.m_result.read());
+      const single_cycle_result_t rs = take_result(b);
       CHECK(rs.status == 0, "phasor pass %d: clean status, got 0x%x", pass,
             (unsigned)rs.status);
       take_record(b, words);
@@ -679,8 +694,7 @@ int main() {
       h.closes = (i == 3);
       b.send(h);
     }
-    const single_cycle_result_t rs =
-        unpack_single_cycle_result(b.m_result.read());
+    const single_cycle_result_t rs = take_result(b);
     take_record(b, words);
     CHECK(rs.status == (1u << SCYC_STATUS_PHASOR_INVALID_BIT),
           "invalid reference must set exactly status bit 1, got 0x%x",
@@ -701,8 +715,7 @@ int main() {
       h.closes = (i == 2);
       b.send(h);
     }
-    const single_cycle_result_t rs =
-        unpack_single_cycle_result(b.m_result.read());
+    const single_cycle_result_t rs = take_result(b);
     take_record(b, words);
     CHECK(rs.flags == 0x2 && ((words[SCYC_TIMING_WORD] >> 16) & 0x7) == 0x2,
           "fallback flag must propagate to beat and record");
@@ -731,8 +744,7 @@ int main() {
       h.closes = (i == 2);
       b.send(h);
     }
-    const single_cycle_result_t rs =
-        unpack_single_cycle_result(b.m_result.read());
+    const single_cycle_result_t rs = take_result(b);
     take_record(b, words);
     CHECK(rs.valid_mask == 0x7B,
           "committed mask must gate the result mask, got 0x%x",
@@ -779,8 +791,7 @@ int main() {
       h.closes = (i == 1);
       b.send(h);
     }
-    const single_cycle_result_t r3 =
-        unpack_single_cycle_result(b.m_result.read());
+    const single_cycle_result_t r3 = take_result(b);
     CHECK(r3.first_sample == base + 4 && r3.sample_count == 2,
           "the next whole cycle follows the discarded one");
     CHECK(r3.status == ((1u << SCYC_STATUS_FIRST_AFTER_GAP_BIT) |
@@ -809,8 +820,7 @@ int main() {
       h.closes = (i == 1);
       b.send(h);
     }
-    const single_cycle_result_t rs =
-        unpack_single_cycle_result(b.m_result.read());
+    const single_cycle_result_t rs = take_result(b);
     CHECK(rs.first_sample == base + 3 && rs.sample_count == 2,
           "accumulation restarts after the hole's boundary");
     CHECK(rs.status == ((1u << SCYC_STATUS_FIRST_AFTER_GAP_BIT) |
@@ -846,8 +856,7 @@ int main() {
       h.closes = (i == 1);
       b.send(h);
     }
-    const single_cycle_result_t rs =
-        unpack_single_cycle_result(b.m_result.read());
+    const single_cycle_result_t rs = take_result(b);
     CHECK(rs.status == ((1u << SCYC_STATUS_FIRST_AFTER_GAP_BIT) |
                         (1u << SCYC_STATUS_GAP_TIMING_BIT)),
           "timing loss must mark first-after-gap + timing, got 0x%x",
@@ -880,8 +889,7 @@ int main() {
       h.closes = (i == 1);
       b.send(h);
     }
-    const single_cycle_result_t r4 =
-        unpack_single_cycle_result(b.m_result.read());
+    const single_cycle_result_t r4 = take_result(b);
     CHECK(r4.generation == 2 && r4.first_sample == base + 3 &&
               r4.sample_count == 2,
           "stale carrier must be rejected; new generation accumulates");

@@ -7,7 +7,7 @@
 module hls_single_cycle_engine_ip (
     input           ap_clk,
     input           ap_rst_n,
-    input  [1023:0] s_sample_TDATA,
+    input  [31:0]   s_sample_TDATA,
     input           s_sample_TVALID,
     output          s_sample_TREADY,
     output [31:0]   m_axis_TDATA,
@@ -16,7 +16,7 @@ module hls_single_cycle_engine_ip (
     output [3:0]    m_axis_TKEEP,
     output [3:0]    m_axis_TSTRB,
     output [0:0]    m_axis_TLAST,
-    output [7071:0] m_result_TDATA,
+    output [31:0]   m_result_TDATA,
     output          m_result_TVALID,
     input           m_result_TREADY
 );

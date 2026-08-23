@@ -1,8 +1,10 @@
 #ifndef MSAP1_METERING_TYPES_HPP
 #define MSAP1_METERING_TYPES_HPP
 
-// The widest shared beat is the 4896-bit SingleCycleResult (provenance +
-// the M3 statistics sections), past ap_int's 1024-bit default ceiling.
+// The widest logical packed test image is the 7072-bit SingleCycleResult,
+// past ap_int's 1024-bit default ceiling. The synthesized inter-engine
+// transport is an ordered 32-bit packet; this width remains for explicit
+// golden/equivalence packing only.
 // This must precede the first ap_int.h inclusion in every translation
 // unit; each component's cflags also pass -DAP_INT_MAX_W sized for the
 // beats it actually touches, so an unlucky include order cannot regress
@@ -31,7 +33,7 @@
 // ---------------------------------------------------------------------------
 // Channel geometry.
 //
-// Every record and result beat carries eight RMS lanes. Lanes 0..3 are
+// Every record and internal result carries eight RMS lanes. Lanes 0..3 are
 // current channels, lanes 4..6 voltage channels, lane 7 is reserved and
 // reads zero/invalid in the default configuration (CH7 exists in capture
 // but is not a metering channel today).
