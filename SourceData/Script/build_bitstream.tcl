@@ -35,7 +35,11 @@ puts "PL_BUILD_THREADS=$threads"
 if {[file exists $bitstream]} {
     reset_run impl_1 -from_step write_bitstream
 }
-pl_build_launch_with_threads impl_1 write_bitstream $jobs $threads WRITE_BITSTREAM
+# Never add or replace a hook after routing. New implementation runs already
+# carry the stable WRITE_BITSTREAM hook installed by build_impl.tcl. An older
+# routed run remains usable with Vivado's default worker-thread policy.
+pl_build_launch_with_threads \
+    impl_1 write_bitstream $jobs $threads WRITE_BITSTREAM false
 
 if {![file exists $bitstream]} {
     error "write_bitstream reported success but $bitstream is missing"

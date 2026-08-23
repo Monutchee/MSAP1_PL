@@ -119,11 +119,58 @@ proc pl_build_threads {} {
 }
 
 # launch_runs starts a separate Vivado worker. A set_param in this launcher is
-# not reliably inherited by that process, so install a temporary stage pre-hook
-# which applies general.maxThreads inside the worker itself. Preserve and chain
-# any project hook that was already configured, then restore the run property
-# and environment even when implementation fails.
-proc pl_build_launch_with_threads {run to_step jobs threads hook_step} {
+# not reliably inherited by that process, so use stable stage pre-hooks which
+# apply general.maxThreads inside the worker itself.
+#
+# Vivado includes run hooks in the run's input fingerprint. Changing a hook
+# after route_design has completed makes the routed result Out-of-date even if
+# write_bitstream subsequently succeeds. Configure every implementation hook
+# before resetting impl_1, then leave those properties unchanged for the route
+# and bitstream stages. A standalone bitstream invocation against an older run
+# deliberately preserves that run's properties and accepts Vivado's default
+# worker thread count rather than invalidating valid routing.
+#
+# A small generated sidecar remembers any project hook that preceded ours. It
+# lets later standalone stage invocations continue chaining that hook even
+# though each invocation opens a fresh Vivado process. The sidecar lives below
+# ignored vivado_gen output and is not project design intent.
+proc pl_build_thread_hook_state_file {run hook_step} {
+    global pl_build_repo_dir
+
+    set state_dir [file join $pl_build_repo_dir vivado_gen .pl_build_hooks]
+    file mkdir $state_dir
+    set name [string map [list / _ \\ _ : _] "${run}_${hook_step}"]
+    return [file join $state_dir "${name}.previous_tcl_pre"]
+}
+
+proc pl_build_write_thread_hook_state {path hook} {
+    set temporary "${path}.tmp.[pid]"
+    set handle [open $temporary w]
+    puts $handle [list $hook]
+    close $handle
+    file rename -force $temporary $path
+}
+
+proc pl_build_read_thread_hook_state {path} {
+    if {![file exists $path]} {
+        return ""
+    }
+    set handle [open $path r]
+    set serialized [string trim [read $handle]]
+    close $handle
+    if {$serialized eq ""} {
+        return ""
+    }
+    if {[catch {lindex $serialized 0} hook]} {
+        error "invalid saved Vivado pre-hook state in $path: $hook"
+    }
+    return $hook
+}
+
+# Install one stable worker-thread hook. Call this before reset_run so the reset
+# incorporates the property into the new run fingerprint. The generated state
+# file retains and chains any hook that was configured by the project itself.
+proc pl_build_prepare_thread_hook {run hook_step} {
     global pl_build_script_dir
 
     set object [get_runs -quiet $run]
@@ -136,11 +183,64 @@ proc pl_build_launch_with_threads {run to_step jobs threads hook_step} {
         error "$run has no $hook_property property in this Vivado release"
     }
 
-    set previous_hook [get_property $hook_property $object]
+    set configured_hook [get_property $hook_property $object]
     set thread_hook [file normalize \
         [file join $pl_build_script_dir set_vivado_threads.tcl]]
     if {![file exists $thread_hook]} {
         error "missing Vivado internal-thread hook $thread_hook"
+    }
+
+    if {$configured_hook ne "" && \
+            [file normalize $configured_hook] eq $thread_hook} {
+        return 0
+    }
+
+    set hook_state [pl_build_thread_hook_state_file $run $hook_step]
+    pl_build_write_thread_hook_state $hook_state $configured_hook
+    set_property $hook_property $thread_hook $object
+    puts "PL_BUILD_THREAD_HOOK=${run}:${hook_step}"
+    return 1
+}
+
+# Launch a run while exposing the requested thread count to an already-stable
+# hook. install_hook is true for a fresh run that will be reset/rebuilt, and
+# false for a continuation such as write_bitstream where changing properties
+# would invalidate completed placement and routing.
+proc pl_build_launch_with_threads \
+        {run to_step jobs threads hook_step {install_hook true}} {
+    global pl_build_script_dir
+
+    set object [get_runs -quiet $run]
+    if {$object eq ""} {
+        error "cannot launch missing Vivado run $run"
+    }
+
+    set thread_hook [file normalize \
+        [file join $pl_build_script_dir set_vivado_threads.tcl]]
+    set use_thread_hook false
+    set previous_hook ""
+    if {$hook_step ne ""} {
+        set hook_property "STEPS.${hook_step}.TCL.PRE"
+        if {[lsearch -exact [list_property $object] $hook_property] < 0} {
+            error "$run has no $hook_property property in this Vivado release"
+        }
+
+        set configured_hook [get_property $hook_property $object]
+        if {$configured_hook ne "" && \
+                [file normalize $configured_hook] eq $thread_hook} {
+            set use_thread_hook true
+        } elseif {$install_hook} {
+            pl_build_prepare_thread_hook $run $hook_step
+            set use_thread_hook true
+        } else {
+            puts "WARNING: preserving completed $run without installing\
+ $hook_property; the $to_step worker will use Vivado's internal thread policy"
+        }
+
+        if {$use_thread_hook} {
+            set hook_state [pl_build_thread_hook_state_file $run $hook_step]
+            set previous_hook [pl_build_read_thread_hook_state $hook_state]
+        }
     }
 
     set had_thread_env [info exists ::env(VIVADO_THREADS)]
@@ -153,20 +253,19 @@ proc pl_build_launch_with_threads {run to_step jobs threads hook_step} {
     }
 
     set ::env(VIVADO_THREADS) $threads
-    if {$previous_hook ne "" && [file normalize $previous_hook] ne $thread_hook} {
+    if {$use_thread_hook && $previous_hook ne "" && \
+            [file normalize $previous_hook] ne $thread_hook} {
         set ::env(PL_BUILD_PREVIOUS_TCL_PRE) $previous_hook
     } else {
         catch {unset ::env(PL_BUILD_PREVIOUS_TCL_PRE)}
     }
     set_param general.maxThreads $threads
-    set_property $hook_property $thread_hook $object
 
     set failed [catch {
         launch_runs $run -to_step $to_step -jobs $jobs
         pl_build_finish_run $run
     } result options]
 
-    set_property $hook_property $previous_hook $object
     if {$had_thread_env} {
         set ::env(VIVADO_THREADS) $previous_thread_env
     } else {

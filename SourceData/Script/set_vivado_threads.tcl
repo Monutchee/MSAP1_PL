@@ -1,7 +1,8 @@
-# Runs inside a Vivado implementation worker before its first design step.
-# The launcher installs this file as a temporary run pre-hook because a
-# general.maxThreads parameter set only in the parent process is not reliably
-# inherited by the worker created by launch_runs.
+# Runs inside a Vivado implementation worker before opt_design or
+# write_bitstream. build_impl.tcl installs both stable hooks before resetting
+# the run because changing either hook after routing makes Vivado mark the
+# otherwise valid result Out-of-date. A general.maxThreads parameter set only
+# in the parent process is not reliably inherited by the launch_runs worker.
 
 if {[info exists ::env(PL_BUILD_PREVIOUS_TCL_PRE)] &&
         $::env(PL_BUILD_PREVIOUS_TCL_PRE) ne ""} {

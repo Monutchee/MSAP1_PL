@@ -29,8 +29,14 @@ puts "PL_BUILD_THREADS=$threads"
 
 pl_build_apply_incremental impl_1
 
+# Both worker hooks are part of one stable run definition. Install them before
+# reset_run so routing and the later bitstream continuation share the same
+# Vivado fingerprint; changing WRITE_BITSTREAM.TCL.PRE after route_design would
+# otherwise make the valid routed checkpoint Out-of-date.
+pl_build_prepare_thread_hook impl_1 OPT_DESIGN
+pl_build_prepare_thread_hook impl_1 WRITE_BITSTREAM
 pl_build_reset_run impl_1
-pl_build_launch_with_threads impl_1 route_design $jobs $threads OPT_DESIGN
+pl_build_launch_with_threads impl_1 route_design $jobs $threads OPT_DESIGN false
 
 set routed [file join [pl_build_run_dir impl_1] "[pl_build_top]_routed.dcp"]
 if {![file exists $routed]} {
