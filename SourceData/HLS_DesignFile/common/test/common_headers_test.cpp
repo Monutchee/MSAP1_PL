@@ -227,6 +227,44 @@ static void test_metrology_primitives() {
   CHECK((met_rms_from_accumulators<128, 128>(square, sum, count, 0, overflow) ==
              ap_uint<64>(1000)),
         "constant signal without dc_remove must report its magnitude");
+
+  // The sliding one-cycle engine intentionally keeps a 64-bit signed sum
+  // beside its 128-bit square accumulator.  Keep this template combination
+  // instantiated here so long-window numerator changes cannot break it.
+  overflow = 0;
+  CHECK((met_rms_from_accumulators<128, 64>(
+             square, ap_int<64>(4000), count, 1, overflow) == ap_uint<64>(0) &&
+         overflow == 0),
+        "64-bit sliding-window sum must remain a supported RMS contract");
+
+  // Regression: valid 10-minute and 2-hour engineering accumulators need a
+  // wider finalize numerator even though both stored accumulators fit their
+  // existing 128-bit fields.  The old 128-bit square*count intermediate set
+  // overflow for both of these ordinary 120 V windows.
+  const ap_uint<64> volts_120_q16 = ap_uint<64>(7864320000000ULL);
+  const ap_uint<32> long_counts[] = {ap_uint<32>(76799997U),
+                                     ap_uint<32>(921599963U)};
+  for (const auto &long_count : long_counts) {
+    const ap_int<128> long_sum =
+        ap_int<128>(volts_120_q16) * ap_int<128>(long_count);
+    ap_uint<128> long_square =
+        ap_uint<128>(volts_120_q16) * ap_uint<128>(volts_120_q16);
+    long_square *= long_count;
+
+    overflow = 0;
+    CHECK((met_rms_from_accumulators<128, 128>(
+               long_square, long_sum, long_count, 0, overflow) ==
+               volts_120_q16 &&
+           overflow == 0),
+          "long-window total RMS must not report false saturation");
+
+    overflow = 0;
+    CHECK((met_rms_from_accumulators<128, 128>(
+               long_square, long_sum, long_count, 1, overflow) ==
+               ap_uint<64>(0) &&
+           overflow == 0),
+          "long-window DC correction must retain the full-width numerator");
+  }
   CHECK((met_expected_cycles(50) == MET_GRID_CYCLES_50HZ &&
              met_expected_cycles(60) == MET_GRID_CYCLES_60HZ),
         "nominal-to-cycles mapping");
@@ -289,8 +327,8 @@ static void test_sequence_components() {
   const long long re = 549755813888LL / 2;  // 2^39 / ... arbitrary large
   const long long im = -123456789012LL;
   ap_int<64> ar, ai, a2r, a2i;
-  met_rotate_a(ap_int<64>(re), ap_int<64>(im), ar, ai);
-  met_rotate_a2(ap_int<64>(re), ap_int<64>(im), a2r, a2i);
+  met_rotate_120(ap_int<64>(re), ap_int<64>(im), false, ar, ai);
+  met_rotate_120(ap_int<64>(re), ap_int<64>(im), true, a2r, a2i);
   // Tolerance: the Q30 sqrt(3)/2 constant sits ~0.31 LSB above the real
   // value, which scales to ~0.31*|p|/2^30 output LSBs (plus the floor)
   // — about 3e-10 relative, invisible at the micro-unit grain. 512
@@ -309,8 +347,8 @@ static void test_sequence_components() {
   ap_int<64> pre[3], pim[3], sre[3], sim[3];
   pre[0] = 400000000000LL;
   pim[0] = -250000000000LL;
-  met_rotate_a2(pre[0], pim[0], pre[1], pim[1]);  // B lags A by 120
-  met_rotate_a(pre[0], pim[0], pre[2], pim[2]);   // C leads A by 120
+  met_rotate_120(pre[0], pim[0], true, pre[1], pim[1]);   // B lags A by 120
+  met_rotate_120(pre[0], pim[0], false, pre[2], pim[2]);  // C leads A by 120
   met_sequence_components(pre, pim, sre, sim);
   CHECK(llabs((long long)sre[0]) <= 512 && llabs((long long)sim[0]) <= 512 &&
             llabs((long long)sre[2]) <= 512 && llabs((long long)sim[2]) <= 512,

@@ -4,8 +4,14 @@ use ieee.numeric_std.all;
 
 package metering_pkg is
   constant METER_CHANNEL_COUNT : positive := 8;
+  constant METER_CONVERTED_LANE_BITS  : positive := 48;
+  constant METER_CONVERTED_FRAME_BITS : positive :=
+    METER_CHANNEL_COUNT * METER_CONVERTED_LANE_BITS;
+  constant METER_CONVERTED_KEEP_BITS  : positive :=
+    METER_CONVERTED_FRAME_BITS / 8;
 
   subtype word32_t is std_logic_vector(31 downto 0);
+  subtype sword48_t is signed(METER_CONVERTED_LANE_BITS - 1 downto 0);
   subtype sword64_t is signed(63 downto 0);
   subtype uword64_t is unsigned(63 downto 0);
 
@@ -37,7 +43,7 @@ package metering_pkg is
     write_strobe  : std_logic_vector(3 downto 0)
   ) return word32_t;
 
-  function saturate_signed_66_to_64(value : signed(65 downto 0)) return sword64_t;
+  function saturate_signed_66_to_48(value : signed(65 downto 0)) return sword48_t;
 end package;
 
 package body metering_pkg is
@@ -57,15 +63,16 @@ package body metering_pkg is
     return result;
   end function;
 
-  function saturate_signed_66_to_64(value : signed(65 downto 0)) return sword64_t is
-    variable result : sword64_t;
+  function saturate_signed_66_to_48(value : signed(65 downto 0)) return sword48_t is
+    variable result : sword48_t;
   begin
-    if value(65 downto 63) = "000" or value(65 downto 63) = "111" then
-      result := value(63 downto 0);
-    elsif value(65) = '0' then
-      result := signed'(x"7FFFFFFFFFFFFFFF");
+    if value <= resize(signed'(x"7FFFFFFFFFFF"), value'length) and
+       value >= resize(signed'(x"800000000000"), value'length) then
+      result := value(METER_CONVERTED_LANE_BITS - 1 downto 0);
+    elsif value(value'high) = '0' then
+      result := signed'(x"7FFFFFFFFFFF");
     else
-      result := signed'(x"8000000000000000");
+      result := signed'(x"800000000000");
     end if;
     return result;
   end function;

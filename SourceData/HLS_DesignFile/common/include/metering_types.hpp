@@ -1,8 +1,10 @@
 #ifndef MSAP1_METERING_TYPES_HPP
 #define MSAP1_METERING_TYPES_HPP
 
-// The widest shared beat is the 4896-bit SingleCycleResult (provenance +
-// the M3 statistics sections), past ap_int's 1024-bit default ceiling.
+// The widest logical packed test image is the 7072-bit SingleCycleResult,
+// past ap_int's 1024-bit default ceiling. The synthesized inter-engine
+// transport is an ordered 32-bit packet; this width remains for explicit
+// golden/equivalence packing only.
 // This must precede the first ap_int.h inclusion in every translation
 // unit; each component's cflags also pass -DAP_INT_MAX_W sized for the
 // beats it actually touches, so an unlucky include order cannot regress
@@ -31,7 +33,7 @@
 // ---------------------------------------------------------------------------
 // Channel geometry.
 //
-// Every record and result beat carries eight RMS lanes. Lanes 0..3 are
+// Every record and internal result carries eight RMS lanes. Lanes 0..3 are
 // current channels, lanes 4..6 voltage channels, lane 7 is reserved and
 // reads zero/invalid in the default configuration (CH7 exists in capture
 // but is not a metering channel today).
@@ -204,13 +206,14 @@ static const int MET_FLAG_BITS        = 3;
 // conversion stage.
 typedef ap_int<32> met_sample_t;
 
-// One RMS lane in the internal Q16 domain: signed 64-bit, magnitude < 2^63.
-// The aggregation arithmetic contract (squares, 132-bit accumulators,
-// floor mean, floor root) is stated where it is implemented; the lane type
-// is fixed here.
-typedef ap_int<64> met_q16_t;
-static const int MET_RMS_LANE_BITS  = 64;
-static const int MET_RMS_LANES_BITS = MET_CHANNEL_LANES * MET_RMS_LANE_BITS;  // 512
+// One converted lane in the internal Q16 micro-unit domain.  Forty-eight
+// signed bits retain 16 fractional bits and 31 magnitude bits: more than
+// enough for every supported voltage/current front end, while materially
+// reducing the high-rate stream, square, power, and phasor multipliers.
+// Result accumulators and published quantities deliberately remain wider.
+typedef ap_int<48> met_q16_t;
+static const int MET_RMS_LANE_BITS  = 48;
+static const int MET_RMS_LANES_BITS = MET_CHANNEL_LANES * MET_RMS_LANE_BITS;  // 384
 
 // Signed micro-unit quantities as published in records (mean, RMS).
 typedef ap_int<64> met_micro_units_t;

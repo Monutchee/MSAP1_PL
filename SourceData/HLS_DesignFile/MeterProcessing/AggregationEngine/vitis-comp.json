@@ -1,5 +1,5 @@
 {
-  "name": "Agg10_12CycleEngine",
+  "name": "AggregationEngine",
   "type": "HLS",
   "configuration": {
     "componentType": "HLS",

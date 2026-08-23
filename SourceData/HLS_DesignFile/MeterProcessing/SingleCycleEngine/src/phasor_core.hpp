@@ -19,8 +19,8 @@
 //
 //   re_sum += x[n] * cos(theta[n])     im_sum -= x[n] * sin(theta[n])
 //
-// accumulated in the RAW Q1.37 trig domain (products up to 2^102, sums
-// below 2^116 at every supported rate): no per-term floor, a single
+// accumulated in the RAW Q1.37 trig domain (each 48x39 product is exactly
+// 87 bits and the 128-bit sum covers every supported cycle length): no per-term floor, a single
 // floor at finalize. The 128-bit signed saturating sums merge across
 // cycles by pure addition (each cycle's reference starts at its own
 // grid-locked zero crossing, so cycle frames share the reference
@@ -50,7 +50,7 @@ inline ap_uint<32> phasor_delta_q32(const ap_uint<32> frequency_millihz,
 // Accumulate one accepted frame at reference angle theta (seed-in-place
 // on first_frame; saturation raises the shared sticky flag).
 inline void accumulate_phasor(cycle_phasor_t &acc,
-                              const ap_int<64> q16[MET_ACTIVE_CHANNELS],
+                              const met_q16_t q16[MET_ACTIVE_CHANNELS],
                               const ap_uint<32> theta,
                               const bool first_frame,
                               ap_uint<1> &sticky_overflow) {
@@ -60,8 +60,10 @@ inline void accumulate_phasor(cycle_phasor_t &acc,
 phasor_lanes:
   for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
 #pragma HLS PIPELINE off
-    const ap_int<128> re_term = ap_int<128>(q16[lane]) * cosine;
-    const ap_int<128> im_term = ap_int<128>(q16[lane]) * sine;
+    const ap_int<87> re_term_narrow = q16[lane] * cosine;
+    const ap_int<87> im_term_narrow = q16[lane] * sine;
+    const ap_int<128> re_term = re_term_narrow;
+    const ap_int<128> im_term = im_term_narrow;
     const ap_int<128> re_base =
         first_frame ? ap_int<128>(0) : acc.re_sum[lane];
     const ap_int<128> im_base =

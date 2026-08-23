@@ -7,7 +7,7 @@
 #include <ap_int.h>
 
 #if AP_INT_MAX_W < 8192
-#error "agg_block_result.hpp needs AP_INT_MAX_W >= 8192 (7072-bit beat)"
+#error "agg_block_result.hpp needs AP_INT_MAX_W >= 8192 (7072-bit logical image)"
 #endif
 
 // The 10/12-cycle block result — one beat per finalized basic block,
@@ -25,7 +25,7 @@
 //
 // The accumulator sections sit at the SAME bit offsets as the
 // single-cycle beat's (SCYC_STAT_* / SCYC_POWER_* / SCYC_PHASOR_*), and
-// the beat is the same 7072 bits — deliberate: one wire shape for both
+// the logical image is the same 7072 bits — deliberate: one test shape for both
 // merge boundaries. Only the provenance section (bits 0..511) differs.
 //
 // Provenance carries everything the aggregation rules need, INCLUDING
@@ -69,7 +69,7 @@ static const int AGGB_VLL_PEAK_LSB   = 4704;  // 3 x u64 peak |diff| (unused
 static const int AGGB_POWER_SUM_LSB  = 4896;  // 3 x s128 sum(v*i) Q32
 static const int AGGB_PHASOR_RE_LSB  = 5280;  // 7 x s128
 static const int AGGB_PHASOR_IM_LSB  = 6176;  // 7 x s128
-static const int AGGB_BEAT_BITS      = 7072;  // 884 bytes on AXIS
+static const int AGGB_BEAT_BITS      = 7072;  // 884-byte logical image
 
 typedef ap_uint<AGGB_BEAT_BITS> agg_block_beat_t;
 

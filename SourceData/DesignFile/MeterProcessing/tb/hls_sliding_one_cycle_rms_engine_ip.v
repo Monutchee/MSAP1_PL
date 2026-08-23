@@ -14,7 +14,7 @@
 module hls_sliding_one_cycle_rms_engine_ip (
     input          ap_clk,
     input          ap_rst_n,
-    input  [863:0] s_frame_TDATA,
+    input  [735:0] s_frame_TDATA,
     input          s_frame_TVALID,
     output         s_frame_TREADY,
     output [31:0]  m_axis_TDATA,

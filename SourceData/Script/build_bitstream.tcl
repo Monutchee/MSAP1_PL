@@ -1,16 +1,18 @@
 # PL build stage 3: write_bitstream on the routed implementation.
 #
-# Resumes impl_1 at its remaining steps instead of resetting the run, so the
-# routing produced by build_impl.tcl is programmed rather than recomputed.
-# Vivado refuses to launch a run that is already complete, so an existing
-# bitstream is reset one step -- write_bitstream only -- which keeps the stage
-# idempotent without touching placement or routing.
+# Opens the completed routed checkpoint and writes the bitstream directly.
+# This deliberately avoids relaunching impl_1: Vivado fingerprints run-hook
+# properties and can report the run as Out-of-date after a temporary worker
+# thread hook changes, even though route_design and Bitgen both completed.
+# The routed DCP is the stage boundary, so writing from it is deterministic,
+# idempotent, and cannot reset or repeat placement and routing.
 #
 # Debug/standalone use (see build_common.tcl for the GUI rule):
-#   vivado -mode batch -source SourceData/Script/build_bitstream.tcl -tclargs 16
+#   vivado -mode batch -source SourceData/Script/build_bitstream.tcl -tclargs 1 16
 #   source SourceData/Script/build_bitstream.tcl   ;# Vivado Tcl console
 #
-# Optional -tclargs <jobs>; otherwise VIVADO_JOBS, otherwise 8.
+# Optional -tclargs <jobs> <threads>; otherwise VIVADO_JOBS and
+# VIVADO_THREADS, with defaults of 8 for each.
 
 source [file join [file dirname [file normalize [info script]]] build_common.tcl]
 
@@ -26,14 +28,34 @@ if {![file exists $routed]} {
 }
 
 set jobs [pl_build_jobs]
+set threads [pl_build_threads]
 puts "PL_BUILD_STAGE=bitstream"
 puts "PL_BUILD_JOBS=$jobs"
+puts "PL_BUILD_THREADS=$threads"
 
-if {[file exists $bitstream]} {
-    reset_run impl_1 -from_step write_bitstream
+# Bitgen runs in this Vivado process rather than a launch_runs worker, so the
+# requested internal-thread setting applies directly and no run property must
+# be changed. Close a design left open by an interactive caller before loading
+# the routed checkpoint.
+set_param general.maxThreads $threads
+if {[current_design -quiet] ne ""} {
+    close_design
 }
-launch_runs impl_1 -to_step write_bitstream -jobs $jobs
-pl_build_finish_run impl_1
+
+set started [clock seconds]
+set failed [catch {
+    open_checkpoint $routed
+    write_bitstream -force $bitstream
+} result options]
+catch {close_design}
+
+if {$failed} {
+    return -options $options $result
+}
+
+puts "PL_BUILD_RUN=impl_1"
+puts "PL_BUILD_ELAPSED=[pl_build_elapsed [expr {[clock seconds] - $started}]]"
+puts "PL_BUILD_STATUS=write_bitstream Complete!"
 
 if {![file exists $bitstream]} {
     error "write_bitstream reported success but $bitstream is missing"

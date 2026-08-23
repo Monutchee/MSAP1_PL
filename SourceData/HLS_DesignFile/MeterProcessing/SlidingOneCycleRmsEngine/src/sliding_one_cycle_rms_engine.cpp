@@ -149,18 +149,19 @@ void hls_sliding_one_cycle_rms_engine(hls::stream<pq_input_beat_t> &s_frame,
   // ---- Per-frame accumulation ------------------------------------------
   // The house square-accumulator idiom: seed in place on the half's first
   // sample, saturate at the 128-bit rail with the sticky arithmetic flag,
-  // never wrap. Converted samples occupy the full signed 64-bit range
-  // (adc_conversion saturates a 24-bit sample times a 32-bit scale into
-  // 64 bits), so the product genuinely needs 128 bits.
+  // never wrap. The exact 48x48 product is widened into that accumulator.
   const ap_uint<32> count_now = curr_count + 1;
 accumulate_lanes:
   for (int index = 0; index < 2 * PQ_PHASES; ++index) {
 #pragma HLS PIPELINE off
-    const ap_int<64> sample = ap_int<64>(ap_uint<64>(beat.range(
-        PQIN_SAMPLES_LSB + pq_lane[index] * 64 + 63,
-        PQIN_SAMPLES_LSB + pq_lane[index] * 64)));
-    const ap_uint<64> magnitude = met_abs<64>(sample);
-    const ap_uint<128> square = ap_uint<128>(magnitude) * magnitude;
+    const met_q16_t sample = met_q16_t(ap_uint<MET_RMS_LANE_BITS>(beat.range(
+        PQIN_SAMPLES_LSB + pq_lane[index] * MET_RMS_LANE_BITS +
+            MET_RMS_LANE_BITS - 1,
+        PQIN_SAMPLES_LSB + pq_lane[index] * MET_RMS_LANE_BITS)));
+    const ap_uint<MET_RMS_LANE_BITS> magnitude =
+        met_abs<MET_RMS_LANE_BITS>(sample);
+    const ap_uint<96> square_narrow = magnitude * magnitude;
+    const ap_uint<128> square = square_narrow;
     const ap_uint<128> base = (curr_count == 0) ? ap_uint<128>(0)
                                                 : curr_square[index];
     curr_square[index] =

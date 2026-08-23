@@ -35,7 +35,7 @@ if {[llength $locked] > 0} {
  'mnc HLS build'"
 }
 
-reset_run synth_1
+pl_build_reset_run synth_1
 launch_runs synth_1 -jobs $jobs
 pl_build_finish_run synth_1
 
@@ -46,12 +46,16 @@ if {![file exists $checkpoint]} {
 puts "PL_BUILD_CHECKPOINT=$checkpoint"
 
 pl_build_write_reports synth_1 [list \
-    synth_utilization    {report_utilization} \
-    synth_timing_summary {report_timing_summary} \
-    synth_cdc            {report_cdc} \
+    synth_utilization              {report_utilization} \
+    synth_utilization_hierarchical {report_utilization -hierarchical -hierarchical_depth 5} \
+    synth_control_sets             {report_control_sets -verbose} \
+    synth_timing_summary           {report_timing_summary} \
+    synth_cdc                      {report_cdc} \
 ]
 
 pl_build_utilization_summary [file join $pl_build_report_dir synth_utilization.rpt]
+puts "PL_BUILD_REPORT_HIERARCHY=[file join $pl_build_report_dir synth_utilization_hierarchical.rpt]"
+puts "PL_BUILD_REPORT_CONTROL_SETS=[file join $pl_build_report_dir synth_control_sets.rpt]"
 pl_build_estimated_wns [file join $pl_build_report_dir synth_timing_summary.rpt]
 pl_build_message_summary synth_1
 

@@ -1,9 +1,15 @@
 # AD7771 conversion stage
 
 `AdcConversion_Wrapper` is a Vivado module-reference boundary. It consumes the
-existing eight-beat AD7771 raw frame and emits one 512-bit converted frame.
-Each 64-bit lane is a signed Q16 value whose integer unit is one microvolt or
+existing eight-beat AD7771 raw frame and emits one 384-bit converted frame.
+Each 48-bit lane is a signed Q16 value whose integer unit is one microvolt or
 one microamp, depending on the configured channel.
+
+The 48-bit lane is the high-rate transport and multiplier-input contract. It
+retains 16 fractional bits and 31 magnitude bits above the sign, covering
+approximately +/-2147 V or +/-2147 A in micro-units. Meter result fields and
+the 64/96/128-bit accumulators remain wide; narrowing the stream therefore
+reduces routing and multiplier cost without narrowing accumulated results.
 
 `TUSER[383:128]` carries the eight signed raw 32-bit ADC lanes for aggregate
 count-domain metering inside PL. It is consumed by `MeterProcessing` and is
@@ -39,7 +45,6 @@ micro-unit-per-count coefficients to shadow registers, then commits them with
 | `0x3c` | `ACTIVE_VALID_MASK` | committed channel mask |
 | `0x40` | `SAMPLE_SEQUENCE` | completed converted frames |
 
-Vivado integration adds a same-clock AXI4-Stream Data FIFO after
-`M_AXIS_CONVERTED`; the RTL intentionally does not hide that IP inside the
-module reference. Configure the FIFO for 512-bit `TDATA`, 384-bit `TUSER`,
-`TKEEP`, `TLAST`, and a depth of 16 frames.
+`MeterCore` buffers this stream with AMD `xpm_fifo_axis` in the same clock
+domain. The FIFO is configured for 384-bit `TDATA`, 384-bit `TUSER`, `TKEEP`,
+`TLAST`, and a depth of 16 frames.

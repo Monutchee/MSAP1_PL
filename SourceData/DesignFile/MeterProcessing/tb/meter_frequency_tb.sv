@@ -4,8 +4,8 @@ module meter_frequency_tb;
   logic clock = 1'b0;
   logic resetn = 1'b0;
   logic frame_accept = 1'b0;
-  logic [511:0] frame_data = '0;
-  logic [63:0] frame_keep = '1;
+  logic [383:0] frame_data = '0;
+  logic [47:0] frame_keep = '1;
   logic [383:0] frame_user = '0;
   logic [31:0] generation = 32'h1234_0001;
   logic [31:0] measured_frame_rate = 32'd1000;
@@ -77,12 +77,12 @@ module meter_frequency_tb;
   task automatic send_sample(
     input int unsigned sample_index,
     input longint signed microvolts);
-    logic signed [63:0] q16_value;
+    logic signed [47:0] q16_value;
     begin
       q16_value = microvolts <<< 16;
       @(negedge clock);
       frame_data = '0;
-      frame_data[(6 * 64) +: 64] = q16_value;
+      frame_data[(6 * 48) +: 48] = q16_value;
       frame_user = '0;
       frame_user[31:0] = sample_index;
       frame_user[63:32] = generation;

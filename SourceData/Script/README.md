@@ -19,7 +19,7 @@ the script in that session's Tcl console; use `vivado -mode batch
 | build_bd.tcl                | `mnc PL build --build-bd`                                      | Validates `TopDesign.bd` and generates its output products, none of which are tracked; required on a fresh checkout                 |
 | build_synth.tcl             | `mnc PL build --compile-synth`                                 | Resets and relaunches `synth_1`; reports to `vivado_gen/reports/`                                                                   |
 | build_impl.tcl              | `mnc PL build --compile-impl`                                  | Resets `impl_1` and runs it to `route_design` only, so the routed design can be reviewed before it is programmed; `PL_INCREMENTAL=1` reuses the previous routing |
-| build_bitstream.tcl         | `mnc PL build --compile-bit`                                   | Resumes `impl_1` at `write_bitstream`, never resetting the routing                                                                  |
+| build_bitstream.tcl         | `mnc PL build --compile-bit`                                   | Writes directly from the completed routed checkpoint, never resetting or relaunching the implementation run                        |
 | export_xsa.tcl              | `mnc PL build --gen-xsa`, or `source` it with the project open | Generate the bitstream-inclusive XSA to `runtime-generated/bin_file/`                                                               |
 | report_status.tcl           | `mnc PL status`                                                | Read-only: per-run status, progress, and out-of-date flags, plus a single verdict naming what to rerun                              |
 | report_summary.tcl          | `mnc PL summary`                                               | Read-only: Vivado's own run statistics (WNS/TNS/WHS/THS, failed nets, power, elapsed) -- the GUI's Design Runs columns              |
@@ -86,11 +86,15 @@ Stage boundaries and what they guarantee:
   stays the job of `mnc HLS build`/`refresh_hls_ip.tcl`.
 - `build_impl.tcl` resets `impl_1` and stops at `route_design`, so timing,
   CDC, DRC, and I/O can be reviewed before a bitstream exists.
-- `build_bitstream.tcl` resumes `impl_1` instead of resetting it, so the
-  routing is programmed rather than recomputed. An existing bitstream is
-  reset one step only (`reset_run impl_1 -from_step write_bitstream`), which
-  is what keeps a rerun idempotent -- Vivado refuses to launch a run that is
-  already complete.
+- `build_bitstream.tcl` opens the completed routed checkpoint and invokes
+  `write_bitstream` directly, so routing is programmed rather than recomputed.
+  It does not relaunch or reset `impl_1`. This also avoids a Vivado false
+  failure in which Bitgen succeeds but a changed run-hook fingerprint makes
+  the parent implementation run report `Out-of-date`.
+- The implementation thread hook is a stable, portable project property.
+  Build scripts change only its environment-provided thread count, so a later
+  read-only status query cannot confuse orchestration metadata with changed
+  design inputs. GUI-launched implementation uses the documented default.
 
 Anything other than a completed run raises a Tcl error, so batch Vivado
 exits non-zero and `mnc PL build` stops the chain. Reports land in

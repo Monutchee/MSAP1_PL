@@ -4,6 +4,7 @@ use ieee.numeric_std.all;
 
 library work;
 use work.pq_event_pkg.all;
+use work.metering_pkg.all;
 
 -- Integration shim for the HLS sliding one-cycle RMS / PQ event engine
 -- (metrology M12) — the structural twin of meter_single_cycle_hls_shim:
@@ -27,8 +28,8 @@ entity meter_sliding_rms_hls_shim is
 
     -- Accepted converted frame (one beat per frame_accept_i pulse).
     frame_accept_i : in std_logic;
-    frame_data_i   : in std_logic_vector(511 downto 0);
-    frame_keep_i   : in std_logic_vector(63 downto 0);
+    frame_data_i   : in std_logic_vector(METER_CONVERTED_FRAME_BITS - 1 downto 0);
+    frame_keep_i   : in std_logic_vector(METER_CONVERTED_KEEP_BITS - 1 downto 0);
     frame_user_i   : in std_logic_vector(383 downto 0);
 
     -- Half-cycle boundary strobe and the live grid view.
@@ -66,24 +67,24 @@ end entity;
 architecture rtl of meter_sliding_rms_hls_shim is
   -- Engine input layout (sliding_one_cycle_rms_engine.hpp, normative there).
   constant IN_SAMPLES_LSB    : natural := 0;
-  constant IN_FRAME_MASK_LSB : natural := 512;
-  constant IN_HALF_BIT       : natural := 520;
-  constant IN_MALFORMED_BIT  : natural := 521;
-  constant IN_LOCKED_BIT     : natural := 522;
-  constant IN_FALLBACK_BIT   : natural := 523;
-  constant IN_APPLY_BIT      : natural := 524;
-  constant IN_ENABLE_BIT     : natural := 525;
-  constant IN_CFG_GEN_LSB    : natural := 528;
-  constant IN_CFG_RATE_LSB   : natural := 560;
-  constant IN_CFG_MASK_LSB   : natural := 592;
-  constant IN_SAMPLE_IDX_LSB : natural := 640;
-  constant IN_PL_TICK_LSB    : natural := 704;
-  constant IN_REFERENCE_LSB  : natural := 768;
-  constant IN_SAG_LSB        : natural := 800;
-  constant IN_SWELL_LSB      : natural := 816;
-  constant IN_INTERRUPT_LSB  : natural := 832;
-  constant IN_HYSTERESIS_LSB : natural := 848;
-  constant BEAT_BITS         : natural := 864;
+  constant IN_FRAME_MASK_LSB : natural := 384;
+  constant IN_HALF_BIT       : natural := 392;
+  constant IN_MALFORMED_BIT  : natural := 393;
+  constant IN_LOCKED_BIT     : natural := 394;
+  constant IN_FALLBACK_BIT   : natural := 395;
+  constant IN_APPLY_BIT      : natural := 396;
+  constant IN_ENABLE_BIT     : natural := 397;
+  constant IN_CFG_GEN_LSB    : natural := 400;
+  constant IN_CFG_RATE_LSB   : natural := 432;
+  constant IN_CFG_MASK_LSB   : natural := 464;
+  constant IN_SAMPLE_IDX_LSB : natural := 512;
+  constant IN_PL_TICK_LSB    : natural := 576;
+  constant IN_REFERENCE_LSB  : natural := 640;
+  constant IN_SAG_LSB        : natural := 672;
+  constant IN_SWELL_LSB      : natural := 688;
+  constant IN_INTERRUPT_LSB  : natural := 704;
+  constant IN_HYSTERESIS_LSB : natural := 720;
+  constant BEAT_BITS         : natural := 736;
 
   constant FIFO_DEPTH : natural := 8;
 
@@ -127,7 +128,7 @@ architecture rtl of meter_sliding_rms_hls_shim is
   -- grid_cycle_timing's registered half-cycle boundary lands on the frame
   -- that completed the half cycle.
   signal staged_valid     : std_logic := '0';
-  signal staged_data      : std_logic_vector(511 downto 0) := (others => '0');
+  signal staged_data      : std_logic_vector(METER_CONVERTED_FRAME_BITS - 1 downto 0) := (others => '0');
   signal staged_mask      : std_logic_vector(7 downto 0) := (others => '0');
   signal staged_index     : std_logic_vector(63 downto 0) := (others => '0');
   signal staged_malformed : std_logic := '0';
@@ -176,7 +177,8 @@ begin
           else
             pushing := true;
             beat := (others => '0');
-            beat(IN_SAMPLES_LSB + 511 downto IN_SAMPLES_LSB) := staged_data;
+            beat(IN_SAMPLES_LSB + METER_CONVERTED_FRAME_BITS - 1 downto
+                 IN_SAMPLES_LSB) := staged_data;
             beat(IN_FRAME_MASK_LSB + 7 downto IN_FRAME_MASK_LSB) :=
               staged_mask;
             beat(IN_MALFORMED_BIT) := staged_malformed;
@@ -227,7 +229,7 @@ begin
           staged_mask <= frame_user_i(71 downto 64);
           staged_index <= frame_user_i(105 downto 74) &
                           frame_user_i(31 downto 0);
-          if frame_keep_i /= x"FFFFFFFFFFFFFFFF" then
+          if frame_keep_i /= (frame_keep_i'range => '1') then
             staged_malformed <= '1';
           else
             staged_malformed <= '0';

@@ -141,6 +141,38 @@ static const uint32_t MREC_FORMAT_AGG_V3 = 0x00020003u;  // 150/180-cycle basic
 static const uint32_t MREC_FORMAT_AGG_POWER_V1  = 0x00100001u;
 static const uint32_t MREC_FORMAT_AGG_PHASOR_V2 = 0x00110002u;
 static const uint32_t MREC_FORMAT_AGG_UNBAL_V2  = 0x00120002u;
+// TEN-MINUTE v1 (M13): clock-aligned IEC aggregation of consecutive
+// eligible 10/12-cycle blocks.  These four records share the aggregate
+// output stream with the 150/180-cycle family; the format word is the
+// period discriminator.  Frequency is deliberately unavailable here:
+// the standardized 10 s frequency product is a separate direct-cycle
+// calculation and must not be inferred from this interval.
+static const uint32_t MREC_FORMAT_TEN_MINUTE_V1        = 0x000C0001u;
+static const uint32_t MREC_FORMAT_TEN_MINUTE_POWER_V1  = 0x00130001u;
+static const uint32_t MREC_FORMAT_TEN_MINUTE_PHASOR_V2 = 0x00140002u;
+static const uint32_t MREC_FORMAT_TEN_MINUTE_UNBAL_V2  = 0x00150002u;
+// TWO-HOUR v1 (M14): cascaded aggregation of exactly twelve complete,
+// aligned TEN-MINUTE intervals.  The payload layout deliberately matches the
+// ten-minute family so the APU can share one long-period decoder; only the
+// format word and the shape count identify the period.  Frequency remains a
+// separate direct-cycle product and is therefore unavailable here too.
+static const uint32_t MREC_FORMAT_TWO_HOUR_V1        = 0x000D0001u;
+static const uint32_t MREC_FORMAT_TWO_HOUR_POWER_V1  = 0x00160001u;
+static const uint32_t MREC_FORMAT_TWO_HOUR_PHASOR_V2 = 0x00170002u;
+static const uint32_t MREC_FORMAT_TWO_HOUR_UNBAL_V2  = 0x00180002u;
+// M15 live-partial records. These are operational previews of the open
+// accumulator images, not normative IEC interval results. Their layouts are
+// identical to the completed long-period families so consumers can share the
+// decoder, while the distinct format IDs and status flags prevent an open
+// result from replacing or masquerading as a completed result.
+static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_V1        = 0x000E0001u;
+static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_POWER_V1  = 0x00190001u;
+static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_PHASOR_V2 = 0x001A0002u;
+static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_UNBAL_V2  = 0x001B0002u;
+static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_V1        = 0x000F0001u;
+static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_POWER_V1  = 0x001C0001u;
+static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_PHASOR_V2 = 0x001D0002u;
+static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_UNBAL_V2  = 0x001E0002u;
 // PQEVT v1 (M12): the sliding Urms(1/2) tier's record, emitted by
 // SlidingOneCycleRmsEngine on its OWN producer port (M_AXIS_PQ). Three
 // kinds share the format, distinguished by the format-header word 13:
@@ -368,6 +400,37 @@ static const int AGG_LAST_SAMPLE_HIGH_WORD = 37;
 static const int AGG_VLL_BASE_WORD         = 38;  // 3 x 32-bit micro-units
 
 // ---------------------------------------------------------------------------
+// TEN-MINUTE-v1 additions.  Words 13..40 retain the aggregate layout above
+// so generic aggregate decoders can reuse the RMS/VLL/diagnostic paths.
+// The shape word is widened semantically for this variable-length interval:
+//   [15:0]  number of complete 10/12-cycle blocks folded
+//   [23:16] nominal frequency
+//   [31:24] interval flags (see TEN_MINUTE_FLAG_* below)
+// Word 41 carries the complete-cycle count because a 10-minute interval can
+// contain 30,000/36,000 cycles and therefore no longer fits the old shape
+// field alongside the block count.
+// ---------------------------------------------------------------------------
+static const int TEN_MINUTE_SHAPE_BLOCKS_LSB  = 0;
+static const int TEN_MINUTE_SHAPE_NOMINAL_LSB = 16;
+static const int TEN_MINUTE_SHAPE_FLAGS_LSB   = 24;
+
+static const int TEN_MINUTE_FLAG_CONTAMINATED_BIT = 0;
+static const int TEN_MINUTE_FLAG_ALIGNED_BIT      = 1;
+
+static const int TEN_MINUTE_TOTAL_CYCLES_WORD       = 41;
+static const int TEN_MINUTE_TARGET_SAMPLE_LOW_WORD  = 42;
+static const int TEN_MINUTE_TARGET_SAMPLE_HIGH_WORD = 43;
+static const int TEN_MINUTE_OVERSHOOT_SAMPLES_WORD  = 44;
+
+// Fundamental-record status bits in addition to the common arithmetic bit.
+static const int TEN_MINUTE_STATUS_COMPLETE_BIT     = 1;
+static const int TEN_MINUTE_STATUS_TIME_ALIGNED_BIT = 2;
+static const int TEN_MINUTE_STATUS_CONTAMINATED_BIT = 3;
+static const int TEN_MINUTE_STATUS_BOUNDARY_VALID_BIT = 4;
+static const int TEN_MINUTE_STATUS_OPEN_INTERVAL_BIT   = 5;
+static const int TEN_MINUTE_STATUS_NON_NORMATIVE_BIT   = 6;
+
+// ---------------------------------------------------------------------------
 // SCYC-v4 interior: the single-cycle diagnostic record. One record per
 // complete grid cycle while cycle timing is locked; observability for
 // the single-cycle foundation before the 10/12-cycle tier consumes its
@@ -444,7 +507,11 @@ inline void fill_envelope(record_image_t &image, const ap_uint<32> sequence,
                           const ap_uint<8> valid_mask,
                           const ap_uint<32> status,
                           const ap_uint<64> first_sample) {
-#pragma HLS INLINE
+// Keep this as one callable formatter in multi-tier producers.  Inlining it at
+// every record call site creates a separate set of word decoders and enables
+// for the same BRAM-backed image, which is especially costly in the shared
+// aggregation engine.
+#pragma HLS INLINE off
   image.word[MREC_SEQUENCE_WORD] = sequence;
   image.word[MREC_GENERATION_WORD] = generation;
   image.word[MREC_SAMPLE_RATE_WORD] = sample_rate_hz;
@@ -456,7 +523,10 @@ inline void fill_envelope(record_image_t &image, const ap_uint<32> sequence,
 }
 
 inline void clear_record(record_image_t &image) {
-#pragma HLS INLINE
+// One serial clear engine is sufficient: record publication is orders of
+// magnitude slower than the 100 MHz fabric clock.  Sharing it avoids a clear
+// loop (and its independently controlled image ports) for every record kind.
+#pragma HLS INLINE off
 mrec_clear:
   for (int w = 0; w < MREC_WORDS; ++w) {
 #pragma HLS PIPELINE II = 1
@@ -474,10 +544,17 @@ mrec_clear:
 // from measurement by an internal result stream (the never-backpressure
 // rule, plan §5.2). A mid-record stall then bounds at the transport FIFO
 // drain time and can never reach the accumulation side.
-template <uint32_t FORMAT>
-void serialize_record(record_image_t &image, record_axis_stream_t &m_axis) {
+// Runtime-format serializer. Identical framing guarantee to the template
+// below; the format travels as a value so ONE serializer instance can
+// emit records of several formats. That matters where a single engine
+// owns more than one tier: the aggregation engine emits eight record
+// formats across two intervals, and without this each call site would
+// carry its own copy of the 64-beat loop and its 2048-bit image buffer.
+inline void serialize_record_format(record_image_t &image, uint32_t format,
+                                    record_axis_stream_t &m_axis) {
+#pragma HLS INLINE off
   image.word[MREC_MAGIC_WORD]  = MREC_MAGIC;
-  image.word[MREC_FORMAT_WORD] = ap_uint<32>(FORMAT);
+  image.word[MREC_FORMAT_WORD] = ap_uint<32>(format);
   image.word[MREC_SIZE_WORD]   = MREC_BYTES;
 mrec_serialize:
   for (int w = 0; w < MREC_WORDS; ++w) {
@@ -489,6 +566,13 @@ mrec_serialize:
     beat.last = (w == MREC_WORDS - 1) ? ap_uint<1>(1) : ap_uint<1>(0);
     m_axis.write(beat);
   }
+}
+
+// Compile-time-format wrapper: unchanged contract for every existing
+// producer, now a thin call into the shared serializer above.
+template <uint32_t FORMAT>
+void serialize_record(record_image_t &image, record_axis_stream_t &m_axis) {
+  serialize_record_format(image, FORMAT, m_axis);
 }
 
 #endif  // MSAP1_MEASUREMENT_RECORD_HPP

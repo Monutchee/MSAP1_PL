@@ -17,7 +17,7 @@
   frequency measurement, grid-cycle timing for IEC 61000-4-30 basic
   measurement blocks (`MeterProcessing/grid_cycle_timing.vhd`, contract in
   `MeterCommon/grid_timing_pkg.vhd`), the raw ADC simulator/source mux, the
-  MTR1 sample-beat shim (`MeterProcessing/meter_mtr1_hls_shim.vhd`), and the
+  shared single-cycle/interval aggregation shims, and the
   record-stream register taps (`MeterProcessing/record_word_tap.vhd`). The
   metering numerics and record construction/serialization are Vitis HLS
   engines hosted inside this hierarchy; each producer's finished 256-byte
@@ -35,28 +35,25 @@
   committed by the shared `CONTROL.APPLY` toggle). Like the frequency and
   waveform branches, grid timing is observational: it must never backpressure
   ADC capture, RMS, or basic-record production.
-- All record producers are Vitis HLS engines that build and serialize
-  their own records: the single-cycle engine
-  (`SourceData/HLS_DesignFile/MeterProcessing/SingleCycleEngine`,
-  SCYC-v5 `0x000A0005`), the 10/12-cycle merge tier
-  (`.../Agg10_12CycleEngine`, `agg10_12_cycle_engine.hpp`/`.cpp`
-  normative — it consumes SingleCycleResult beats, never raw samples,
-  retired the sample-domain Mtr1Engine in M7, and emits four records
-  per block on one stream: BASIC-v4 `0x00010004`, POWER-v1 `0x00070001`,
-  PHASOR-v1 `0x00080001`, UNBAL-v1 `0x00090001`) and
-  the 150/180-cycle aggregation engine (`.../Agg150_180CycleEngine`,
-  `agg150_180_cycle_engine.hpp`/`.cpp` normative — consumes the 10/12
-  tier's block-result beats (provenance + merge-safe accumulators,
-  `agg_block_result.hpp`) and emits four records per aggregate: AGG-v3
-  `0x00020003`, AGG-POWER `0x00100001`, AGG-PHASOR `0x00110001`,
-  AGG-UNBAL `0x00120001`; Mtr2Engine and the 808-bit basic beat retired
-  in M11, the hand-written RTL engines live in git history). Shared
-  contracts -- the 256-byte record envelope and word maps, the
-  SingleCycleResult and block-result beats, the shared interval finalize
+- All record producers are Vitis HLS engines that build and serialize their
+  own records. Each accepted converted frame reaches `SingleCycleEngine` as
+  32 ordered little-endian 32-bit words through an AMD XPM asymmetric BRAM
+  FIFO; the 1,024-bit sample image is a logical/storage-side frame only, not an
+  HLS AXIS port. `SingleCycleEngine` produces the merge-safe SCYC-v5 logical
+  result (`0x000A0005`) as a fixed packet of 221 ordered 32-bit words. The
+  shared `AggregationEngine` consumes that packet plus 13 context words and
+  owns the Basic 10/12-cycle, 150/180-cycle, UTC 10-minute, 2-hour, and live
+  preview tiers around one serial finalizer. The narrow packet boundary is
+  normative in `common/include/single_cycle_packet.hpp`; do not restore the
+  retired 1,024-bit SingleCycle input beat, 7,072-bit result beat, or the
+  7,488-bit widened RTL context beat. Do not replace the XPM packet FIFOs with
+  custom pointer/memory RTL.
+  Shared contracts -- the 256-byte record envelope and word maps, logical
+  merge-safe sufficient-statistic images, the shared interval finalize
   (`metrology_finalize.hpp`), and the serial math -- are single-defined in
-  `SourceData/HLS_DesignFile/common/include/` and mirrored by any VHDL
-  shim in lock step. Aggregates are formed from exactly 15 eligible Basic
-  results -- never from raw samples or a wall-clock timer -- and
+  `SourceData/HLS_DesignFile/common/include/` and mirrored by VHDL shims in
+  lock step. Aggregates are formed from exactly 15 eligible Basic results --
+  never from raw samples or a wall-clock timer -- and
   aggregate data never travels over RPMsg. Like every metrology observer
   the engines must never backpressure measurement (the single-cycle
   shim's beat FIFO absorbs finalize latency and counts any overflow; on a

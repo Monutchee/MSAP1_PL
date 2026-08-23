@@ -11,22 +11,14 @@ cd $work_root
 
 # Packaged HLS RTL (IP repository entry); refreshed by 'mnc HLS build' or
 # SourceData/HLS_DesignFile/run_hls.sh <component>.
-set hls_mtr2_hdl [file join $project_root SourceData HLS_DesignFile \
-  ip_repo Agg150_180CycleEngine hdl verilog]
-if {![file isdirectory $hls_mtr2_hdl]} {
-  error "missing $hls_mtr2_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+set hls_agg_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo AggregationEngine hdl verilog]
+if {![file isdirectory $hls_agg_hdl]} {
+  error "missing $hls_agg_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
 }
-set hls_mtr2_verilog [concat \
-  [lsort [glob -directory $hls_mtr2_hdl *.v *.vh]] \
-  [list [file join $design_root MeterProcessing tb hls_agg150_180_cycle_engine_ip.v]]]
-set hls_agg1012_hdl [file join $project_root SourceData HLS_DesignFile \
-  ip_repo Agg10_12CycleEngine hdl verilog]
-if {![file isdirectory $hls_agg1012_hdl]} {
-  error "missing $hls_agg1012_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
-}
-set hls_agg1012_verilog [concat \
-  [lsort [glob -directory $hls_agg1012_hdl *.v *.vh]] \
-  [list [file join $design_root MeterProcessing tb hls_agg10_12_cycle_engine_ip.v]]]
+set hls_agg_verilog [concat \
+  [lsort [glob -directory $hls_agg_hdl *.v *.vh]] \
+  [list [file join $design_root MeterProcessing tb hls_aggregation_engine_ip.v]]]
 
 create_project -in_memory -part xck26-sfvc784-2LV-c
 set_property source_mgmt_mode All [current_project]
@@ -48,8 +40,7 @@ set vhdl_2008_sources [list \
   [file join $design_root MeterProcessing meter_frequency.vhd] \
   [file join $design_root MeterProcessing grid_cycle_timing.vhd] \
   [file join $design_root MeterProcessing record_word_tap.vhd] \
-  [file join $design_root MeterProcessing meter_agg10_12_cycle_hls_shim.vhd] \
-  [file join $design_root MeterProcessing meter_agg150_180_hls_shim.vhd] \
+  [file join $design_root MeterProcessing meter_aggregation_hls_shim.vhd] \
   [file join $design_root MeterCore adc_simulator_pkg.vhd] \
   [file join $design_root MeterCore adc_simulator.vhd] \
   [file join $design_root MeterCore adc_source_mux.vhd] \
@@ -60,7 +51,7 @@ set wrapper_sources [list \
   [file join $design_root MeterCore MeterCore_Wrapper.vhd]]
 
 add_files -norecurse [concat $vhdl_2008_sources $wrapper_sources \
-  $hls_mtr2_verilog $hls_agg1012_verilog]
+  $hls_agg_verilog]
 set_property FILE_TYPE {VHDL 2008} [get_files $vhdl_2008_sources]
 update_compile_order -fileset sources_1
 create_bd_design metering_module_reference_check

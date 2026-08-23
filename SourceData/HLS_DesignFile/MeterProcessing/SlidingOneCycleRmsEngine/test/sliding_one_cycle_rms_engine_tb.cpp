@@ -116,9 +116,10 @@ struct Bench {
     if (apply_toggles) apply_level = !apply_level;
     pq_input_beat_t beat = 0;
     for (int i = 0; i < PQ_LANES; ++i) {
-      beat.range(PQIN_SAMPLES_LSB + lane_of[i] * 64 + 63,
-                 PQIN_SAMPLES_LSB + lane_of[i] * 64) =
-          ap_uint<64>((unsigned long long)value[i]);
+      beat.range(PQIN_SAMPLES_LSB + lane_of[i] * MET_RMS_LANE_BITS +
+                     MET_RMS_LANE_BITS - 1,
+                 PQIN_SAMPLES_LSB + lane_of[i] * MET_RMS_LANE_BITS) =
+          ap_uint<MET_RMS_LANE_BITS>(ap_int<MET_RMS_LANE_BITS>(value[i]));
     }
     beat.range(PQIN_FRAME_MASK_LSB + 7, PQIN_FRAME_MASK_LSB) = valid_mask;
     beat[PQIN_HALF_BIT] = half ? 1 : 0;
@@ -197,7 +198,7 @@ static unsigned long long duration_of(const ap_uint<32> (&w)[MREC_WORDS]) {
 }
 
 int main() {
-  static_assert(PQIN_BITS == 864, "input beat width is normative");
+  static_assert(PQIN_BITS == 736, "input beat width is normative");
 
   // 120 V nominal expressed as a Q16 micro-unit sample level.
   const long long nominal = (long long)120000000 << 16;

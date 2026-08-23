@@ -17,8 +17,8 @@ entity meter_frequency is
     aclk                       : in  std_logic;
     aresetn                    : in  std_logic;
     frame_accept_i             : in  std_logic;
-    frame_data_i               : in  std_logic_vector(511 downto 0);
-    frame_keep_i               : in  std_logic_vector(63 downto 0);
+    frame_data_i               : in  std_logic_vector(METER_CONVERTED_FRAME_BITS - 1 downto 0);
+    frame_keep_i               : in  std_logic_vector(METER_CONVERTED_KEEP_BITS - 1 downto 0);
     frame_user_i               : in  std_logic_vector(383 downto 0);
 
     config_generation_i        : in  word32_t;
@@ -82,11 +82,15 @@ architecture rtl of meter_frequency is
   signal sample_sequence  : word32_t;
   signal estimator_enabled: std_logic;
 begin
-  reference_sample <= frame_data_i(
-    (FREQUENCY_REFERENCE_VLA * 64) + 63 downto
-    FREQUENCY_REFERENCE_VLA * 64);
+  -- The crossing engine keeps its established 64-bit interface.  Extend the
+  -- compact signed Q16 lane here; no precision is added or removed.
+  reference_sample <= std_logic_vector(resize(signed(frame_data_i(
+    (FREQUENCY_REFERENCE_VLA * METER_CONVERTED_LANE_BITS) +
+      METER_CONVERTED_LANE_BITS - 1 downto
+    FREQUENCY_REFERENCE_VLA * METER_CONVERTED_LANE_BITS)),
+    reference_sample'length));
   sample_sequence <= frame_user_i(31 downto 0);
-  sample_valid <= '1' when frame_keep_i = x"FFFFFFFFFFFFFFFF" and
+  sample_valid <= '1' when frame_keep_i = (frame_keep_i'range => '1') and
                            frame_user_i(63 downto 32) = active_generation and
                            frame_user_i(64 + FREQUENCY_REFERENCE_VLA) = '1'
                   else '0';

@@ -1,6 +1,9 @@
 library ieee;
 use ieee.std_logic_1164.all;
 
+library work;
+use work.metering_pkg.all;
+
 entity AdcConversion_Wrapper is
   port (
     aclk                  : in  std_logic;
@@ -12,8 +15,8 @@ entity AdcConversion_Wrapper is
     s_axis_raw_tready     : out std_logic;
     s_axis_raw_tlast      : in  std_logic;
 
-    m_axis_converted_tdata  : out std_logic_vector(511 downto 0);
-    m_axis_converted_tkeep  : out std_logic_vector(63 downto 0);
+    m_axis_converted_tdata  : out std_logic_vector(METER_CONVERTED_FRAME_BITS - 1 downto 0);
+    m_axis_converted_tkeep  : out std_logic_vector(METER_CONVERTED_KEEP_BITS - 1 downto 0);
     m_axis_converted_tuser  : out std_logic_vector(383 downto 0);
     m_axis_converted_tvalid : out std_logic;
     m_axis_converted_tready : in  std_logic;
@@ -61,7 +64,7 @@ entity AdcConversion_Wrapper is
   attribute X_INTERFACE_INFO of m_axis_converted_tready : signal is "xilinx.com:interface:axis:1.0 M_AXIS_CONVERTED TREADY";
   attribute X_INTERFACE_INFO of m_axis_converted_tlast : signal is "xilinx.com:interface:axis:1.0 M_AXIS_CONVERTED TLAST";
   attribute X_INTERFACE_PARAMETER of m_axis_converted_tdata : signal is
-    "XIL_INTERFACENAME M_AXIS_CONVERTED, TDATA_NUM_BYTES 64, TUSER_WIDTH 384, HAS_TREADY 1, HAS_TKEEP 1, HAS_TLAST 1";
+    "XIL_INTERFACENAME M_AXIS_CONVERTED, TDATA_NUM_BYTES 48, TUSER_WIDTH 384, HAS_TREADY 1, HAS_TKEEP 1, HAS_TLAST 1";
 
   attribute X_INTERFACE_INFO of s_axi_config_awaddr : signal is "xilinx.com:interface:aximm:1.0 S_AXI_CONFIG AWADDR";
   attribute X_INTERFACE_INFO of s_axi_config_awvalid : signal is "xilinx.com:interface:aximm:1.0 S_AXI_CONFIG AWVALID";

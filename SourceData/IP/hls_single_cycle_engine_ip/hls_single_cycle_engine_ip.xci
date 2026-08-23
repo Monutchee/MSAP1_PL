@@ -3,7 +3,7 @@
   "ip_inst": {
     "xci_name": "hls_single_cycle_engine_ip",
     "component_reference": "monutchee:msap1:hls_single_cycle_engine:1.0",
-    "ip_revision": "2114749444",
+    "ip_revision": "2114753857",
     "gen_directory": ".",
     "parameters": {
       "component_parameters": {
@@ -12,7 +12,7 @@
         "machine": [ { "value": "64", "enabled": false, "usage": "all" } ],
         "combinational": [ { "value": "0", "enabled": false, "usage": "all" } ],
         "latency": [ { "value": "1", "enabled": false, "usage": "all" } ],
-        "II": [ { "value": "2 ~ 3332", "enabled": false, "usage": "all" } ]
+        "II": [ { "value": "2 ~ 3711", "enabled": false, "usage": "all" } ]
       },
       "project_parameters": {
         "ARCHITECTURE": [ { "value": "zynquplus", "resolve_type": "generated", "usage": "all" } ],
@@ -29,7 +29,7 @@
       },
       "runtime_parameters": {
         "IPCONTEXT": [ { "value": "IP_Flow" } ],
-        "IPREVISION": [ { "value": "2114749444" } ],
+        "IPREVISION": [ { "value": "2114753857" } ],
         "MANAGED": [ { "value": "TRUE" } ],
         "OUTPUTDIR": [ { "value": "." } ],
         "SELECTEDSIMMODEL": [ { "value": "" } ],
@@ -42,7 +42,7 @@
       "ports": {
         "ap_clk": [ { "direction": "in" } ],
         "ap_rst_n": [ { "direction": "in" } ],
-        "s_sample_TDATA": [ { "direction": "in", "size_left": "1151", "size_right": "0" } ],
+        "s_sample_TDATA": [ { "direction": "in", "size_left": "31", "size_right": "0" } ],
         "s_sample_TREADY": [ { "direction": "out" } ],
         "s_sample_TVALID": [ { "direction": "in" } ],
         "m_axis_TDATA": [ { "direction": "out", "size_left": "31", "size_right": "0" } ],
@@ -51,7 +51,7 @@
         "m_axis_TREADY": [ { "direction": "in" } ],
         "m_axis_TSTRB": [ { "direction": "out", "size_left": "3", "size_right": "0" } ],
         "m_axis_TVALID": [ { "direction": "out" } ],
-        "m_result_TDATA": [ { "direction": "out", "size_left": "7071", "size_right": "0" } ],
+        "m_result_TDATA": [ { "direction": "out", "size_left": "31", "size_right": "0" } ],
         "m_result_TREADY": [ { "direction": "in" } ],
         "m_result_TVALID": [ { "direction": "out" } ]
       },
@@ -92,7 +92,7 @@
           "mode": "slave",
           "parameters": {
             "TUSER_WIDTH": [ { "value": "0", "value_src": "constant", "usage": "all" } ],
-            "TDATA_NUM_BYTES": [ { "value": "144", "value_src": "constant", "usage": "all" } ],
+            "TDATA_NUM_BYTES": [ { "value": "4", "value_src": "constant", "usage": "all" } ],
             "TDEST_WIDTH": [ { "value": "0", "value_src": "constant", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
             "TID_WIDTH": [ { "value": "0", "value_src": "constant", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
             "HAS_TREADY": [ { "value": "1", "value_src": "constant", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
@@ -145,7 +145,7 @@
           "mode": "master",
           "parameters": {
             "TUSER_WIDTH": [ { "value": "0", "value_src": "constant", "usage": "all" } ],
-            "TDATA_NUM_BYTES": [ { "value": "884", "value_src": "constant", "usage": "all" } ],
+            "TDATA_NUM_BYTES": [ { "value": "4", "value_src": "constant", "usage": "all" } ],
             "TDEST_WIDTH": [ { "value": "0", "value_src": "constant", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
             "TID_WIDTH": [ { "value": "0", "value_src": "constant", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
             "HAS_TREADY": [ { "value": "1", "value_src": "constant", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
@@ -167,5 +167,5 @@
       }
     }
   },
-  "checksum": "ad043999"
+  "checksum": "1312e44f"
 }

@@ -2,9 +2,9 @@
 #
 # Sourced by build_synth.tcl, build_impl.tcl, build_bitstream.tcl, and
 # export_xsa.tcl. It owns the project location, the open/close policy, the
-# -jobs count, the incremental-implementation opt-in, run-status checking, and
-# the report directory, so each stage script stays short enough to read and
-# debug on its own.
+# -jobs count, the internal Vivado thread limit, the incremental-implementation
+# opt-in, run-status checking, and the report directory, so each stage script
+# stays short enough to read and debug on its own.
 #
 # Every stage script runs either standalone
 # (vivado -mode batch -source SourceData/Script/build_<stage>.tcl) or sourced
@@ -94,6 +94,87 @@ proc pl_build_jobs {} {
     return $jobs
 }
 
+# Maximum worker threads used inside one Vivado process, highest precedence
+# first: the second -tclargs value, VIVADO_THREADS, then Vivado's default of 8.
+# This is deliberately independent of launch_runs -jobs: jobs controls how many
+# memory-heavy child processes may run concurrently, whereas this value lets a
+# single implementation process use more CPU cores.
+proc pl_build_threads {} {
+    global argv
+
+    set threads ""
+    if {[info exists argv] && [llength $argv] > 1} {
+        set threads [lindex $argv 1]
+    }
+    if {$threads eq "" && [info exists ::env(VIVADO_THREADS)]} {
+        set threads $::env(VIVADO_THREADS)
+    }
+    if {$threads eq ""} {
+        set threads 8
+    }
+    if {![string is integer -strict $threads] || $threads < 1} {
+        error "invalid Vivado internal thread count: $threads"
+    }
+    return $threads
+}
+
+# launch_runs starts a separate Vivado worker. A set_param in this launcher is
+# not reliably inherited by that process, so impl_1 has a stable OPT_DESIGN
+# pre-hook in the project which applies general.maxThreads inside the worker.
+#
+# The hook must never be installed temporarily here. Vivado fingerprints run
+# properties in gen_run.xml; restoring a temporary hook after route_design
+# makes an otherwise valid routed run appear Out-of-date in the next process.
+# Keep the property stable and pass only its requested value through the
+# worker's inherited environment.
+proc pl_build_launch_with_threads {run to_step jobs threads hook_step} {
+    global pl_build_script_dir
+
+    set object [get_runs -quiet $run]
+    if {$object eq ""} {
+        error "cannot launch missing Vivado run $run"
+    }
+
+    set hook_property "STEPS.${hook_step}.TCL.PRE"
+    if {[lsearch -exact [list_property $object] $hook_property] < 0} {
+        error "$run has no $hook_property property in this Vivado release"
+    }
+
+    set thread_hook [file normalize \
+        [file join $pl_build_script_dir set_vivado_threads.tcl]]
+    if {![file exists $thread_hook]} {
+        error "missing Vivado internal-thread hook $thread_hook"
+    }
+    set configured_hook [get_property $hook_property $object]
+    if {$configured_hook eq "" || \
+            [file normalize $configured_hook] ne $thread_hook} {
+        error "$run must keep $hook_property set to $thread_hook; changing\
+ run hooks at launch time invalidates completed implementation results"
+    }
+
+    set had_thread_env [info exists ::env(VIVADO_THREADS)]
+    if {$had_thread_env} {
+        set previous_thread_env $::env(VIVADO_THREADS)
+    }
+    set ::env(VIVADO_THREADS) $threads
+    set_param general.maxThreads $threads
+
+    set failed [catch {
+        launch_runs $run -to_step $to_step -jobs $jobs
+        pl_build_finish_run $run
+    } result options]
+
+    if {$had_thread_env} {
+        set ::env(VIVADO_THREADS) $previous_thread_env
+    } else {
+        catch {unset ::env(VIVADO_THREADS)}
+    }
+
+    if {$failed} {
+        return -options $options $result
+    }
+}
+
 # Incremental implementation, opt in with PL_INCREMENTAL=1.
 #
 # Place and route reuse an earlier routed checkpoint, which cuts impl runtime
@@ -167,6 +248,113 @@ proc pl_build_top {} {
 
 proc pl_build_run_dir {run} {
     return [get_property DIRECTORY [get_runs $run]]
+}
+
+# Reset a top-level run and verify that Vivado actually accepted the reset.
+#
+# reset_run can return normally after printing Vivado 12-1017 ("Attempt to
+# kill process failed").  A following launch_runs then fails with Common
+# 17-69 because the run still owns a stale .vivado.begin.rst marker.  This is
+# common after a build process is interrupted or the host is rebooted.
+#
+# Retry once first, since Vivado may still be finishing an asynchronous
+# launcher shutdown.  If the run remains non-reset, quarantine the begin
+# marker only when all of the following prove that it is stale:
+#
+#   * the marker contains a numeric PID;
+#   * it was written by this host; and
+#   * /proc/<pid> no longer exists.
+#
+# A live or remotely-owned marker is never removed automatically.  That keeps
+# the recovery path from damaging a real build while making an abandoned run
+# self-healing.  The quarantine file is restored if the final reset fails.
+proc pl_build_reset_run {run} {
+    set object [get_runs -quiet $run]
+    if {$object eq ""} {
+        error "cannot reset missing Vivado run $run"
+    }
+
+    for {set attempt 1} {$attempt <= 2} {incr attempt} {
+        set reset_error ""
+        if {[catch {reset_run $run} reset_error]} {
+            puts "WARNING: reset_run $run attempt $attempt failed: $reset_error"
+        }
+
+        set status [pl_build_property [get_runs $run] STATUS]
+        set progress [pl_build_property [get_runs $run] PROGRESS]
+        if {$status eq "Not started" && ($progress eq "0%" || $progress eq "n/a")} {
+            puts "PL_BUILD_RUN_RESET=$run"
+            return
+        }
+
+        puts "WARNING: reset_run $run attempt $attempt did not reset the run\
+ (status: $status, progress: $progress)"
+        if {$attempt < 2} {
+            after 1000
+        }
+    }
+
+    set marker [file join [pl_build_run_dir $run] .vivado.begin.rst]
+    if {![file exists $marker]} {
+        error "$run did not reset and has no process marker to recover\
+ (status: [pl_build_property [get_runs $run] STATUS])"
+    }
+
+    set handle [open $marker r]
+    set marker_xml [read $handle]
+    close $handle
+
+    if {![regexp {Pid="([0-9]+)"} $marker_xml -> marker_pid]} {
+        error "$run did not reset; refusing to remove process marker without\
+ a numeric PID: $marker"
+    }
+    if {![regexp {Host="([^"]+)"} $marker_xml -> marker_host]} {
+        error "$run did not reset; refusing to remove process marker without\
+ a host name: $marker"
+    }
+
+    set local_host [info hostname]
+    set marker_host_short [lindex [split $marker_host .] 0]
+    set local_host_short [lindex [split $local_host .] 0]
+    if {![string equal -nocase $marker_host_short $local_host_short]} {
+        error "$run did not reset; process marker belongs to host\
+ $marker_host, not $local_host -- verify the remote process before removing\
+ $marker"
+    }
+    if {[file exists "/proc/$marker_pid"]} {
+        error "$run did not reset because its Vivado process is still alive\
+ (PID $marker_pid on $marker_host); stop that process before retrying"
+    }
+
+    set quarantine "$marker.stale.[pid].[clock seconds]"
+    puts "WARNING: recovering $run from stale Vivado process marker\
+ (dead PID $marker_pid): $marker"
+    file rename -force $marker $quarantine
+
+    set final_error ""
+    if {[catch {reset_run $run} final_error]} {
+        if {[file exists $quarantine] && ![file exists $marker]} {
+            file rename -force $quarantine $marker
+        }
+        error "reset_run $run still failed after stale-marker recovery:\
+ $final_error"
+    }
+
+    set status [pl_build_property [get_runs $run] STATUS]
+    set progress [pl_build_property [get_runs $run] PROGRESS]
+    if {$status ne "Not started" || ($progress ne "0%" && $progress ne "n/a")} {
+        if {[file exists $quarantine] && ![file exists $marker]} {
+            file rename -force $quarantine $marker
+        }
+        error "$run still did not reset after stale-marker recovery\
+ (status: $status, progress: $progress)"
+    }
+
+    if {[file exists $quarantine]} {
+        file delete -force $quarantine
+    }
+    puts "PL_BUILD_STALE_RUN_RECOVERED=$run"
+    puts "PL_BUILD_RUN_RESET=$run"
 }
 
 # Property sets differ between Vivado releases and between run states, and a
@@ -391,22 +579,28 @@ proc pl_build_running_runs {} {
 # continue over an unfinished run.
 # Headline utilization from a report_utilization file: the GUI Project
 # Summary numbers (LUT/FF/BRAM/DSP used, available, percent) as parseable
-# stage output. Silent if the report is missing (a failed stage already
-# said why).
+# stage output.  A routed implementation report also contains physical CLB
+# occupancy; synthesis cannot report that value because its cells have not
+# been placed yet.  Silent if either the report or an individual row is
+# missing (a failed stage already said why).
 proc pl_build_utilization_summary {rpt {prefix PL_BUILD_UTIL}} {
     if {![file exists $rpt]} {
         return
     }
     set rows {
-        LUT  "CLB LUTs"
-        FF   "CLB Registers"
-        BRAM "Block RAM Tile"
-        DSP  "DSPs"
+        LUT          "CLB LUTs"
+        LUTRAM       "LUT as Memory"
+        CLB          "CLB"
+        FF           "CLB Registers"
+        BRAM         "Block RAM Tile"
+        DSP          "DSPs"
+        CONTROL_SETS "Unique Control Sets"
     }
     set handle [open $rpt r]
     set content [read $handle]
     close $handle
     foreach {tag row} $rows {
+        set found 0
         foreach line [split $content "\n"] {
             set cells [lmap cell [split $line "|"] {string trim $cell}]
             if {[llength $cells] < 7} {
@@ -418,8 +612,12 @@ proc pl_build_utilization_summary {rpt {prefix PL_BUILD_UTIL}} {
                 set available [lindex $cells 5]
                 set percent [lindex $cells 6]
                 puts "${prefix}_${tag}=$used/$available (${percent}%)"
+                set found 1
                 break
             }
+        }
+        if {$tag eq "CLB" && !$found} {
+            puts "${prefix}_CLB=N/A (physical CLB occupancy requires implementation)"
         }
     }
 }

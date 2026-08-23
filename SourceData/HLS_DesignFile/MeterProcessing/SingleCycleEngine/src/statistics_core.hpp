@@ -40,10 +40,11 @@ static const int MET_VLL_SUBTRAHEND[MET_VLL_PAIRS] = {MET_LANE_VB, MET_LANE_VC,
 
 // Accumulate one accepted frame. first_frame seeds every field in place
 // (the house seed-in-place idiom: no separate clear pass, so the window
-// clears wherever sample_count resets). sticky_overflow reports square
-// saturation and the defensive line-line clamp.
+// clears wherever sample_count resets). sticky_overflow reports any
+// accumulator saturation. The 48-bit input contract makes every lane and
+// line-line square exact before it is widened into the 128-bit accumulator.
 inline void accumulate_statistics(cycle_statistics_t &acc,
-                                  const ap_int<64> q16[MET_ACTIVE_CHANNELS],
+                                  const met_q16_t q16[MET_ACTIVE_CHANNELS],
                                   const ap_int<32> raw[MET_ACTIVE_CHANNELS],
                                   const bool first_frame,
                                   ap_uint<1> &sticky_overflow) {
@@ -51,11 +52,12 @@ inline void accumulate_statistics(cycle_statistics_t &acc,
 stat_lanes:
   for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
 #pragma HLS PIPELINE off
-    const ap_int<64> sample = q16[lane];
+    const met_q16_t sample = q16[lane];
     const ap_int<128> sum_base = first_frame ? ap_int<128>(0) : acc.sum[lane];
     acc.sum[lane] = sum_base + sample;
 
-    const ap_uint<128> square = ap_uint<128>(sample * sample);
+    const ap_uint<96> square_narrow = ap_uint<96>(sample * sample);
+    const ap_uint<128> square = square_narrow;
     const ap_uint<128> square_base =
         first_frame ? ap_uint<128>(0) : acc.square[lane];
     acc.square[lane] =
@@ -80,36 +82,27 @@ stat_lanes:
 vll_pairs:
   for (int pair = 0; pair < MET_VLL_PAIRS; ++pair) {
 #pragma HLS PIPELINE off
-    // Instantaneous difference; 65 bits exact, defensively clamped to the
-    // 64-bit rails (unreachable with real 24-bit-derived samples) so the
-    // square stays in the shared 128-bit saturating domain.
-    const ap_int<65> difference = ap_int<65>(q16[MET_VLL_MINUEND[pair]]) -
-                                  ap_int<65>(q16[MET_VLL_SUBTRAHEND[pair]]);
-    ap_int<64> clamped;
-    if (difference > ap_int<65>(ap_int<64>(0x7FFFFFFFFFFFFFFFll))) {
-      clamped = ap_int<64>(0x7FFFFFFFFFFFFFFFll);
-      sticky_overflow = 1;
-    } else if (difference < ap_int<65>(-ap_int<65>(1) << 63)) {
-      clamped = ap_int<64>(ap_uint<64>(1) << 63);
-      sticky_overflow = 1;
-    } else {
-      clamped = ap_int<64>(difference);
-    }
-
-    const ap_uint<128> square = ap_uint<128>(clamped * clamped);
+    // Instantaneous difference needs one extra bit. Its exact 49x49 square
+    // is widened only after the multiplier, avoiding an accidental 128-bit
+    // multiplier while retaining the existing accumulator contract.
+    const ap_int<49> difference = ap_int<49>(q16[MET_VLL_MINUEND[pair]]) -
+                                  ap_int<49>(q16[MET_VLL_SUBTRAHEND[pair]]);
+    const ap_uint<98> square_narrow = ap_uint<98>(difference * difference);
+    const ap_uint<128> square = square_narrow;
     const ap_uint<128> square_base =
         first_frame ? ap_uint<128>(0) : acc.vll_square[pair];
     acc.vll_square[pair] =
         met_add_square_saturating<128>(square_base, square, sticky_overflow);
 
-    const ap_uint<64> magnitude = met_abs<64>(clamped);
+    const ap_uint<49> magnitude = met_abs<49>(difference);
     if (first_frame || magnitude > acc.vll_peak[pair]) {
       acc.vll_peak[pair] = magnitude;
     }
   }
 }
 
-// Copy the cycle's statistics into the result beat sections.
+// Copy the cycle's statistics into the logical result fields. The result is
+// serialized later by single_cycle_packet.hpp.
 inline void export_statistics(const cycle_statistics_t &acc,
                               single_cycle_result_t &result) {
 #pragma HLS INLINE
