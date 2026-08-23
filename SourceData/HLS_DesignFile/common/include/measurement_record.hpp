@@ -507,7 +507,11 @@ inline void fill_envelope(record_image_t &image, const ap_uint<32> sequence,
                           const ap_uint<8> valid_mask,
                           const ap_uint<32> status,
                           const ap_uint<64> first_sample) {
-#pragma HLS INLINE
+// Keep this as one callable formatter in multi-tier producers.  Inlining it at
+// every record call site creates a separate set of word decoders and enables
+// for the same BRAM-backed image, which is especially costly in the shared
+// aggregation engine.
+#pragma HLS INLINE off
   image.word[MREC_SEQUENCE_WORD] = sequence;
   image.word[MREC_GENERATION_WORD] = generation;
   image.word[MREC_SAMPLE_RATE_WORD] = sample_rate_hz;
@@ -519,7 +523,10 @@ inline void fill_envelope(record_image_t &image, const ap_uint<32> sequence,
 }
 
 inline void clear_record(record_image_t &image) {
-#pragma HLS INLINE
+// One serial clear engine is sufficient: record publication is orders of
+// magnitude slower than the 100 MHz fabric clock.  Sharing it avoids a clear
+// loop (and its independently controlled image ports) for every record kind.
+#pragma HLS INLINE off
 mrec_clear:
   for (int w = 0; w < MREC_WORDS; ++w) {
 #pragma HLS PIPELINE II = 1
