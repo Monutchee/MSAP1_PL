@@ -7,10 +7,11 @@
 # idempotent without touching placement or routing.
 #
 # Debug/standalone use (see build_common.tcl for the GUI rule):
-#   vivado -mode batch -source SourceData/Script/build_bitstream.tcl -tclargs 16
+#   vivado -mode batch -source SourceData/Script/build_bitstream.tcl -tclargs 1 16
 #   source SourceData/Script/build_bitstream.tcl   ;# Vivado Tcl console
 #
-# Optional -tclargs <jobs>; otherwise VIVADO_JOBS, otherwise 8.
+# Optional -tclargs <jobs> <threads>; otherwise VIVADO_JOBS and
+# VIVADO_THREADS, with defaults of 8 for each.
 
 source [file join [file dirname [file normalize [info script]]] build_common.tcl]
 
@@ -26,14 +27,15 @@ if {![file exists $routed]} {
 }
 
 set jobs [pl_build_jobs]
+set threads [pl_build_threads]
 puts "PL_BUILD_STAGE=bitstream"
 puts "PL_BUILD_JOBS=$jobs"
+puts "PL_BUILD_THREADS=$threads"
 
 if {[file exists $bitstream]} {
     reset_run impl_1 -from_step write_bitstream
 }
-launch_runs impl_1 -to_step write_bitstream -jobs $jobs
-pl_build_finish_run impl_1
+pl_build_launch_with_threads impl_1 write_bitstream $jobs $threads WRITE_BITSTREAM
 
 if {![file exists $bitstream]} {
     error "write_bitstream reported success but $bitstream is missing"

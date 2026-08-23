@@ -6,10 +6,11 @@
 # discards the routing.
 #
 # Debug/standalone use (see build_common.tcl for the GUI rule):
-#   vivado -mode batch -source SourceData/Script/build_impl.tcl -tclargs 16
+#   vivado -mode batch -source SourceData/Script/build_impl.tcl -tclargs 1 16
 #   source SourceData/Script/build_impl.tcl   ;# Vivado Tcl console
 #
-# Optional -tclargs <jobs>; otherwise VIVADO_JOBS, otherwise 8.
+# Optional -tclargs <jobs> <threads>; otherwise VIVADO_JOBS and
+# VIVADO_THREADS, with defaults of 8 for each.
 #
 # PL_INCREMENTAL=1 reuses the previous routed checkpoint for place and route
 # (see pl_build_apply_incremental). Off by default: the result then depends on
@@ -21,14 +22,15 @@ pl_build_open_project
 pl_build_require_run_complete synth_1 "mnc PL build --compile-synth"
 
 set jobs [pl_build_jobs]
+set threads [pl_build_threads]
 puts "PL_BUILD_STAGE=impl"
 puts "PL_BUILD_JOBS=$jobs"
+puts "PL_BUILD_THREADS=$threads"
 
 pl_build_apply_incremental impl_1
 
 pl_build_reset_run impl_1
-launch_runs impl_1 -to_step route_design -jobs $jobs
-pl_build_finish_run impl_1
+pl_build_launch_with_threads impl_1 route_design $jobs $threads OPT_DESIGN
 
 set routed [file join [pl_build_run_dir impl_1] "[pl_build_top]_routed.dcp"]
 if {![file exists $routed]} {

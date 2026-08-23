@@ -2,9 +2,9 @@
 #
 # Sourced by build_synth.tcl, build_impl.tcl, build_bitstream.tcl, and
 # export_xsa.tcl. It owns the project location, the open/close policy, the
-# -jobs count, the incremental-implementation opt-in, run-status checking, and
-# the report directory, so each stage script stays short enough to read and
-# debug on its own.
+# -jobs count, the internal Vivado thread limit, the incremental-implementation
+# opt-in, run-status checking, and the report directory, so each stage script
+# stays short enough to read and debug on its own.
 #
 # Every stage script runs either standalone
 # (vivado -mode batch -source SourceData/Script/build_<stage>.tcl) or sourced
@@ -92,6 +92,95 @@ proc pl_build_jobs {} {
         error "invalid Vivado job count: $jobs"
     }
     return $jobs
+}
+
+# Maximum worker threads used inside one Vivado process, highest precedence
+# first: the second -tclargs value, VIVADO_THREADS, then Vivado's default of 8.
+# This is deliberately independent of launch_runs -jobs: jobs controls how many
+# memory-heavy child processes may run concurrently, whereas this value lets a
+# single implementation process use more CPU cores.
+proc pl_build_threads {} {
+    global argv
+
+    set threads ""
+    if {[info exists argv] && [llength $argv] > 1} {
+        set threads [lindex $argv 1]
+    }
+    if {$threads eq "" && [info exists ::env(VIVADO_THREADS)]} {
+        set threads $::env(VIVADO_THREADS)
+    }
+    if {$threads eq ""} {
+        set threads 8
+    }
+    if {![string is integer -strict $threads] || $threads < 1} {
+        error "invalid Vivado internal thread count: $threads"
+    }
+    return $threads
+}
+
+# launch_runs starts a separate Vivado worker. A set_param in this launcher is
+# not reliably inherited by that process, so install a temporary stage pre-hook
+# which applies general.maxThreads inside the worker itself. Preserve and chain
+# any project hook that was already configured, then restore the run property
+# and environment even when implementation fails.
+proc pl_build_launch_with_threads {run to_step jobs threads hook_step} {
+    global pl_build_script_dir
+
+    set object [get_runs -quiet $run]
+    if {$object eq ""} {
+        error "cannot launch missing Vivado run $run"
+    }
+
+    set hook_property "STEPS.${hook_step}.TCL.PRE"
+    if {[lsearch -exact [list_property $object] $hook_property] < 0} {
+        error "$run has no $hook_property property in this Vivado release"
+    }
+
+    set previous_hook [get_property $hook_property $object]
+    set thread_hook [file normalize \
+        [file join $pl_build_script_dir set_vivado_threads.tcl]]
+    if {![file exists $thread_hook]} {
+        error "missing Vivado internal-thread hook $thread_hook"
+    }
+
+    set had_thread_env [info exists ::env(VIVADO_THREADS)]
+    if {$had_thread_env} {
+        set previous_thread_env $::env(VIVADO_THREADS)
+    }
+    set had_hook_env [info exists ::env(PL_BUILD_PREVIOUS_TCL_PRE)]
+    if {$had_hook_env} {
+        set previous_hook_env $::env(PL_BUILD_PREVIOUS_TCL_PRE)
+    }
+
+    set ::env(VIVADO_THREADS) $threads
+    if {$previous_hook ne "" && [file normalize $previous_hook] ne $thread_hook} {
+        set ::env(PL_BUILD_PREVIOUS_TCL_PRE) $previous_hook
+    } else {
+        catch {unset ::env(PL_BUILD_PREVIOUS_TCL_PRE)}
+    }
+    set_param general.maxThreads $threads
+    set_property $hook_property $thread_hook $object
+
+    set failed [catch {
+        launch_runs $run -to_step $to_step -jobs $jobs
+        pl_build_finish_run $run
+    } result options]
+
+    set_property $hook_property $previous_hook $object
+    if {$had_thread_env} {
+        set ::env(VIVADO_THREADS) $previous_thread_env
+    } else {
+        catch {unset ::env(VIVADO_THREADS)}
+    }
+    if {$had_hook_env} {
+        set ::env(PL_BUILD_PREVIOUS_TCL_PRE) $previous_hook_env
+    } else {
+        catch {unset ::env(PL_BUILD_PREVIOUS_TCL_PRE)}
+    }
+
+    if {$failed} {
+        return -options $options $result
+    }
 }
 
 # Incremental implementation, opt in with PL_INCREMENTAL=1.
