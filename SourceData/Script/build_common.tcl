@@ -507,16 +507,19 @@ proc pl_build_utilization_summary {rpt {prefix PL_BUILD_UTIL}} {
         return
     }
     set rows {
-        LUT  "CLB LUTs"
-        CLB  "CLB"
-        FF   "CLB Registers"
-        BRAM "Block RAM Tile"
-        DSP  "DSPs"
+        LUT          "CLB LUTs"
+        LUTRAM       "LUT as Memory"
+        CLB          "CLB"
+        FF           "CLB Registers"
+        BRAM         "Block RAM Tile"
+        DSP          "DSPs"
+        CONTROL_SETS "Unique Control Sets"
     }
     set handle [open $rpt r]
     set content [read $handle]
     close $handle
     foreach {tag row} $rows {
+        set found 0
         foreach line [split $content "\n"] {
             set cells [lmap cell [split $line "|"] {string trim $cell}]
             if {[llength $cells] < 7} {
@@ -528,8 +531,12 @@ proc pl_build_utilization_summary {rpt {prefix PL_BUILD_UTIL}} {
                 set available [lindex $cells 5]
                 set percent [lindex $cells 6]
                 puts "${prefix}_${tag}=$used/$available (${percent}%)"
+                set found 1
                 break
             }
+        }
+        if {$tag eq "CLB" && !$found} {
+            puts "${prefix}_CLB=N/A (physical CLB occupancy requires implementation)"
         }
     }
 }

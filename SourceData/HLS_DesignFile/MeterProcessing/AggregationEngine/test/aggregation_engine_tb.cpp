@@ -53,6 +53,9 @@
 #include "aggregation_engine.hpp"
 
 static int failures = 0;
+static std::FILE *completed_trace = nullptr;
+static unsigned long long completed_digest = 1469598103934665603ull;
+static unsigned completed_record_count = 0;
 
 #define CHECK(cond, ...)                                                       \
   do {                                                                         \
@@ -62,6 +65,43 @@ static int failures = 0;
       ++failures;                                                              \
     }                                                                          \
   } while (0)
+
+// The preview-on and preview-off benches write the same canonical stream of
+// completed records.  Comparing the optional trace files with `cmp` proves
+// byte identity rather than relying on a small set of decoded fields.  Open
+// previews are deliberately excluded: they are the feature under comparison.
+static bool is_open_record_format(unsigned format) {
+  return format == MREC_FORMAT_OPEN_TEN_MINUTE_V1 ||
+         format == MREC_FORMAT_OPEN_TEN_MINUTE_POWER_V1 ||
+         format == MREC_FORMAT_OPEN_TEN_MINUTE_PHASOR_V2 ||
+         format == MREC_FORMAT_OPEN_TEN_MINUTE_UNBAL_V2 ||
+         format == MREC_FORMAT_OPEN_TWO_HOUR_V1 ||
+         format == MREC_FORMAT_OPEN_TWO_HOUR_POWER_V1 ||
+         format == MREC_FORMAT_OPEN_TWO_HOUR_PHASOR_V2 ||
+         format == MREC_FORMAT_OPEN_TWO_HOUR_UNBAL_V2;
+}
+
+static void trace_completed_record(unsigned char stream,
+                                   const ap_uint<32> (&words)[MREC_WORDS]) {
+  const unsigned format = (unsigned)words[MREC_FORMAT_WORD];
+  if (is_open_record_format(format)) return;
+
+  auto add_byte = [](unsigned char byte) {
+    completed_digest ^= byte;
+    completed_digest *= 1099511628211ull;
+    if (completed_trace != nullptr) std::fputc(byte, completed_trace);
+  };
+
+  add_byte(stream);
+  for (int word = 0; word < MREC_WORDS; ++word) {
+    const unsigned value = (unsigned)words[word];
+    add_byte((unsigned char)(value & 0xFFu));
+    add_byte((unsigned char)((value >> 8) & 0xFFu));
+    add_byte((unsigned char)((value >> 16) & 0xFFu));
+    add_byte((unsigned char)((value >> 24) & 0xFFu));
+  }
+  ++completed_record_count;
+}
 
 // ---------------------------------------------------------------------------
 // Integer golden model of the retired Mtr1 finalize (exact).
@@ -470,6 +510,7 @@ static void take_record(Bench &b, ap_uint<32> (&words)[MREC_WORDS]) {
     ++beats;
   }
   CHECK(beats == MREC_WORDS, "record must be exactly 64 beats, got %d", beats);
+  if (beats == MREC_WORDS) trace_completed_record('B', words);
 }
 
 // Drain the POWER record that follows every BASIC record on the stream.
@@ -591,8 +632,10 @@ static void take_agg(Bench &b, ap_uint<32> (&words)[MREC_WORDS],
           "aggregate format 0x%08x, expected 0x%08x",
           (unsigned)words[MREC_FORMAT_WORD], expect_format);
   }
+  if (beats == MREC_WORDS) trace_completed_record('A', words);
 }
 
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
 static void take_open_quad(Bench &b, ap_uint<32> (&words)[MREC_WORDS],
                            unsigned fundamental_format,
                            unsigned power_format,
@@ -620,9 +663,18 @@ static void take_open_quad(Bench &b, ap_uint<32> (&words)[MREC_WORDS],
   CHECK((unsigned)words[MREC_SEQUENCE_WORD] == sequence,
         "open unbalance record shares preview sequence");
 }
+#endif
 
 int main() {
   static_assert(AGG_IN_BITS == 7488, "input beat width is normative");
+
+  if (const char *path = std::getenv("MNC_COMPLETED_RECORD_TRACE")) {
+    completed_trace = std::fopen(path, "wb");
+    if (completed_trace == nullptr) {
+      std::perror("cannot open completed-record trace");
+      return EXIT_FAILURE;
+    }
+  }
 
   Bench b;
   ap_uint<32> words[MREC_WORDS];
@@ -1392,14 +1444,16 @@ int main() {
     CHECK(b.m_agg.empty(), "exactly four aggregate records per interval");
 
     // The completed 150/180-cycle block schedules the open ten-minute
-    // preview. Supply one real input transaction so Vitis cosimulation sees
-    // the deferred preview pass, just as the free-running hardware does.
+    // preview when enabled. Always supply the same real input transaction in
+    // both builds so the completed-record byte traces are directly
+    // comparable and Vitis cosimulation observes the free-running behavior.
     GoldenBlock preview_look_ahead;
     b.send(make_cycle(ac, preview_look_ahead));
     ac.sequence += 1;
     ac.cycle_sequence += 1;
     ac.first_sample += ac.samples;
     ac.seed += 1;
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
     take_open_quad(b, aw,
                    MREC_FORMAT_OPEN_TEN_MINUTE_V1,
                    MREC_FORMAT_OPEN_TEN_MINUTE_POWER_V1,
@@ -1409,6 +1463,7 @@ int main() {
               MET_BASIC_BLOCKS_PER_AGGREGATE,
           "open ten-minute preview reports accumulated Basic blocks");
     CHECK(b.m_agg.empty(), "open ten-minute preview emits one record quad");
+#endif
   }
 
   // --- UTC-targeted ten-minute tier: close at the first full basic block
@@ -1630,8 +1685,8 @@ int main() {
             "two-hour result remains deferred through input %u", interval);
 
       // Every clean input before the twelfth publishes an open two-hour
-      // view. Feed the first cycle of the next Basic block to make the
-      // deferred pass visible to both C simulation and RTL cosimulation.
+      // view when enabled. Feed the first cycle of the next Basic block in
+      // both builds so completed-record inputs remain byte-for-byte equal.
       if (interval >= 1u && interval < 12u) {
         prefed_block = GoldenBlock{};
         b.send(make_cycle(h2, prefed_block));
@@ -1640,6 +1695,7 @@ int main() {
         h2.first_sample += h2.samples;
         h2.seed += 1;
         has_prefed_cycle = true;
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
         take_open_quad(b, hw,
                        MREC_FORMAT_OPEN_TWO_HOUR_V1,
                        MREC_FORMAT_OPEN_TWO_HOUR_POWER_V1,
@@ -1649,6 +1705,7 @@ int main() {
               "open two-hour preview reports %u completed inputs", interval);
         CHECK(b.m_agg.empty(),
               "open two-hour preview emits one record quad");
+#endif
       }
     }
 
@@ -1786,9 +1843,15 @@ int main() {
 #endif
 
   if (failures != 0) {
+    if (completed_trace != nullptr) std::fclose(completed_trace);
+    std::printf("COMPLETED_RECORD_DIGEST=%016llx COUNT=%u\n",
+                completed_digest, completed_record_count);
     std::printf("FAILED: %d check(s)\n", failures);
     return EXIT_FAILURE;
   }
+  if (completed_trace != nullptr) std::fclose(completed_trace);
+  std::printf("COMPLETED_RECORD_DIGEST=%016llx COUNT=%u\n",
+              completed_digest, completed_record_count);
   std::printf("PASS: aggregation_engine_tb\n");
   return EXIT_SUCCESS;
 }

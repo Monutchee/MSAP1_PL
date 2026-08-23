@@ -8,6 +8,19 @@
 #include "metering_types.hpp"
 #include "single_cycle_result.hpp"
 
+// Synthesis experiment switch for the non-normative live 10-minute and
+// 2-hour previews.  Completed records are unaffected.  Keep previews enabled
+// for production; resource comparison builds may set this to 0 through the
+// HLS compiler flags without changing source or measurement behaviour.
+#ifndef MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
+#define MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS 1
+#endif
+
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS != 0 && \
+    MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS != 1
+#error "MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS must be 0 or 1"
+#endif
+
 // The cycle-block aggregation engine (normative source) — ONE engine
 // owning both finalized tiers of the metrology chain (roadmap A1). It
 // replaces Agg10_12CycleEngine and Agg150_180CycleEngine, which were

@@ -172,15 +172,17 @@ static void fill_unbal_payload(const met_finalize_out_t &fin,
       (ap_uint<32>(fin.angle_ref_valid) << UNBAL_FLAGS_REF_VALID_BIT);
 }
 
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
 // Emit a non-normative view of an accumulator that is still open.  The
 // arithmetic is supplied by the shared finalizer, so the preview is an exact
 // view of the same sufficient statistics that will eventually produce the
-// immutable completed record.  Separate format IDs and status flags keep a
-// preview from ever being mistaken for a compliance result.
-template <uint32_t FUND_FORMAT, uint32_t POWER_FORMAT,
-          uint32_t PHASOR_FORMAT, uint32_t UNBAL_FORMAT>
+// immutable completed record.  The four record-format values are runtime
+// inputs on purpose: this leaves one formatter/serializer implementation for
+// both open tiers instead of two separately specialized template datapaths.
 static void emit_open_interval_records(
-    const met_finalize_out_t &fin, ap_uint<32> sequence,
+    const met_finalize_out_t &fin, ap_uint<32> fundamental_format,
+    ap_uint<32> power_format, ap_uint<32> phasor_format,
+    ap_uint<32> unbalance_format, ap_uint<32> sequence,
     ap_uint<32> generation, ap_uint<32> sample_rate,
     ap_uint<32> sample_count, ap_uint<8> valid_mask,
     ap_uint<32> shape_word, ap_uint<64> first_sample,
@@ -242,7 +244,7 @@ open_record_pairs:
   // An open interval has not crossed its target, so overshoot is undefined
   // and encoded as zero. expected_end plus last_sample expresses progress.
   image.word[TEN_MINUTE_OVERSHOOT_SAMPLES_WORD] = 0;
-  serialize_record<FUND_FORMAT>(image, output);
+  serialize_record_format(image, fundamental_format, output);
 
   clear_record(image);
   fill_envelope(image, sequence, generation, sample_rate, sample_count,
@@ -251,7 +253,7 @@ open_record_pairs:
   image.word[MTR2_FIRST_BASIC_SEQ_WORD] = first_sequence;
   image.word[MTR2_LAST_BASIC_SEQ_WORD] = last_sequence;
   fill_power_payload(fin, image);
-  serialize_record<POWER_FORMAT>(image, output);
+  serialize_record_format(image, power_format, output);
 
   clear_record(image);
   fill_envelope(image, sequence, generation, sample_rate, sample_count,
@@ -260,7 +262,7 @@ open_record_pairs:
   image.word[MTR2_FIRST_BASIC_SEQ_WORD] = first_sequence;
   image.word[MTR2_LAST_BASIC_SEQ_WORD] = last_sequence;
   fill_phasor_payload(fin, image);
-  serialize_record<PHASOR_FORMAT>(image, output);
+  serialize_record_format(image, phasor_format, output);
 
   clear_record(image);
   fill_envelope(image, sequence, generation, sample_rate, sample_count,
@@ -269,8 +271,9 @@ open_record_pairs:
   image.word[MTR2_FIRST_BASIC_SEQ_WORD] = first_sequence;
   image.word[MTR2_LAST_BASIC_SEQ_WORD] = last_sequence;
   fill_unbal_payload(fin, image);
-  serialize_record<UNBAL_FORMAT>(image, output);
+  serialize_record_format(image, unbalance_format, output);
 }
+#endif
 
 void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
                             hls::stream<record_axis_t> &m_basic,
@@ -320,28 +323,47 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
   // block's phasor products (PHASOR/UNBAL record status bit 1).
   static ap_uint<1> block_phasor_invalid = 0;
 
-  // Merged block accumulators — bit-identical to the retired Mtr1 block
-  // accumulators by construction (same widths, same saturation rules).
-  static ap_int<128> acc_sum[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=acc_sum type=ram_s2p impl=lutram
-  static ap_uint<128> acc_square[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=acc_square type=ram_s2p impl=lutram
-  static ap_int<64> acc_raw_sum[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=acc_raw_sum type=ram_s2p impl=lutram
-  static ap_uint<96> acc_raw_square[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=acc_raw_square type=ram_s2p impl=lutram
-  static ap_uint<128> acc_vll_square[MET_VLL_PAIRS];
-#pragma HLS BIND_STORAGE variable=acc_vll_square type=ram_s2p impl=lutram
-  static ap_int<128> acc_power[MET_POWER_PHASES];
-#pragma HLS BIND_STORAGE variable=acc_power type=ram_s2p impl=lutram
-  static ap_int<64> acc_minimum[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=acc_minimum type=ram_s2p impl=lutram
-  static ap_int<64> acc_maximum[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=acc_maximum type=ram_s2p impl=lutram
-  static ap_int<128> acc_phasor_re[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=acc_phasor_re type=ram_s2p impl=lutram
-  static ap_int<128> acc_phasor_im[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=acc_phasor_im type=ram_s2p impl=lutram
+  // All four aggregation tiers use one indexed bank per statistic.  The
+  // first dimension selects Basic, 150/180-cycle, 10-minute, or 2-hour;
+  // the second selects the channel/pair.  This preserves independent state
+  // while replacing forty tiny forced-LUTRAM memories (and their wide tier
+  // muxes) with ten serially accessed BRAM-backed banks.
+  static const int MET_TIER_BASIC = 0;
+  static const int MET_TIER_AGGREGATE = 1;
+  static const int MET_TIER_TEN_MINUTE = 2;
+  static const int MET_TIER_TWO_HOUR = 3;
+  static const int MET_TIER_COUNT = 4;
+
+  static ap_int<128>
+      met_acc_sum[MET_TIER_COUNT][MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=met_acc_sum type=ram_s2p impl=bram
+  static ap_uint<128>
+      met_acc_square[MET_TIER_COUNT][MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=met_acc_square type=ram_s2p impl=bram
+  static ap_int<64>
+      met_acc_raw_sum[MET_TIER_COUNT][MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=met_acc_raw_sum type=ram_s2p impl=bram
+  static ap_uint<96>
+      met_acc_raw_square[MET_TIER_COUNT][MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=met_acc_raw_square type=ram_s2p impl=bram
+  static ap_uint<128>
+      met_acc_vll_square[MET_TIER_COUNT][MET_VLL_PAIRS];
+#pragma HLS BIND_STORAGE variable=met_acc_vll_square type=ram_s2p impl=bram
+  static ap_int<128>
+      met_acc_power[MET_TIER_COUNT][MET_POWER_PHASES];
+#pragma HLS BIND_STORAGE variable=met_acc_power type=ram_s2p impl=bram
+  static ap_int<64>
+      met_acc_minimum[MET_TIER_COUNT][MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=met_acc_minimum type=ram_s2p impl=bram
+  static ap_int<64>
+      met_acc_maximum[MET_TIER_COUNT][MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=met_acc_maximum type=ram_s2p impl=bram
+  static ap_int<128>
+      met_acc_phasor_re[MET_TIER_COUNT][MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=met_acc_phasor_re type=ram_s2p impl=bram
+  static ap_int<128>
+      met_acc_phasor_im[MET_TIER_COUNT][MET_ACTIVE_CHANNELS];
+#pragma HLS BIND_STORAGE variable=met_acc_phasor_im type=ram_s2p impl=bram
 
   // Open-aggregate bookkeeping; syn.rtl.reset=state re-zeroes on aresetn.
   static ap_uint<1> a3s_apply_seen = 0;
@@ -371,30 +393,6 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
   static ap_uint<32> a3s_ineligible_count = 0;
   static ap_uint<32> a3s_continuity_count = 0;
 
-  // Interval accumulators: the 15 blocks' accumulators summed. Same
-  // widths as the block tier — the width analysis in
-  // agg_block_result.hpp covers the 15x sums.
-  static ap_int<128> a3s_acc_sum[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=a3s_acc_sum type=ram_s2p impl=lutram
-  static ap_uint<128> a3s_acc_square[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=a3s_acc_square type=ram_s2p impl=lutram
-  static ap_int<64> a3s_acc_raw_sum[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=a3s_acc_raw_sum type=ram_s2p impl=lutram
-  static ap_uint<96> a3s_acc_raw_square[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=a3s_acc_raw_square type=ram_s2p impl=lutram
-  static ap_uint<128> a3s_acc_vll_square[MET_VLL_PAIRS];
-#pragma HLS BIND_STORAGE variable=a3s_acc_vll_square type=ram_s2p impl=lutram
-  static ap_int<128> a3s_acc_power[MET_POWER_PHASES];
-#pragma HLS BIND_STORAGE variable=a3s_acc_power type=ram_s2p impl=lutram
-  static ap_int<64> a3s_acc_minimum[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=a3s_acc_minimum type=ram_s2p impl=lutram
-  static ap_int<64> a3s_acc_maximum[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=a3s_acc_maximum type=ram_s2p impl=lutram
-  static ap_int<128> a3s_acc_phasor_re[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=a3s_acc_phasor_re type=ram_s2p impl=lutram
-  static ap_int<128> a3s_acc_phasor_im[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=a3s_acc_phasor_im type=ram_s2p impl=lutram
-
   // M13 clock-aligned ten-minute tier.  It folds the same complete basic
   // blocks as a3s, but closes on the externally mapped UTC sample boundary.
   // The first interval after a target update is normally partial and is
@@ -421,33 +419,14 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
   static ap_uint<32> t10m_expected_next_seq = 0;
   static ap_uint<64> t10m_expected_next_first = 0;
   static ap_uint<32> t10m_out_sequence = 0;
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
   static ap_uint<32> t10m_open_sequence = 0;
+#endif
   static ap_uint<32> t10m_reset_count = 0;
   static ap_uint<32> t10m_ineligible_count = 0;
   static ap_uint<32> t10m_continuity_count = 0;
   static ap_uint<64> t10m_closed_target = 0;
   static ap_uint<32> t10m_overshoot_samples = 0;
-
-  static ap_int<128> t10m_acc_sum[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=t10m_acc_sum type=ram_s2p impl=lutram
-  static ap_uint<128> t10m_acc_square[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=t10m_acc_square type=ram_s2p impl=lutram
-  static ap_int<64> t10m_acc_raw_sum[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=t10m_acc_raw_sum type=ram_s2p impl=lutram
-  static ap_uint<96> t10m_acc_raw_square[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=t10m_acc_raw_square type=ram_s2p impl=lutram
-  static ap_uint<128> t10m_acc_vll_square[MET_VLL_PAIRS];
-#pragma HLS BIND_STORAGE variable=t10m_acc_vll_square type=ram_s2p impl=lutram
-  static ap_int<128> t10m_acc_power[MET_POWER_PHASES];
-#pragma HLS BIND_STORAGE variable=t10m_acc_power type=ram_s2p impl=lutram
-  static ap_int<64> t10m_acc_minimum[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=t10m_acc_minimum type=ram_s2p impl=lutram
-  static ap_int<64> t10m_acc_maximum[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=t10m_acc_maximum type=ram_s2p impl=lutram
-  static ap_int<128> t10m_acc_phasor_re[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=t10m_acc_phasor_re type=ram_s2p impl=lutram
-  static ap_int<128> t10m_acc_phasor_im[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=t10m_acc_phasor_im type=ram_s2p impl=lutram
 
   // M14 two-hour tier. Unlike the 3 s and 10 min branches, this is the one
   // standards-defined cascaded tier: it folds exactly twelve COMPLETE,
@@ -471,33 +450,61 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
   static ap_uint<32> a2h_expected_next_seq = 0;
   static ap_uint<64> a2h_expected_next_first = 0;
   static ap_uint<32> a2h_out_sequence = 0;
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
   static ap_uint<32> a2h_open_sequence = 0;
+#endif
   static ap_uint<32> a2h_reset_count = 0;
   static ap_uint<32> a2h_ineligible_count = 0;
   static ap_uint<32> a2h_continuity_count = 0;
   static ap_uint<64> a2h_last_target = 0;
   static ap_uint<32> a2h_last_overshoot = 0;
 
-  static ap_int<128> a2h_acc_sum[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=a2h_acc_sum type=ram_s2p impl=lutram
-  static ap_uint<128> a2h_acc_square[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=a2h_acc_square type=ram_s2p impl=lutram
-  static ap_int<64> a2h_acc_raw_sum[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=a2h_acc_raw_sum type=ram_s2p impl=lutram
-  static ap_uint<96> a2h_acc_raw_square[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=a2h_acc_raw_square type=ram_s2p impl=lutram
-  static ap_uint<128> a2h_acc_vll_square[MET_VLL_PAIRS];
-#pragma HLS BIND_STORAGE variable=a2h_acc_vll_square type=ram_s2p impl=lutram
-  static ap_int<128> a2h_acc_power[MET_POWER_PHASES];
-#pragma HLS BIND_STORAGE variable=a2h_acc_power type=ram_s2p impl=lutram
-  static ap_int<64> a2h_acc_minimum[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=a2h_acc_minimum type=ram_s2p impl=lutram
-  static ap_int<64> a2h_acc_maximum[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=a2h_acc_maximum type=ram_s2p impl=lutram
-  static ap_int<128> a2h_acc_phasor_re[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=a2h_acc_phasor_re type=ram_s2p impl=lutram
-  static ap_int<128> a2h_acc_phasor_im[MET_ACTIVE_CHANNELS];
-#pragma HLS BIND_STORAGE variable=a2h_acc_phasor_im type=ram_s2p impl=lutram
+  // Readable constant-tier aliases keep the measurement algorithm below
+  // close to the standards terminology while all storage remains physically
+  // indexed.  They are undefined at the end of this translation unit.
+#define acc_sum met_acc_sum[MET_TIER_BASIC]
+#define acc_square met_acc_square[MET_TIER_BASIC]
+#define acc_raw_sum met_acc_raw_sum[MET_TIER_BASIC]
+#define acc_raw_square met_acc_raw_square[MET_TIER_BASIC]
+#define acc_vll_square met_acc_vll_square[MET_TIER_BASIC]
+#define acc_power met_acc_power[MET_TIER_BASIC]
+#define acc_minimum met_acc_minimum[MET_TIER_BASIC]
+#define acc_maximum met_acc_maximum[MET_TIER_BASIC]
+#define acc_phasor_re met_acc_phasor_re[MET_TIER_BASIC]
+#define acc_phasor_im met_acc_phasor_im[MET_TIER_BASIC]
+
+#define a3s_acc_sum met_acc_sum[MET_TIER_AGGREGATE]
+#define a3s_acc_square met_acc_square[MET_TIER_AGGREGATE]
+#define a3s_acc_raw_sum met_acc_raw_sum[MET_TIER_AGGREGATE]
+#define a3s_acc_raw_square met_acc_raw_square[MET_TIER_AGGREGATE]
+#define a3s_acc_vll_square met_acc_vll_square[MET_TIER_AGGREGATE]
+#define a3s_acc_power met_acc_power[MET_TIER_AGGREGATE]
+#define a3s_acc_minimum met_acc_minimum[MET_TIER_AGGREGATE]
+#define a3s_acc_maximum met_acc_maximum[MET_TIER_AGGREGATE]
+#define a3s_acc_phasor_re met_acc_phasor_re[MET_TIER_AGGREGATE]
+#define a3s_acc_phasor_im met_acc_phasor_im[MET_TIER_AGGREGATE]
+
+#define t10m_acc_sum met_acc_sum[MET_TIER_TEN_MINUTE]
+#define t10m_acc_square met_acc_square[MET_TIER_TEN_MINUTE]
+#define t10m_acc_raw_sum met_acc_raw_sum[MET_TIER_TEN_MINUTE]
+#define t10m_acc_raw_square met_acc_raw_square[MET_TIER_TEN_MINUTE]
+#define t10m_acc_vll_square met_acc_vll_square[MET_TIER_TEN_MINUTE]
+#define t10m_acc_power met_acc_power[MET_TIER_TEN_MINUTE]
+#define t10m_acc_minimum met_acc_minimum[MET_TIER_TEN_MINUTE]
+#define t10m_acc_maximum met_acc_maximum[MET_TIER_TEN_MINUTE]
+#define t10m_acc_phasor_re met_acc_phasor_re[MET_TIER_TEN_MINUTE]
+#define t10m_acc_phasor_im met_acc_phasor_im[MET_TIER_TEN_MINUTE]
+
+#define a2h_acc_sum met_acc_sum[MET_TIER_TWO_HOUR]
+#define a2h_acc_square met_acc_square[MET_TIER_TWO_HOUR]
+#define a2h_acc_raw_sum met_acc_raw_sum[MET_TIER_TWO_HOUR]
+#define a2h_acc_raw_square met_acc_raw_square[MET_TIER_TWO_HOUR]
+#define a2h_acc_vll_square met_acc_vll_square[MET_TIER_TWO_HOUR]
+#define a2h_acc_power met_acc_power[MET_TIER_TWO_HOUR]
+#define a2h_acc_minimum met_acc_minimum[MET_TIER_TWO_HOUR]
+#define a2h_acc_maximum met_acc_maximum[MET_TIER_TWO_HOUR]
+#define a2h_acc_phasor_re met_acc_phasor_re[MET_TIER_TWO_HOUR]
+#define a2h_acc_phasor_im met_acc_phasor_im[MET_TIER_TWO_HOUR]
 
   // ---- One tier per invocation (A1 latency fix) -------------------------
   // A block close and an interval close used to happen in the SAME
@@ -519,7 +526,7 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
               ctx_cap_alerts = 0;
   ap_uint<8> result_mask = 0;
   ap_uint<32> count_now = 0;
-  ap_uint<6> pass_armed = 0;  // completed tiers plus open 10 min / 2 h
+  ap_uint<6> pass_armed = 0;  // completed tiers plus optional open previews
 
   if (interval_pending.bit(0) == 1) {
     // Deferred interval pass: consume NO beat this invocation. The
@@ -533,12 +540,14 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
   } else if (interval_pending.bit(2) == 1) {
     interval_pending.bit(2) = 0;
     pass_armed = 8;
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
   } else if (interval_pending.bit(3) == 1) {
     interval_pending.bit(3) = 0;
     pass_armed = 16;
   } else if (interval_pending.bit(4) == 1) {
     interval_pending.bit(4) = 0;
     pass_armed = 32;
+#endif
   } else {
     if (s_result.empty()) {
       return;
@@ -565,7 +574,9 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
         t10m_reset_count += 1;
       }
       t10m_blocks_accumulated = 0;
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
       interval_pending.bit(3) = 0;
+#endif
       t10m_target_sample = beat.range(AGG_IN_TEN_MIN_TARGET_LSB + 63,
                                       AGG_IN_TEN_MIN_TARGET_LSB);
       t10m_target_valid = beat.bit(AGG_IN_TEN_MIN_VALID_BIT);
@@ -580,7 +591,9 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
         a2h_reset_count += 1;
       }
       a2h_intervals_accumulated = 0;
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
       interval_pending.bit(4) = 0;
+#endif
     }
 
     const ap_uint<1> beat_apply = beat.bit(AGG_IN_APPLY_BIT);
@@ -602,8 +615,10 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
         a2h_reset_count += 1;
       }
       a2h_intervals_accumulated = 0;
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
       interval_pending.bit(3) = 0;
       interval_pending.bit(4) = 0;
+#endif
     }
 
     if (active_enable == 0) {
@@ -761,7 +776,8 @@ void hls_aggregation_engine(hls::stream<agg_input_beat_t> &s_result,
   static ap_uint<32> a3s_agg_last_seq = 0;
 
 finalize_passes:
-  for (int pass = 0; pass < 6; ++pass) {
+  for (int pass = 0;
+       pass < (MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS ? 6 : 4); ++pass) {
 #pragma HLS PIPELINE off
     if (pass_armed.bit(pass) == 0) {
       continue;
@@ -770,6 +786,19 @@ finalize_passes:
     ap_uint<1>  fin_dc;
     ap_uint<8>  fin_mask;
     ap_uint<1>  fin_ovf;
+    const bool fin_t10m =
+        (pass == 2)
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
+        || (pass == 4)
+#endif
+        ;
+    const ap_uint<2> fin_tier =
+        (pass == 0) ? ap_uint<2>(MET_TIER_BASIC)
+                    : ((pass == 1)
+                           ? ap_uint<2>(MET_TIER_AGGREGATE)
+                           : (fin_t10m
+                                  ? ap_uint<2>(MET_TIER_TEN_MINUTE)
+                                  : ap_uint<2>(MET_TIER_TWO_HOUR)));
     if (pass == 0) {
       fin_count = count_now;
       fin_dc = active_dc_remove;
@@ -780,7 +809,7 @@ finalize_passes:
       fin_dc = a3s_agg_dc_remove;
       fin_mask = a3s_mask_and & ap_uint<8>(0x7F);
       fin_ovf = a3s_arithmetic_flag;
-    } else if (pass == 2 || pass == 4) {
+    } else if (fin_t10m) {
       fin_count = t10m_total_samples;
       fin_dc = t10m_dc_remove;
       fin_mask = t10m_mask_and & ap_uint<8>(0x7F);
@@ -794,71 +823,24 @@ finalize_passes:
   fin_select_lanes:
     for (int i = 0; i < MET_ACTIVE_CHANNELS; ++i) {
 #pragma HLS PIPELINE off
-      fin_sum[i] = (pass == 0)
-                       ? acc_sum[i]
-                       : ((pass == 1) ? a3s_acc_sum[i]
-                                      : ((pass == 2 || pass == 4) ? t10m_acc_sum[i]
-                                                     : a2h_acc_sum[i]));
-      fin_square[i] =
-          (pass == 0)
-              ? acc_square[i]
-              : ((pass == 1) ? a3s_acc_square[i]
-                             : ((pass == 2 || pass == 4) ? t10m_acc_square[i]
-                                            : a2h_acc_square[i]));
-      fin_raw_sum[i] =
-          (pass == 0)
-              ? acc_raw_sum[i]
-              : ((pass == 1) ? a3s_acc_raw_sum[i]
-                             : ((pass == 2 || pass == 4) ? t10m_acc_raw_sum[i]
-                                            : a2h_acc_raw_sum[i]));
-      fin_raw_square[i] =
-          (pass == 0) ? acc_raw_square[i]
-                      : ((pass == 1) ? a3s_acc_raw_square[i]
-                                     : ((pass == 2 || pass == 4) ? t10m_acc_raw_square[i]
-                                                    : a2h_acc_raw_square[i]));
-      fin_minimum[i] =
-          (pass == 0)
-              ? acc_minimum[i]
-              : ((pass == 1) ? a3s_acc_minimum[i]
-                             : ((pass == 2 || pass == 4) ? t10m_acc_minimum[i]
-                                            : a2h_acc_minimum[i]));
-      fin_maximum[i] =
-          (pass == 0)
-              ? acc_maximum[i]
-              : ((pass == 1) ? a3s_acc_maximum[i]
-                             : ((pass == 2 || pass == 4) ? t10m_acc_maximum[i]
-                                            : a2h_acc_maximum[i]));
-      fin_phasor_re[i] =
-          (pass == 0)
-              ? acc_phasor_re[i]
-              : ((pass == 1) ? a3s_acc_phasor_re[i]
-                             : ((pass == 2 || pass == 4) ? t10m_acc_phasor_re[i]
-                                            : a2h_acc_phasor_re[i]));
-      fin_phasor_im[i] =
-          (pass == 0)
-              ? acc_phasor_im[i]
-              : ((pass == 1) ? a3s_acc_phasor_im[i]
-                             : ((pass == 2 || pass == 4) ? t10m_acc_phasor_im[i]
-                                            : a2h_acc_phasor_im[i]));
+      fin_sum[i] = met_acc_sum[fin_tier][i];
+      fin_square[i] = met_acc_square[fin_tier][i];
+      fin_raw_sum[i] = met_acc_raw_sum[fin_tier][i];
+      fin_raw_square[i] = met_acc_raw_square[fin_tier][i];
+      fin_minimum[i] = met_acc_minimum[fin_tier][i];
+      fin_maximum[i] = met_acc_maximum[fin_tier][i];
+      fin_phasor_re[i] = met_acc_phasor_re[fin_tier][i];
+      fin_phasor_im[i] = met_acc_phasor_im[fin_tier][i];
     }
   fin_select_pairs:
     for (int p = 0; p < MET_VLL_PAIRS; ++p) {
 #pragma HLS PIPELINE off
-      fin_vll_square[p] =
-          (pass == 0) ? acc_vll_square[p]
-                      : ((pass == 1) ? a3s_acc_vll_square[p]
-                                     : ((pass == 2 || pass == 4) ? t10m_acc_vll_square[p]
-                                                    : a2h_acc_vll_square[p]));
+      fin_vll_square[p] = met_acc_vll_square[fin_tier][p];
     }
   fin_select_power:
     for (int p = 0; p < MET_POWER_PHASES; ++p) {
 #pragma HLS PIPELINE off
-      fin_power[p] =
-          (pass == 0)
-              ? acc_power[p]
-              : ((pass == 1) ? a3s_acc_power[p]
-                             : ((pass == 2 || pass == 4) ? t10m_acc_power[p]
-                                            : a2h_acc_power[p]));
+      fin_power[p] = met_acc_power[fin_tier][p];
     }
 
     met_finalize_interval(fin_sum, fin_square, fin_raw_sum, fin_raw_square,
@@ -872,7 +854,7 @@ finalize_passes:
       arithmetic_overflow = fin_ovf;
     } else if (pass == 1) {
       a3s_arithmetic_flag = fin_ovf;
-    } else if (pass == 2 || pass == 4) {
+    } else if (fin_t10m) {
       t10m_arithmetic_flag = fin_ovf;
     } else {
       a2h_arithmetic_flag = fin_ovf;
@@ -1042,7 +1024,9 @@ finalize_passes:
         t10m_reset_count += 1;
       }
       t10m_blocks_accumulated = 0;
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
       interval_pending.bit(3) = 0;
+#endif
       t10m_contaminated = 1;
     } else if (!t10m_input_eligible) {
       t10m_ineligible_count += 1;
@@ -1050,7 +1034,9 @@ finalize_passes:
         t10m_reset_count += 1;
       }
       t10m_blocks_accumulated = 0;
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
       interval_pending.bit(3) = 0;
+#endif
       t10m_contaminated = 1;
     } else {
       bool t10m_seed = (t10m_blocks_accumulated == 0);
@@ -1405,6 +1391,7 @@ finalize_passes:
     fill_unbal_payload(fin_out, a3s_image);
     serialize_record<MREC_FORMAT_AGG_UNBAL_V2>(a3s_image, m_agg);
 
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
     // The 150/180-cycle cadence is the publication cadence for the open
     // ten-minute view.  Never queue a preview when this same Basic block
     // closed the authoritative ten-minute interval: pass 2 must consume the
@@ -1413,6 +1400,7 @@ finalize_passes:
         interval_pending.bit(1) == 0) {
       interval_pending.bit(3) = 1;
     }
+#endif
     } else if (pass == 2) {
       // ---- TEN-MINUTE-v1: one quad for the interval which closed at the
       // first complete basic block ending at/after the programmed UTC
@@ -1462,7 +1450,9 @@ finalize_passes:
           a2h_reset_count += 1;
         }
         a2h_intervals_accumulated = 0;
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
         interval_pending.bit(4) = 0;
+#endif
       } else {
         bool a2h_seed = (a2h_intervals_accumulated == 0);
         if (!a2h_seed) {
@@ -1562,13 +1552,17 @@ finalize_passes:
         }
 
         if (a2h_intervals_accumulated == A2H_INTERVALS_TARGET) {
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
           interval_pending.bit(4) = 0;
+#endif
           interval_pending.bit(2) = 1;
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
         } else if (a2h_intervals_accumulated != 0) {
           // A completed ten-minute interval advances the non-normative
           // two-hour preview.  Its cadence is therefore only once per ten
           // minutes and reuses the shared finalizer on a later invocation.
           interval_pending.bit(4) = 1;
+#endif
         }
       }
 
@@ -1779,6 +1773,7 @@ finalize_passes:
                                                        m_agg);
 
       a2h_intervals_accumulated = 0;
+#if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
     } else if (pass == 4) {
       // Non-normative, live view of the open UTC ten-minute accumulator.
       // A separate sequence space and format family prevent this preview
@@ -1794,12 +1789,12 @@ finalize_passes:
           (ap_uint<32>(t10m_nominal) << TEN_MINUTE_SHAPE_NOMINAL_LSB) |
           (ap_uint<32>(flags) << TEN_MINUTE_SHAPE_FLAGS_LSB);
       t10m_open_sequence += 1;
-      emit_open_interval_records<
-          MREC_FORMAT_OPEN_TEN_MINUTE_V1,
+      emit_open_interval_records(
+          fin_out, MREC_FORMAT_OPEN_TEN_MINUTE_V1,
           MREC_FORMAT_OPEN_TEN_MINUTE_POWER_V1,
           MREC_FORMAT_OPEN_TEN_MINUTE_PHASOR_V2,
-          MREC_FORMAT_OPEN_TEN_MINUTE_UNBAL_V2>(
-          fin_out, t10m_open_sequence, t10m_generation,
+          MREC_FORMAT_OPEN_TEN_MINUTE_UNBAL_V2, t10m_open_sequence,
+          t10m_generation,
           t10m_sample_rate, t10m_total_samples,
           t10m_mask_and & ap_uint<8>(0x7F), shape, t10m_first_sample,
           t10m_last_sample, t10m_first_seq, t10m_last_seq,
@@ -1807,7 +1802,7 @@ finalize_passes:
           t10m_ineligible_count, t10m_continuity_count,
           t10m_arithmetic_flag, t10m_phasor_invalid_or, aligned,
           t10m_contaminated, t10m_target_valid, m_agg);
-    } else {
+    } else if (pass == 5) {
       // Non-normative, live view of the open two-hour accumulator.  The
       // expected end is the target of the twelfth ten-minute interval; the
       // completed 2 h record remains the only normative result.
@@ -1824,12 +1819,12 @@ finalize_passes:
           (ap_uint<32>(a2h_nominal) << TEN_MINUTE_SHAPE_NOMINAL_LSB) |
           (ap_uint<32>(flags) << TEN_MINUTE_SHAPE_FLAGS_LSB);
       a2h_open_sequence += 1;
-      emit_open_interval_records<
-          MREC_FORMAT_OPEN_TWO_HOUR_V1,
+      emit_open_interval_records(
+          fin_out, MREC_FORMAT_OPEN_TWO_HOUR_V1,
           MREC_FORMAT_OPEN_TWO_HOUR_POWER_V1,
           MREC_FORMAT_OPEN_TWO_HOUR_PHASOR_V2,
-          MREC_FORMAT_OPEN_TWO_HOUR_UNBAL_V2>(
-          fin_out, a2h_open_sequence, a2h_generation,
+          MREC_FORMAT_OPEN_TWO_HOUR_UNBAL_V2, a2h_open_sequence,
+          a2h_generation,
           a2h_sample_rate, a2h_total_samples,
           a2h_mask_and & ap_uint<8>(0x7F), shape, a2h_first_sample,
           a2h_last_sample, a2h_first_seq, a2h_last_seq,
@@ -1837,6 +1832,48 @@ finalize_passes:
           a2h_ineligible_count, a2h_continuity_count,
           a2h_arithmetic_flag, a2h_phasor_invalid_or, ap_uint<1>(1),
           ap_uint<1>(0), ap_uint<1>(1), m_agg);
+#endif
     }
   }
 }
+
+#undef acc_sum
+#undef acc_square
+#undef acc_raw_sum
+#undef acc_raw_square
+#undef acc_vll_square
+#undef acc_power
+#undef acc_minimum
+#undef acc_maximum
+#undef acc_phasor_re
+#undef acc_phasor_im
+#undef a3s_acc_sum
+#undef a3s_acc_square
+#undef a3s_acc_raw_sum
+#undef a3s_acc_raw_square
+#undef a3s_acc_vll_square
+#undef a3s_acc_power
+#undef a3s_acc_minimum
+#undef a3s_acc_maximum
+#undef a3s_acc_phasor_re
+#undef a3s_acc_phasor_im
+#undef t10m_acc_sum
+#undef t10m_acc_square
+#undef t10m_acc_raw_sum
+#undef t10m_acc_raw_square
+#undef t10m_acc_vll_square
+#undef t10m_acc_power
+#undef t10m_acc_minimum
+#undef t10m_acc_maximum
+#undef t10m_acc_phasor_re
+#undef t10m_acc_phasor_im
+#undef a2h_acc_sum
+#undef a2h_acc_square
+#undef a2h_acc_raw_sum
+#undef a2h_acc_raw_square
+#undef a2h_acc_vll_square
+#undef a2h_acc_power
+#undef a2h_acc_minimum
+#undef a2h_acc_maximum
+#undef a2h_acc_phasor_re
+#undef a2h_acc_phasor_im
