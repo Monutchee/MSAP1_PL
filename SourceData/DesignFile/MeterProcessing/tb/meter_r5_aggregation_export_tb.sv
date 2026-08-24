@@ -10,7 +10,8 @@ module meter_r5_aggregation_export_tb;
 
   logic clock = 1'b0;
   logic resetn = 1'b0;
-  logic result_word_accepted = 1'b0;
+  logic result_word_valid = 1'b0;
+  wire result_word_ready;
   logic [31:0] result_word = '0;
 
   logic cycle_locked = 1'b1;
@@ -53,10 +54,15 @@ module meter_r5_aggregation_export_tb;
 
   always #5 clock = ~clock;
 
-  meter_r5_aggregation_export dut (
+  meter_r5_aggregation_export #(
+    // Exercise the cutover behavior: the exporter owns READY and reserves a
+    // complete R5 input packet before accepting SingleCycle word zero.
+    .G_AUTHORITATIVE_INPUT(1'b1)
+  ) dut (
     .aclk(clock),
     .aresetn(resetn),
-    .result_word_accepted_i(result_word_accepted),
+    .result_word_valid_i(result_word_valid),
+    .result_word_ready_o(result_word_ready),
     .result_word_i(result_word),
     .cycle_locked_i(cycle_locked),
     .cycle_fallback_i(cycle_fallback),
@@ -214,15 +220,19 @@ module meter_r5_aggregation_export_tb;
       for (int index = 0; index < RESULT_WORDS; index++) begin
         @(negedge clock);
         result_word = result_value(seq, index);
-        result_word_accepted = 1'b1;
-        @(posedge clock);
+        result_word_valid = 1'b1;
+        // VALID remains asserted and the word remains stable until the
+        // exporter accepts it.  Word zero may wait while a whole-packet
+        // reservation is unavailable; later words must proceed from that
+        // reservation without creating a partial packet.
+        do @(posedge clock); while (!result_word_ready);
         // Move the live context after the accepting edge, outside the DUT's
         // sampling region, so the test has no mixed-language scheduling race.
         if (index == 0 && alter_context_after_word_zero)
           #1 set_second_context();
       end
       @(negedge clock);
-      result_word_accepted = 1'b0;
+      result_word_valid = 1'b0;
       result_word = '0;
     end
   endtask

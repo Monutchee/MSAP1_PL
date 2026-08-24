@@ -7,19 +7,29 @@ use xpm.vcomponents.all;
 
 use work.meter_r5_aggregation_pkg.all;
 
--- Non-blocking shadow export of the exact SingleCycleEngine sufficient-stat
--- packet to R5C1.  The existing HLS aggregation shim remains the only owner
--- of SingleCycle TREADY.  This block merely observes accepted words, reserves
--- storage for a whole packet at word zero, and either captures or discards the
--- complete packet.  Consequently an unavailable R5/FIFO path can never stall
--- metrology capture or alter the authoritative PL aggregate records.
+-- Packetized export of the exact SingleCycleEngine sufficient-stat result to
+-- R5C1.  In migration/shadow mode it observes words already accepted by the
+-- PL AggregationEngine and may discard a whole packet without backpressuring
+-- metrology.  In authoritative mode it owns SingleCycle READY and reserves a
+-- complete packet before accepting word zero, so backpressure is possible
+-- only between result packets and a partial packet can never enter the FIFO.
 entity meter_r5_aggregation_export is
+  generic (
+    -- Shadow mode must never backpressure the existing PL aggregation path;
+    -- it therefore accepts every observed word and drops a whole packet when
+    -- its private reservation cannot be made.  In authoritative mode this
+    -- exporter owns SingleCycle READY and waits at word zero until space for
+    -- the complete packet is available.  Once a packet starts, its reserved
+    -- storage guarantees READY remains asserted through the final word.
+    G_AUTHORITATIVE_INPUT : boolean := false
+  );
   port (
     aclk    : in std_logic;
     aresetn : in std_logic;
 
-    result_word_accepted_i : in std_logic;
-    result_word_i          : in std_logic_vector(31 downto 0);
+    result_word_valid_i : in  std_logic;
+    result_word_ready_o : out std_logic;
+    result_word_i       : in  std_logic_vector(31 downto 0);
 
     cycle_locked_i   : in std_logic;
     cycle_fallback_i : in std_logic;
@@ -70,6 +80,8 @@ architecture rtl of meter_r5_aggregation_export is
                           OUTPUT_CONTEXT, OUTPUT_CRC);
 
   signal input_index       : natural range 0 to R5_AGG_RESULT_WORDS - 1 := 0;
+  signal input_ready       : std_logic;
+  signal input_accept      : std_logic;
   signal capture_packet    : std_logic := '0';
   signal reserve_packet    : std_logic;
   signal capture_current_word : std_logic;
@@ -135,11 +147,25 @@ begin
     result_fifo_full = '0' and context_fifo_full = '0' and
     result_fifo_wr_busy = '0' and context_fifo_wr_busy = '0' else '0';
 
+  authoritative_input : if G_AUTHORITATIVE_INPUT generate
+    -- Backpressure is legal only between packets.  The reservation made for
+    -- word zero covers all remaining result words plus their context.
+    input_ready <= reserve_packet when input_index = 0 else capture_packet;
+  end generate;
+
+  shadow_input : if not G_AUTHORITATIVE_INPUT generate
+    -- The shadow tap observes words already accepted by the PL engine.  It
+    -- must never influence that handshake, even when its own queues are full.
+    input_ready <= '1';
+  end generate;
+
+  result_word_ready_o <= input_ready;
+  input_accept <= result_word_valid_i and input_ready;
   capture_current_word <= reserve_packet when input_index = 0 else capture_packet;
-  result_fifo_write <= result_word_accepted_i and capture_current_word;
-  context_fifo_write <= result_word_accepted_i and reserve_packet
+  result_fifo_write <= input_accept and capture_current_word;
+  context_fifo_write <= input_accept and reserve_packet
                         when input_index = 0 else '0';
-  packet_complete_pulse <= result_word_accepted_i and capture_packet
+  packet_complete_pulse <= input_accept and capture_packet
                            when input_index = R5_AGG_RESULT_WORDS - 1 else '0';
   packet_sent_pulse <= output_accept when output_phase = OUTPUT_CRC else '0';
 
@@ -257,7 +283,7 @@ begin
         capture_packet <= '0';
         accepted_packet_count <= (others => '0');
         dropped_packet_count <= (others => '0');
-      elsif result_word_accepted_i = '1' then
+      elsif input_accept = '1' then
         if input_index = 0 then
           capture_packet <= reserve_packet;
         end if;

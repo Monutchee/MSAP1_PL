@@ -20,7 +20,15 @@ entity meter_core is
     -- (K24 production target) and a minimal AXI-lite stub answers its
     -- register window with zeros so the RPU probe fails cleanly (the
     -- AdcController isolates simulator-init failure by design).
-    G_SIMULATOR_ENABLE : boolean := true
+    G_SIMULATOR_ENABLE : boolean := true;
+
+    -- Migration switch for the private PL<->R5C1 aggregation datapath.
+    -- false keeps the HLS AggregationEngine authoritative and exports a
+    -- non-blocking shadow copy to R5C1. true removes that HLS instance from
+    -- the elaborated design, lets the R5 exporter own SingleCycle READY, and
+    -- expects R5-produced MTR1/MTR2 records to re-enter the meter DMA through
+    -- the block-design AXI-stream switch.
+    G_R5_AGGREGATION_AUTHORITATIVE : boolean := false
   );
   port (
     aclk    : in std_logic;
@@ -265,6 +273,8 @@ architecture structural of meter_core is
   signal scyc_result_tdata  : std_logic_vector(31 downto 0);
   signal scyc_result_tvalid : std_logic;
   signal scyc_result_accepted : std_logic;
+  signal r5_export_input_valid : std_logic;
+  signal r5_export_input_ready : std_logic;
   signal r5_agg_accepted_packets  : std_logic_vector(31 downto 0);
   signal r5_agg_dropped_packets   : std_logic_vector(31 downto 0);
   signal r5_agg_transmitted_packets : std_logic_vector(31 downto 0);
@@ -837,63 +847,90 @@ begin
   -- Live fallback view: enabled but running on synthetic boundaries.
   grid_cycle_fallback <= grid_cycle_mode and not grid_cycle_locked;
 
-  -- 10/12-cycle basic producer (M7, replaces the retired Mtr1 pair): the
-  -- merge tier consumes the single-cycle engine's result packets, finalizes
-  -- BASIC-v4 records onto the retired producer's exported boundary, and
-  -- also merges the completed Basic value into the longer interval tiers.
-  aggregation_producer : entity work.meter_aggregation_hls_shim
-    port map (
-      aclk => aclk,
-      aresetn => aresetn,
-      s_result_tdata => scyc_result_tdata,
-      s_result_tvalid => scyc_result_tvalid,
-      s_result_tready => scyc_result_tready,
-      cycle_locked_i => grid_cycle_locked,
-      cycle_fallback_i => grid_cycle_fallback,
-      shadow_generation_i => shadow_generation,
-      shadow_sample_rate_i => shadow_sample_rate,
-      shadow_valid_mask_i => shadow_valid_mask,
-      shadow_enable_i => shadow_enable,
-      shadow_dc_remove_i => shadow_dc_remove,
-      config_apply_toggle_i => apply_toggle,
-      frequency_status_i => frequency_status,
-      frequency_period_i => frequency_period_q16,
-      frequency_sequence_i => frequency_sequence,
-      capture_frame_count_i => capture_frame_count,
-      capture_header_errors_i => capture_headers,
-      capture_overflows_i => capture_overflows,
-      capture_alerts_i => capture_alerts,
-      ten_minute_target_sample_i => ten_minute_target_sample,
-      ten_minute_target_valid_i => ten_minute_target_valid,
-      ten_minute_target_update_i => ten_minute_target_update,
-      m_axis_basic_tdata => mtr1_axis_tdata,
-      m_axis_basic_tkeep => mtr1_axis_tkeep,
-      m_axis_basic_tvalid => mtr1_axis_tvalid,
-      m_axis_basic_tready => m_axis_mtr1_tready,
-      m_axis_basic_tlast => mtr1_axis_tlast,
-      m_axis_agg_tdata => mtr2_axis_tdata,
-      m_axis_agg_tkeep => mtr2_axis_tkeep,
-      m_axis_agg_tvalid => mtr2_axis_tvalid,
-      m_axis_agg_tready => m_axis_mtr2_tready,
-      m_axis_agg_tlast => mtr2_axis_tlast,
-      active_generation_o => active_generation,
-      active_enable_o => active_enable,
-      apply_seen_o => apply_seen
-    );
+  -- During migration exactly one consumer owns the SingleCycle result
+  -- handshake.  The default generate keeps the proven PL engine authoritative
+  -- and sends only accepted words to the non-blocking R5 shadow exporter.
+  pl_aggregation_authority : if not G_R5_AGGREGATION_AUTHORITATIVE generate
+    aggregation_producer : entity work.meter_aggregation_hls_shim
+      port map (
+        aclk => aclk,
+        aresetn => aresetn,
+        s_result_tdata => scyc_result_tdata,
+        s_result_tvalid => scyc_result_tvalid,
+        s_result_tready => scyc_result_tready,
+        cycle_locked_i => grid_cycle_locked,
+        cycle_fallback_i => grid_cycle_fallback,
+        shadow_generation_i => shadow_generation,
+        shadow_sample_rate_i => shadow_sample_rate,
+        shadow_valid_mask_i => shadow_valid_mask,
+        shadow_enable_i => shadow_enable,
+        shadow_dc_remove_i => shadow_dc_remove,
+        config_apply_toggle_i => apply_toggle,
+        frequency_status_i => frequency_status,
+        frequency_period_i => frequency_period_q16,
+        frequency_sequence_i => frequency_sequence,
+        capture_frame_count_i => capture_frame_count,
+        capture_header_errors_i => capture_headers,
+        capture_overflows_i => capture_overflows,
+        capture_alerts_i => capture_alerts,
+        ten_minute_target_sample_i => ten_minute_target_sample,
+        ten_minute_target_valid_i => ten_minute_target_valid,
+        ten_minute_target_update_i => ten_minute_target_update,
+        m_axis_basic_tdata => mtr1_axis_tdata,
+        m_axis_basic_tkeep => mtr1_axis_tkeep,
+        m_axis_basic_tvalid => mtr1_axis_tvalid,
+        m_axis_basic_tready => m_axis_mtr1_tready,
+        m_axis_basic_tlast => mtr1_axis_tlast,
+        m_axis_agg_tdata => mtr2_axis_tdata,
+        m_axis_agg_tkeep => mtr2_axis_tkeep,
+        m_axis_agg_tvalid => mtr2_axis_tvalid,
+        m_axis_agg_tready => m_axis_mtr2_tready,
+        m_axis_agg_tlast => mtr2_axis_tlast,
+        active_generation_o => active_generation,
+        active_enable_o => active_enable,
+        apply_seen_o => apply_seen
+      );
 
-  -- Shadow migration path.  The authoritative PL AggregationEngine above
-  -- continues to own the result-stream handshake and all MTR1/MTR2 records.
-  -- The R5 exporter observes only words accepted by that engine, reserves a
-  -- complete packet before capturing word zero, and drops a whole packet if
-  -- its private queues have no room.  R5 backpressure can therefore never
-  -- affect capture, RMS, PQ, waveform, or the existing aggregate records.
+    r5_export_input_valid <= scyc_result_accepted;
+  end generate;
+
+  -- In authoritative mode the PL aggregation instance is not elaborated.
+  -- The exporter reserves a complete packet before asserting READY for word
+  -- zero, so any R5/FIFO congestion backpressures only at a packet boundary.
+  -- MTR1/MTR2 now return from R5 through the block-design meter stream switch;
+  -- these legacy PL outputs therefore remain idle.
+  r5_aggregation_authority : if G_R5_AGGREGATION_AUTHORITATIVE generate
+    scyc_result_tready <= r5_export_input_ready;
+    r5_export_input_valid <= scyc_result_tvalid;
+
+    mtr1_axis_tdata <= (others => '0');
+    mtr1_axis_tkeep <= (others => '1');
+    mtr1_axis_tvalid <= '0';
+    mtr1_axis_tlast <= '0';
+    mtr2_axis_tdata <= (others => '0');
+    mtr2_axis_tkeep <= (others => '1');
+    mtr2_axis_tvalid <= '0';
+    mtr2_axis_tlast <= '0';
+
+    -- R5 receives this same configuration snapshot in every input packet.
+    -- Reflect it immediately in the legacy processing-register readback; R5
+    -- health is the authoritative aggregation diagnostic in this mode.
+    active_generation <= shadow_generation;
+    active_enable <= shadow_enable;
+    apply_seen <= apply_toggle;
+  end generate;
+
   scyc_result_accepted <= scyc_result_tvalid and scyc_result_tready;
 
-  r5_aggregation_shadow_export : entity work.meter_r5_aggregation_export
+  r5_aggregation_export : entity work.meter_r5_aggregation_export
+    generic map (
+      G_AUTHORITATIVE_INPUT => G_R5_AGGREGATION_AUTHORITATIVE
+    )
     port map (
       aclk => aclk,
       aresetn => aresetn,
-      result_word_accepted_i => scyc_result_accepted,
+      result_word_valid_i => r5_export_input_valid,
+      result_word_ready_o => r5_export_input_ready,
       result_word_i => scyc_result_tdata,
       cycle_locked_i => grid_cycle_locked,
       cycle_fallback_i => grid_cycle_fallback,
