@@ -84,6 +84,16 @@ entity meter_processing_axi_regs is
     hls_agg_mismatch_count_i           : in  word32_t;
     hls_agg_drop_count_i               : in  word32_t;
 
+    -- Exact co-release PL -> R5C1 shadow-export transport diagnostics.
+    -- They remain observational and never affect capture or metrology.
+    r5_agg_export_status_i             : in  word32_t;
+    r5_agg_export_accepted_count_i     : in  word32_t;
+    r5_agg_export_dropped_count_i      : in  word32_t;
+    r5_agg_export_transmitted_count_i  : in  word32_t;
+    r5_agg_export_framing_errors_i     : in  word32_t;
+    r5_agg_export_last_sequence_i      : in  word32_t;
+    r5_agg_export_queue_level_i        : in  word32_t;
+
     active_generation_i     : in  word32_t;
     result_sequence_i       : in  word32_t;
     result_drop_count_i     : in  word32_t;
@@ -319,6 +329,20 @@ begin
               rdata <= hls_agg_mismatch_count_i;
             when HLS_AGG_REG_DROP_COUNT / 4 =>
               rdata <= hls_agg_drop_count_i;
+            when R5_AGG_EXPORT_REG_STATUS / 4 =>
+              rdata <= r5_agg_export_status_i;
+            when R5_AGG_EXPORT_REG_ACCEPTED_COUNT / 4 =>
+              rdata <= r5_agg_export_accepted_count_i;
+            when R5_AGG_EXPORT_REG_DROPPED_COUNT / 4 =>
+              rdata <= r5_agg_export_dropped_count_i;
+            when R5_AGG_EXPORT_REG_TRANSMITTED_COUNT / 4 =>
+              rdata <= r5_agg_export_transmitted_count_i;
+            when R5_AGG_EXPORT_REG_FRAMING_ERRORS / 4 =>
+              rdata <= r5_agg_export_framing_errors_i;
+            when R5_AGG_EXPORT_REG_LAST_SEQUENCE / 4 =>
+              rdata <= r5_agg_export_last_sequence_i;
+            when R5_AGG_EXPORT_REG_QUEUE_LEVEL / 4 =>
+              rdata <= r5_agg_export_queue_level_i;
             when others => rdata <= (others => '0');
           end case;
           rvalid <= '1';

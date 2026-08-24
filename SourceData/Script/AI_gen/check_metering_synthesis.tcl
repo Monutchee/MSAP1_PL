@@ -60,6 +60,8 @@ read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_frequency_esti
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_frequency.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing grid_cycle_timing.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing record_word_tap.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_r5_aggregation_pkg.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_r5_aggregation_export.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_aggregation_hls_shim.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_sliding_rms_hls_shim.vhd]

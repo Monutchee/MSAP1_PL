@@ -52,4 +52,19 @@ package measurement_record_bus_pkg is
   constant HLS_AGG_REG_RECORD_COUNT   : natural := 16#90#;
   constant HLS_AGG_REG_MISMATCH_COUNT : natural := 16#94#;
   constant HLS_AGG_REG_DROP_COUNT     : natural := 16#98#;
+
+  -- Private PL -> R5C1 aggregation shadow-export diagnostics.  These
+  -- counters describe the exact co-release transport only; they do not
+  -- participate in measurement validity and cannot backpressure the
+  -- authoritative PL AggregationEngine.
+  -- 0xA0..0xAC belongs to the power-quality event block.  Keep this
+  -- diagnostic window contiguous above it so independent package constants
+  -- cannot alias in the AXI-Lite read decoder.
+  constant R5_AGG_EXPORT_REG_STATUS            : natural := 16#B0#;
+  constant R5_AGG_EXPORT_REG_ACCEPTED_COUNT    : natural := 16#B4#;
+  constant R5_AGG_EXPORT_REG_DROPPED_COUNT     : natural := 16#B8#;
+  constant R5_AGG_EXPORT_REG_TRANSMITTED_COUNT : natural := 16#BC#;
+  constant R5_AGG_EXPORT_REG_FRAMING_ERRORS    : natural := 16#C0#;
+  constant R5_AGG_EXPORT_REG_LAST_SEQUENCE     : natural := 16#C4#;
+  constant R5_AGG_EXPORT_REG_QUEUE_LEVEL       : natural := 16#C8#;
 end package;

@@ -72,6 +72,8 @@ set vhdl2008_sources [list \
   [file join $design_root MeterProcessing meter_frequency.vhd] \
   [file join $design_root MeterProcessing grid_cycle_timing.vhd] \
   [file join $design_root MeterProcessing record_word_tap.vhd] \
+  [file join $design_root MeterProcessing meter_r5_aggregation_pkg.vhd] \
+  [file join $design_root MeterProcessing meter_r5_aggregation_export.vhd] \
   [file join $design_root MeterProcessing meter_aggregation_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_sliding_rms_hls_shim.vhd] \

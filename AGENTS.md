@@ -68,6 +68,21 @@
   master gates TVALID on TREADY (AXI-illegal) and deadlocks against a
   TVALID-gated reader -- keep the boundary register on every HLS axis
   master.
+- The R5C1 aggregation offload is being introduced as an observational shadow
+  path before authority moves out of PL. `meter_r5_aggregation_export.vhd`
+  observes the exact accepted 221-word SingleCycle packet, captures its 13
+  context words when result word 0 is accepted, and emits one complete
+  239-word packet on `M_AXIS_R5_AGG_INPUT`. The packet contains a four-word
+  integrity header, the exact current 234-word AggregationEngine input, and a
+  CRC32C word. It is a private PL/R5C1 co-release contract: the fixed contract
+  word detects a mixed bitstream/firmware image, but there is no negotiation,
+  legacy decoder, or compatibility fallback. The exporter is observational,
+  uses AMD XPM FIFOs, reserves or drops a whole packet at word 0, and must
+  always consume the complete SingleCycle packet even when R5C1 is absent.
+  Until byte-identical shadow comparison is complete, the HLS
+  `AggregationEngine` and existing MTR1/MTR2 streams remain authoritative.
+  Final cutover removes them only after the R5C1 software implementation and
+  AXI FIFO MM-S return path have passed differential and whole-system tests.
 - `SourceData/HLS_DesignFile/` holds Vitis HLS components: C++ sources are
   the design input; the shared `HLS_DesignFile/run_hls.sh [component]`
   verifies one component (csim + C/RTL cosim), packages the IP, and unpacks
@@ -150,6 +165,7 @@ vivado -mode batch -source SourceData/Script/AI_gen/check_ad7771_capture.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_heartbeat.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_meter_core.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_meter_frequency.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/check_r5_aggregation_export.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_metering_pipeline.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_metering_synthesis.tcl -tclargs MeterCore_Wrapper
 vivado -mode batch -source SourceData/Script/AI_gen/verify_ad7771_design.tcl

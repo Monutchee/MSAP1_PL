@@ -153,6 +153,20 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
 | `0x90` | `HLS_AGG_RECORD_COUNT` | mirrors `AGG_RECORD_COUNT` |
 | `0x94` | `HLS_AGG_MISMATCH_COUNT` | reserved, reads 0 (the compared-pair trial ended) |
 | `0x98` | `HLS_AGG_DROP_COUNT` | sample beats the MTR1 shim FIFO discarded while the engine was finalizing (any nonzero value is a fault) |
+| `0xb0` | `R5_AGG_EXPORT_STATUS` | private PL -> R5C1 shadow-export state and sticky transport faults |
+| `0xb4` | `R5_AGG_EXPORT_ACCEPTED_COUNT` | complete single-cycle result packets admitted to the private exporter |
+| `0xb8` | `R5_AGG_EXPORT_DROPPED_COUNT` | whole packets dropped because private exporter storage was unavailable; never partial packets |
+| `0xbc` | `R5_AGG_EXPORT_TRANSMITTED_COUNT` | complete CRC-protected frames accepted by the downstream AXI-Stream sink |
+| `0xc0` | `R5_AGG_EXPORT_FRAMING_ERRORS` | malformed authoritative result packets observed by the shadow tap |
+| `0xc4` | `R5_AGG_EXPORT_LAST_SEQUENCE` | sequence of the most recently admitted result packet |
+| `0xc8` | `R5_AGG_EXPORT_QUEUE_LEVEL` | complete packets awaiting private-link transmission |
+
+The `R5_AGG_EXPORT_*` registers describe a private exact co-release link to
+R5C1.  Its fixed contract guard and CRC are image-integrity checks, not a
+compatibility-negotiation interface.  During shadow validation the PL HLS
+AggregationEngine remains authoritative and the exporter is strictly
+observational: R5 backpressure can only increase its own whole-packet drop
+counter and cannot stall capture or any measurement stream.
 
 Frequency and grid shadow fields commit on the existing processing `APPLY`
 toggle at the same frame boundary as RMS. Applying a new configuration clears

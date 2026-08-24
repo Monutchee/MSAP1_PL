@@ -147,6 +147,15 @@ entity meter_core is
     m_axis_scyc_tready : in  std_logic;
     m_axis_scyc_tlast  : out std_logic;
 
+    -- Shadow sufficient-statistics stream for the R5C1 aggregation
+    -- migration.  This stream is deliberately observational: its exporter
+    -- never owns SingleCycle TREADY and therefore cannot stall metrology.
+    m_axis_r5_agg_input_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_r5_agg_input_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_r5_agg_input_tvalid : out std_logic;
+    m_axis_r5_agg_input_tready : in  std_logic;
+    m_axis_r5_agg_input_tlast  : out std_logic;
+
     m_axis_waveform_tdata  : out std_logic_vector(31 downto 0);
     m_axis_waveform_tkeep  : out std_logic_vector(3 downto 0);
     m_axis_waveform_tvalid : out std_logic;
@@ -255,6 +264,14 @@ architecture structural of meter_core is
   -- the aggregation shim appends its context.
   signal scyc_result_tdata  : std_logic_vector(31 downto 0);
   signal scyc_result_tvalid : std_logic;
+  signal scyc_result_accepted : std_logic;
+  signal r5_agg_accepted_packets  : std_logic_vector(31 downto 0);
+  signal r5_agg_dropped_packets   : std_logic_vector(31 downto 0);
+  signal r5_agg_transmitted_packets : std_logic_vector(31 downto 0);
+  signal r5_agg_framing_errors    : std_logic_vector(31 downto 0);
+  signal r5_agg_last_sequence     : std_logic_vector(31 downto 0);
+  signal r5_agg_queue_level       : std_logic_vector(7 downto 0);
+  signal r5_agg_status            : std_logic_vector(31 downto 0);
 
   signal mtr1_axis_tdata  : std_logic_vector(31 downto 0);
   signal mtr1_axis_tkeep  : std_logic_vector(3 downto 0);
@@ -737,6 +754,14 @@ begin
       -- The sample-domain loss point is now the single-cycle shim's FIFO
       -- (the retired Mtr1 shim's counter died with it).
       hls_agg_drop_count_i => scyc_shim_drop_count,
+      r5_agg_export_status_i => r5_agg_status,
+      r5_agg_export_accepted_count_i => r5_agg_accepted_packets,
+      r5_agg_export_dropped_count_i => r5_agg_dropped_packets,
+      r5_agg_export_transmitted_count_i => r5_agg_transmitted_packets,
+      r5_agg_export_framing_errors_i => r5_agg_framing_errors,
+      r5_agg_export_last_sequence_i => r5_agg_last_sequence,
+      r5_agg_export_queue_level_i =>
+        x"000000" & r5_agg_queue_level,
       active_generation_i => active_generation,
       result_sequence_i => mtr1_tap_sequence,
       result_drop_count_i => mtr1_tap_result_drops,
@@ -854,6 +879,52 @@ begin
       active_generation_o => active_generation,
       active_enable_o => active_enable,
       apply_seen_o => apply_seen
+    );
+
+  -- Shadow migration path.  The authoritative PL AggregationEngine above
+  -- continues to own the result-stream handshake and all MTR1/MTR2 records.
+  -- The R5 exporter observes only words accepted by that engine, reserves a
+  -- complete packet before capturing word zero, and drops a whole packet if
+  -- its private queues have no room.  R5 backpressure can therefore never
+  -- affect capture, RMS, PQ, waveform, or the existing aggregate records.
+  scyc_result_accepted <= scyc_result_tvalid and scyc_result_tready;
+
+  r5_aggregation_shadow_export : entity work.meter_r5_aggregation_export
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      result_word_accepted_i => scyc_result_accepted,
+      result_word_i => scyc_result_tdata,
+      cycle_locked_i => grid_cycle_locked,
+      cycle_fallback_i => grid_cycle_fallback,
+      shadow_generation_i => shadow_generation,
+      shadow_sample_rate_i => shadow_sample_rate,
+      shadow_valid_mask_i => shadow_valid_mask,
+      shadow_enable_i => shadow_enable,
+      shadow_dc_remove_i => shadow_dc_remove,
+      config_apply_toggle_i => apply_toggle,
+      frequency_status_i => frequency_status,
+      frequency_period_i => frequency_period_q16,
+      frequency_sequence_i => frequency_sequence,
+      capture_frame_count_i => capture_frame_count,
+      capture_header_errors_i => capture_headers,
+      capture_overflows_i => capture_overflows,
+      capture_alerts_i => capture_alerts,
+      ten_minute_target_sample_i => ten_minute_target_sample,
+      ten_minute_target_valid_i => ten_minute_target_valid,
+      ten_minute_target_update_i => ten_minute_target_update,
+      m_axis_tdata => m_axis_r5_agg_input_tdata,
+      m_axis_tkeep => m_axis_r5_agg_input_tkeep,
+      m_axis_tvalid => m_axis_r5_agg_input_tvalid,
+      m_axis_tready => m_axis_r5_agg_input_tready,
+      m_axis_tlast => m_axis_r5_agg_input_tlast,
+      accepted_packet_count_o => r5_agg_accepted_packets,
+      dropped_packet_count_o => r5_agg_dropped_packets,
+      transmitted_packet_count_o => r5_agg_transmitted_packets,
+      framing_error_count_o => r5_agg_framing_errors,
+      last_sequence_o => r5_agg_last_sequence,
+      queue_level_o => r5_agg_queue_level,
+      status_o => r5_agg_status
     );
 
   m_axis_mtr1_tdata <= mtr1_axis_tdata;
