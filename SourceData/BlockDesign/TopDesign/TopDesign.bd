@@ -36,10 +36,10 @@
           "MTR2_FIFO": "",
           "MTR_AXI_Switch": "",
           "SCYC_record_fifo": "",
-          "PQ_record_fifo": ""
+          "PQ_record_fifo": "",
+          "R5_Aggregation_FIFO": ""
         },
         "MeterCore_Wrapper": "",
-        "R5_Aggregation_FIFO": "",
         "Interrupt_Concat": ""
       },
       "ZYNQ_System": {
@@ -1437,6 +1437,28 @@
                     "value_src": "default"
                   }
                 }
+              },
+              "AXI_STR_RXD": {
+                "mode": "Slave",
+                "vlnv_bus_definition": "xilinx.com:interface:axis:1.0",
+                "vlnv": "xilinx.com:interface:axis_rtl:1.0",
+                "hdl_attributes": {
+                  "LOCKED": {
+                    "value": "FALSE",
+                    "value_src": "default"
+                  }
+                }
+              },
+              "S_AXI": {
+                "mode": "Slave",
+                "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
+                "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
+                "hdl_attributes": {
+                  "LOCKED": {
+                    "value": "FALSE",
+                    "value_src": "default"
+                  }
+                }
               }
             },
             "ports": {
@@ -1447,6 +1469,10 @@
               "aclk": {
                 "type": "clk",
                 "direction": "I"
+              },
+              "interrupt": {
+                "type": "intr",
+                "direction": "O"
               }
             },
             "components": {
@@ -1569,7 +1595,7 @@
                     "value": "1"
                   },
                   "NUM_SI": {
-                    "value": "4"
+                    "value": "5"
                   }
                 },
                 "interface_ports": {
@@ -1633,6 +1659,23 @@
                     ]
                   },
                   "S03_AXIS": {
+                    "bd_attributes": {
+                      "BRIDGES": {
+                        "value": "M00_AXIS",
+                        "value_src": "auto"
+                      },
+                      "TYPE": {
+                        "value": "interior",
+                        "value_src": "default"
+                      }
+                    },
+                    "vlnv": "xilinx.com:interface:axis_rtl:1.0",
+                    "mode": "Slave",
+                    "bridges": [
+                      "M00_AXIS"
+                    ]
+                  },
+                  "S04_AXIS": {
                     "bd_attributes": {
                       "BRIDGES": {
                         "value": "M00_AXIS",
@@ -1814,9 +1857,40 @@
                     }
                   }
                 }
+              },
+              "R5_Aggregation_FIFO": {
+                "vlnv": "xilinx.com:ip:axi_fifo_mm_s:4.3",
+                "ip_revision": "7",
+                "xci_name": "TopDesign_axi_fifo_mm_s_0_0",
+                "xci_path": "ip/TopDesign_axi_fifo_mm_s_0_0/TopDesign_axi_fifo_mm_s_0_0.xci",
+                "inst_hier_path": "MeterLogic/MTR_Buffer/R5_Aggregation_FIFO",
+                "has_run_ip_tcl": "true",
+                "parameters": {
+                  "C_DATA_INTERFACE_TYPE": {
+                    "value": "0"
+                  },
+                  "C_HAS_AXIS_TKEEP": {
+                    "value": "true"
+                  },
+                  "C_USE_TX_CTRL": {
+                    "value": "0"
+                  }
+                }
               }
             },
             "interface_nets": {
+              "Conn1": {
+                "interface_ports": [
+                  "S_AXI",
+                  "R5_Aggregation_FIFO/S_AXI"
+                ]
+              },
+              "Conn2": {
+                "interface_ports": [
+                  "AXI_STR_RXD",
+                  "R5_Aggregation_FIFO/AXI_STR_RXD"
+                ]
+              },
               "MeterCore_Wrapper_M_AXIS_MTR1": {
                 "interface_ports": [
                   "S_AXIS",
@@ -1833,6 +1907,12 @@
                 "interface_ports": [
                   "PQ_record_fifo/M_AXIS",
                   "MTR_AXI_Switch/S03_AXIS"
+                ]
+              },
+              "R5_Aggregation_FIFO_AXI_STR_TXD": {
+                "interface_ports": [
+                  "R5_Aggregation_FIFO/AXI_STR_TXD",
+                  "MTR_AXI_Switch/S04_AXIS"
                 ]
               },
               "SCYC_record_fifo_M_AXIS": {
@@ -1873,6 +1953,12 @@
               }
             },
             "nets": {
+              "R5_Aggregation_FIFO_interrupt": {
+                "ports": [
+                  "R5_Aggregation_FIFO/interrupt",
+                  "interrupt"
+                ]
+              },
               "proc_sys_reset_0_peripheral_aresetn": {
                 "ports": [
                   "aresetn",
@@ -1880,7 +1966,8 @@
                   "MTR_AXI_Switch/aresetn",
                   "MTR1_FIFO/s_axis_aresetn",
                   "SCYC_record_fifo/s_axis_aresetn",
-                  "PQ_record_fifo/s_axis_aresetn"
+                  "PQ_record_fifo/s_axis_aresetn",
+                  "R5_Aggregation_FIFO/s_axi_aresetn"
                 ]
               },
               "zynq_ultra_ps_e_0_pl_clk0": {
@@ -1890,7 +1977,8 @@
                   "MTR_AXI_Switch/aclk",
                   "MTR1_FIFO/s_axis_aclk",
                   "SCYC_record_fifo/s_axis_aclk",
-                  "PQ_record_fifo/s_axis_aclk"
+                  "PQ_record_fifo/s_axis_aclk",
+                  "R5_Aggregation_FIFO/s_axi_aclk"
                 ]
               }
             }
@@ -3453,25 +3541,6 @@
               }
             }
           },
-          "R5_Aggregation_FIFO": {
-            "vlnv": "xilinx.com:ip:axi_fifo_mm_s:4.3",
-            "ip_revision": "7",
-            "xci_name": "TopDesign_axi_fifo_mm_s_0_0",
-            "xci_path": "ip/TopDesign_axi_fifo_mm_s_0_0/TopDesign_axi_fifo_mm_s_0_0.xci",
-            "inst_hier_path": "MeterLogic/R5_Aggregation_FIFO",
-            "has_run_ip_tcl": "true",
-            "parameters": {
-              "C_DATA_INTERFACE_TYPE": {
-                "value": "0"
-              },
-              "C_HAS_AXIS_TKEEP": {
-                "value": "true"
-              },
-              "C_USE_TX_CTRL": {
-                "value": "0"
-              }
-            }
-          },
           "Interrupt_Concat": {
             "vlnv": "xilinx.com:inline_hdl:ilconcat:1.0",
             "parameters": {
@@ -3536,7 +3605,7 @@
           "MeterCore_Wrapper_M_AXIS_R5_AGG_INPUT": {
             "interface_ports": [
               "MeterCore_Wrapper/M_AXIS_R5_AGG_INPUT",
-              "R5_Aggregation_FIFO/AXI_STR_RXD"
+              "MTR_Buffer/AXI_STR_RXD"
             ]
           },
           "MeterCore_Wrapper_M_AXIS_SCYC": {
@@ -3560,7 +3629,7 @@
           "S_AXI_1": {
             "interface_ports": [
               "S_AXI",
-              "R5_Aggregation_FIFO/S_AXI"
+              "MTR_Buffer/S_AXI"
             ]
           },
           "S_AXI_LITE1_1": {
@@ -3637,6 +3706,12 @@
               "s2mm_introut"
             ]
           },
+          "MTR_Buffer_interrupt": {
+            "ports": [
+              "MTR_Buffer/interrupt",
+              "Interrupt_Concat/In2"
+            ]
+          },
           "MeterCore_Wrapper_0_adc_convst_sar": {
             "ports": [
               "MeterCore_Wrapper/adc_convst_sar",
@@ -3667,19 +3742,12 @@
               "Interrupt_Concat/In0"
             ]
           },
-          "R5_Aggregation_FIFO_interrupt": {
-            "ports": [
-              "R5_Aggregation_FIFO/interrupt",
-              "Interrupt_Concat/In2"
-            ]
-          },
           "proc_sys_reset_0_peripheral_aresetn": {
             "ports": [
               "aresetn",
               "Meter_DMA/aresetn",
               "ADC_SPI/s_axi_aresetn",
               "MTR_Buffer/aresetn",
-              "R5_Aggregation_FIFO/s_axi_aresetn",
               "MeterCore_Wrapper/aresetn"
             ]
           },
@@ -3690,7 +3758,6 @@
               "ADC_SPI/ext_spi_clk",
               "ADC_SPI/s_axi_aclk",
               "MTR_Buffer/aclk",
-              "R5_Aggregation_FIFO/s_axi_aclk",
               "MeterCore_Wrapper/aclk"
             ]
           }
@@ -6329,7 +6396,7 @@
                 "range": "64K"
               },
               "SEG_R5_Aggregation_FIFO_Mem0": {
-                "address_block": "/MeterLogic/R5_Aggregation_FIFO/S_AXI/Mem0",
+                "address_block": "/MeterLogic/MTR_Buffer/R5_Aggregation_FIFO/S_AXI/Mem0",
                 "offset": "0x00B0090000",
                 "range": "64K",
                 "offset_high_param": "C_HIGHADDR"
