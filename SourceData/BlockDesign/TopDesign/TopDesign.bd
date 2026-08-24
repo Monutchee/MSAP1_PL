@@ -596,7 +596,7 @@
               }
             }
           },
-          "S_AXI": {
+          "S_AXIS_R5_AGG": {
             "mode": "Slave",
             "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
             "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
@@ -1449,7 +1449,7 @@
                   }
                 }
               },
-              "S_AXI": {
+              "S_AXIS_R5_AGG": {
                 "mode": "Slave",
                 "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
                 "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
@@ -1881,7 +1881,7 @@
             "interface_nets": {
               "Conn1": {
                 "interface_ports": [
-                  "S_AXI",
+                  "S_AXIS_R5_AGG",
                   "R5_Aggregation_FIFO/S_AXI"
                 ]
               },
@@ -3628,8 +3628,8 @@
           },
           "S_AXI_1": {
             "interface_ports": [
-              "S_AXI",
-              "MTR_Buffer/S_AXI"
+              "S_AXIS_R5_AGG",
+              "MTR_Buffer/S_AXIS_R5_AGG"
             ]
           },
           "S_AXI_LITE1_1": {
@@ -6116,7 +6116,7 @@
       "ZYNQ_System_M09_AXI": {
         "interface_ports": [
           "ZYNQ_System/M09_AXI",
-          "MeterLogic/S_AXI"
+          "MeterLogic/S_AXIS_R5_AGG"
         ]
       },
       "axi_quad_spi_0_SPI_0": {
