@@ -11,10 +11,12 @@ entity MeterCore_Wrapper is
     -- reference (CONFIG.G_SIMULATOR_ENABLE) without editing sources.
     G_SIMULATOR_ENABLE : boolean := true;
 
-    -- false: retain the PL HLS AggregationEngine and shadow R5C1.
-    -- true: R5C1 owns aggregation and returns MTR1/MTR2 records through the
-    -- private FIFO's TX AXI stream into the downstream meter DMA switch.
-    G_R5_AGGREGATION_AUTHORITATIVE : boolean := false
+    -- Production authority belongs to R5C1.  true removes the PL HLS
+    -- AggregationEngine from the elaborated hierarchy; R5C1 returns complete
+    -- MTR1/MTR2 records through the private FIFO TX stream and the existing
+    -- meter-DMA AXI-stream switch.  Focused PL numerical tests may override
+    -- this generic to false to exercise the retained reference implementation.
+    G_R5_AGGREGATION_AUTHORITATIVE : boolean := true
   );
   port (
     aclk    : in std_logic;
@@ -134,8 +136,10 @@ entity MeterCore_Wrapper is
     m_axis_scyc_tready : in  std_logic;
     m_axis_scyc_tlast  : out std_logic;
 
-    -- Shadow-only sufficient-statistics stream for the R5C1 aggregation
-    -- migration.  The authoritative MTR1/MTR2 paths remain unchanged.
+    -- Integrity-protected sufficient-statistics stream to the R5C1
+    -- aggregation service. In production this path owns backpressure at
+    -- complete-packet boundaries; focused reference tests may use it as a
+    -- non-blocking observational stream.
     m_axis_r5_agg_input_tdata  : out std_logic_vector(31 downto 0);
     m_axis_r5_agg_input_tkeep  : out std_logic_vector(3 downto 0);
     m_axis_r5_agg_input_tvalid : out std_logic;

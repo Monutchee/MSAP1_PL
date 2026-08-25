@@ -151,7 +151,11 @@ module meter_core_tb;
   always #5 clock = ~clock;
   always #20 adc_dclk = ~adc_dclk;
 
-  MeterCore_Wrapper dut (
+  // This focused numerical bench deliberately exercises the retained PL
+  // reference engine.  The production wrapper default is R5-authoritative.
+  MeterCore_Wrapper #(
+    .G_R5_AGGREGATION_AUTHORITATIVE(1'b0)
+  ) dut (
     .aclk(clock),
     .aresetn(resetn),
     .s_axi_capture_awaddr(cap_awaddr),

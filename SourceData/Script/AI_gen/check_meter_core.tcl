@@ -135,13 +135,16 @@ if {![string match "*PASS: adc_simulator_tb*" $simulator_log]} {
   error "ADC simulator simulation did not report PASS"
 }
 
-# Elaborate the simulator-disabled configuration (K24 production shape):
-# the generate branch never runs in the benches above, so a dedicated
-# elaboration catches width/driver errors in the stub before a build does.
+# Elaborate the production configuration explicitly.  The numerical bench
+# above overrides aggregation authority to exercise the retained PL reference,
+# so this dedicated elaboration proves that the R5-authoritative branch removes
+# the HLS AggregationEngine and that the simulator-disabled shape still binds.
 set disabled_log [exec $xelab --mt off MeterCore_Wrapper glbl \
-  -generic_top "G_SIMULATOR_ENABLE=false" -s meter_core_sim_disabled 2>@1]
+  -generic_top "G_SIMULATOR_ENABLE=false" \
+  -generic_top "G_R5_AGGREGATION_AUTHORITATIVE=true" \
+  -s meter_core_sim_disabled 2>@1]
 puts $disabled_log
-puts "MeterCore G_SIMULATOR_ENABLE=false elaboration PASS"
+puts "MeterCore production R5-authoritative, simulator-disabled elaboration PASS"
 
 cd $original_dir
 file delete -force $work_root

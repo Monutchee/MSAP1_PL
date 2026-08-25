@@ -22,13 +22,12 @@ entity meter_core is
     -- AdcController isolates simulator-init failure by design).
     G_SIMULATOR_ENABLE : boolean := true;
 
-    -- Migration switch for the private PL<->R5C1 aggregation datapath.
-    -- false keeps the HLS AggregationEngine authoritative and exports a
-    -- non-blocking shadow copy to R5C1. true removes that HLS instance from
-    -- the elaborated design, lets the R5 exporter own SingleCycle READY, and
-    -- expects R5-produced MTR1/MTR2 records to re-enter the meter DMA through
-    -- the block-design AXI-stream switch.
-    G_R5_AGGREGATION_AUTHORITATIVE : boolean := false
+    -- Production switch for the private PL<->R5C1 aggregation datapath.
+    -- true removes the HLS AggregationEngine from the elaborated design, lets
+    -- the R5 exporter own SingleCycle READY, and expects R5-produced MTR1/MTR2
+    -- records to re-enter the meter DMA through the block-design AXI-stream
+    -- switch. false is retained only for focused PL-reference tests.
+    G_R5_AGGREGATION_AUTHORITATIVE : boolean := true
   );
   port (
     aclk    : in std_logic;
@@ -847,9 +846,9 @@ begin
   -- Live fallback view: enabled but running on synthetic boundaries.
   grid_cycle_fallback <= grid_cycle_mode and not grid_cycle_locked;
 
-  -- During migration exactly one consumer owns the SingleCycle result
-  -- handshake.  The default generate keeps the proven PL engine authoritative
-  -- and sends only accepted words to the non-blocking R5 shadow exporter.
+  -- Exactly one consumer owns the SingleCycle result handshake.  The legacy
+  -- branch retains the PL reference engine for focused numerical comparison;
+  -- the production wrapper selects the R5-authoritative branch below.
   pl_aggregation_authority : if not G_R5_AGGREGATION_AUTHORITATIVE generate
     aggregation_producer : entity work.meter_aggregation_hls_shim
       port map (

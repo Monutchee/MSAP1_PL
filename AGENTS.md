@@ -17,13 +17,13 @@
   frequency measurement, grid-cycle timing for IEC 61000-4-30 basic
   measurement blocks (`MeterProcessing/grid_cycle_timing.vhd`, contract in
   `MeterCommon/grid_timing_pkg.vhd`), the raw ADC simulator/source mux, the
-  shared single-cycle/interval aggregation shims, and the
+  single-cycle measurement engine, the R5C1 aggregation export, and the
   record-stream register taps (`MeterProcessing/record_word_tap.vhd`). The
-  metering numerics and record construction/serialization are Vitis HLS
-  engines hosted inside this hierarchy; each producer's finished 256-byte
-  record stream leaves `MeterCore_Wrapper` as its own AXIS master
-  (`M_AXIS_MTR1`, `M_AXIS_MTR2`) into per-producer packet-mode FIFOs and an
-  AXIS switch in `TopDesign.bd`.
+  single-cycle metering numerics are implemented by Vitis HLS inside this
+  hierarchy. In the production configuration R5C1 owns interval aggregation
+  and returns finished 256-byte MTR1/MTR2 records through the bidirectional
+  AXI FIFO MM-S into the existing AXIS switch in `TopDesign.bd`; the wrapper's
+  legacy `M_AXIS_MTR1` and `M_AXIS_MTR2` outputs remain idle.
 - The conversion stage owns the 64-bit free-running sample index (low word in
   `TUSER[31:0]`, high word in `TUSER[105:74]`). It is the measurement
   timebase: never reset it on configuration apply and never step it for time
@@ -35,24 +35,26 @@
   committed by the shared `CONTROL.APPLY` toggle). Like the frequency and
   waveform branches, grid timing is observational: it must never backpressure
   ADC capture, RMS, or basic-record production.
-- All record producers are Vitis HLS engines that build and serialize their
-  own records. Each accepted converted frame reaches `SingleCycleEngine` as
+- Each accepted converted frame reaches `SingleCycleEngine` as
   32 ordered little-endian 32-bit words through an AMD XPM asymmetric BRAM
   FIFO; the 1,024-bit sample image is a logical/storage-side frame only, not an
   HLS AXIS port. `SingleCycleEngine` produces the merge-safe SCYC-v5 logical
-  result (`0x000A0005`) as a fixed packet of 221 ordered 32-bit words. The
-  shared `AggregationEngine` consumes that packet plus 13 context words and
-  owns the Basic 10/12-cycle, 150/180-cycle, UTC 10-minute, 2-hour, and live
-  preview tiers around one serial finalizer. The narrow packet boundary is
+  result (`0x000A0005`) as a fixed packet of 221 ordered 32-bit words. The PL
+  exporter appends 13 context words plus framing and CRC32C, then transfers
+  the complete 239-word packet to R5C1. R5C1 owns the Basic 10/12-cycle,
+  150/180-cycle, UTC 10-minute, 2-hour, and live-preview tiers around one
+  serial finalizer. The narrow packet boundary is
   normative in `common/include/single_cycle_packet.hpp`; do not restore the
   retired 1,024-bit SingleCycle input beat, 7,072-bit result beat, or the
   7,488-bit widened RTL context beat. Do not replace the XPM packet FIFOs with
   custom pointer/memory RTL.
   Shared contracts -- the 256-byte record envelope and word maps, logical
   merge-safe sufficient-statistic images, the shared interval finalize
-  (`metrology_finalize.hpp`), and the serial math -- are single-defined in
-  `SourceData/HLS_DesignFile/common/include/` and mirrored by VHDL shims in
-  lock step. Aggregates are formed from exactly 15 eligible Basic results --
+  (`metrology_finalize.hpp`), and serial math -- are single-defined in
+  `SourceData/HLS_DesignFile/common/include/` and compiled by R5C1. The
+  retained PL `AggregationEngine` branch exists only as a focused numerical
+  reference and must not be elaborated by the production wrapper. Aggregates
+  are formed from exactly 15 eligible Basic results --
   never from raw samples or a wall-clock timer -- and
   aggregate data never travels over RPMsg. Like every metrology observer
   the engines must never backpressure measurement (the single-cycle
@@ -68,21 +70,23 @@
   master gates TVALID on TREADY (AXI-illegal) and deadlocks against a
   TVALID-gated reader -- keep the boundary register on every HLS axis
   master.
-- The R5C1 aggregation offload is being introduced as an observational shadow
-  path before authority moves out of PL. `meter_r5_aggregation_export.vhd`
-  observes the exact accepted 221-word SingleCycle packet, captures its 13
+- R5C1 is the production aggregation authority. The production
+  `MeterCore_Wrapper` sets `G_R5_AGGREGATION_AUTHORITATIVE=true`, which removes
+  the PL HLS `AggregationEngine` from the elaborated hierarchy and gives the
+  exporter ownership of the SingleCycle handshake.
+  `meter_r5_aggregation_export.vhd` receives the exact 221-word SingleCycle
+  packet, captures its 13
   context words when result word 0 is accepted, and emits one complete
   239-word packet on `M_AXIS_R5_AGG_INPUT`. The packet contains a four-word
   integrity header, the exact current 234-word AggregationEngine input, and a
   CRC32C word. It is a private PL/R5C1 co-release contract: the fixed contract
   word detects a mixed bitstream/firmware image, but there is no negotiation,
-  legacy decoder, or compatibility fallback. The exporter is observational,
-  uses AMD XPM FIFOs, reserves or drops a whole packet at word 0, and must
-  always consume the complete SingleCycle packet even when R5C1 is absent.
-  Until byte-identical shadow comparison is complete, the HLS
-  `AggregationEngine` and existing MTR1/MTR2 streams remain authoritative.
-  Final cutover removes them only after the R5C1 software implementation and
-  AXI FIFO MM-S return path have passed differential and whole-system tests.
+  legacy decoder, or compatibility fallback. The exporter uses AMD XPM FIFOs
+  and reserves a complete packet before accepting word 0; FIFO congestion
+  therefore backpressures only at a packet boundary. R5C1 returns one complete
+  256-byte record through the FIFO TX AXI stream into
+  `MTR_AXI_Switch/S04_AXIS`. There is intentionally no PL runtime fallback
+  when the co-released R5 image or FIFO path is unavailable.
 - `SourceData/HLS_DesignFile/` holds Vitis HLS components: C++ sources are
   the design input; the shared `HLS_DesignFile/run_hls.sh [component]`
   verifies one component (csim + C/RTL cosim), packages the IP, and unpacks
