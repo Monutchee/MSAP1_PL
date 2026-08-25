@@ -5,6 +5,16 @@
 #include "metrology_stats.hpp"
 #include "metrology_trig.hpp"
 
+// Deferred interval work belongs to the free-running engine instance.  It is
+// kept at translation-unit scope so the R5C1 software wrapper can query the
+// scheduler without executing empty HLS passes.  Hardware still sees the same
+// single static state element used by hls_aggregation_engine().
+static ap_uint<5> aggregation_interval_pending = 0;
+
+bool hls_aggregation_engine_has_pending_work() {
+  return aggregation_interval_pending != 0;
+}
+
 // Cycle-block aggregation engine. Contract, topology, beat layout and
 // tier rules: see aggregation_engine.hpp.
 //
@@ -295,7 +305,6 @@ void hls_aggregation_engine(hls::stream<single_cycle_word_t> &s_result,
   // Bits 0..2 defer completed 150/180-cycle, ten-minute, and two-hour
   // finalizes. Bits 3..4 defer non-normative open ten-minute and two-hour
   // previews. All five use the same textual finalizer call below.
-  static ap_uint<5> interval_pending = 0;
   static ap_uint<32> active_generation = 0;
   static ap_uint<32> active_sample_rate = 32000;
   static ap_uint<8> active_valid_mask = 0;
@@ -527,24 +536,24 @@ void hls_aggregation_engine(hls::stream<single_cycle_word_t> &s_result,
   ap_uint<32> count_now = 0;
   ap_uint<6> pass_armed = 0;  // completed tiers plus optional open previews
 
-  if (interval_pending.bit(0) == 1) {
+  if (aggregation_interval_pending.bit(0) == 1) {
     // Deferred interval pass: consume NO beat this invocation. The
     // interval accumulators are static and nothing touches them until the
     // next block closes, so they are stable across the gap.
-    interval_pending.bit(0) = 0;
+    aggregation_interval_pending.bit(0) = 0;
     pass_armed = 2;
-  } else if (interval_pending.bit(1) == 1) {
-    interval_pending.bit(1) = 0;
+  } else if (aggregation_interval_pending.bit(1) == 1) {
+    aggregation_interval_pending.bit(1) = 0;
     pass_armed = 4;
-  } else if (interval_pending.bit(2) == 1) {
-    interval_pending.bit(2) = 0;
+  } else if (aggregation_interval_pending.bit(2) == 1) {
+    aggregation_interval_pending.bit(2) = 0;
     pass_armed = 8;
 #if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
-  } else if (interval_pending.bit(3) == 1) {
-    interval_pending.bit(3) = 0;
+  } else if (aggregation_interval_pending.bit(3) == 1) {
+    aggregation_interval_pending.bit(3) = 0;
     pass_armed = 16;
-  } else if (interval_pending.bit(4) == 1) {
-    interval_pending.bit(4) = 0;
+  } else if (aggregation_interval_pending.bit(4) == 1) {
+    aggregation_interval_pending.bit(4) = 0;
     pass_armed = 32;
 #endif
   } else {
@@ -580,7 +589,7 @@ void hls_aggregation_engine(hls::stream<single_cycle_word_t> &s_result,
       }
       t10m_blocks_accumulated = 0;
 #if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
-      interval_pending.bit(3) = 0;
+      aggregation_interval_pending.bit(3) = 0;
 #endif
       t10m_target_sample = ctx_t10m_target;
       t10m_target_valid =
@@ -597,7 +606,7 @@ void hls_aggregation_engine(hls::stream<single_cycle_word_t> &s_result,
       }
       a2h_intervals_accumulated = 0;
 #if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
-      interval_pending.bit(4) = 0;
+      aggregation_interval_pending.bit(4) = 0;
 #endif
     }
 
@@ -620,8 +629,8 @@ void hls_aggregation_engine(hls::stream<single_cycle_word_t> &s_result,
       }
       a2h_intervals_accumulated = 0;
 #if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
-      interval_pending.bit(3) = 0;
-      interval_pending.bit(4) = 0;
+      aggregation_interval_pending.bit(3) = 0;
+      aggregation_interval_pending.bit(4) = 0;
 #endif
     }
 
@@ -1032,7 +1041,7 @@ finalize_passes:
       }
       t10m_blocks_accumulated = 0;
 #if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
-      interval_pending.bit(3) = 0;
+      aggregation_interval_pending.bit(3) = 0;
 #endif
       t10m_contaminated = 1;
     } else if (!t10m_input_eligible) {
@@ -1042,7 +1051,7 @@ finalize_passes:
       }
       t10m_blocks_accumulated = 0;
 #if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
-      interval_pending.bit(3) = 0;
+      aggregation_interval_pending.bit(3) = 0;
 #endif
       t10m_contaminated = 1;
     } else {
@@ -1152,7 +1161,7 @@ finalize_passes:
         // Continue autonomously at exact 600-second sample intervals. Linux
         // sends another UPDATE after a time/source/rate discontinuity.
         t10m_target_sample += ap_uint<64>(result.sample_rate_hz) * 600u;
-        interval_pending.bit(1) = 1;
+        aggregation_interval_pending.bit(1) = 1;
       }
     }
 
@@ -1303,7 +1312,7 @@ finalize_passes:
       // Arming pass 1: reaching here means the merge accepted this block
       // and it was the fifteenth, so the interval closes on this beat too.
       // Do not run pass 1 now -- defer it to the next invocation.
-      interval_pending.bit(0) = 1;
+      aggregation_interval_pending.bit(0) = 1;
     } else if (pass == 1) {
       // Derived from the interval statics the merge just updated; these
       // used to sit immediately above the second finalize call.
@@ -1409,8 +1418,8 @@ finalize_passes:
     // closed the authoritative ten-minute interval: pass 2 must consume the
     // immutable accumulator image before it is reset.
     if (t10m_blocks_accumulated != 0 &&
-        interval_pending.bit(1) == 0) {
-      interval_pending.bit(3) = 1;
+        aggregation_interval_pending.bit(1) == 0) {
+      aggregation_interval_pending.bit(3) = 1;
     }
 #endif
     } else if (pass == 2) {
@@ -1463,7 +1472,7 @@ finalize_passes:
         }
         a2h_intervals_accumulated = 0;
 #if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
-        interval_pending.bit(4) = 0;
+        aggregation_interval_pending.bit(4) = 0;
 #endif
       } else {
         bool a2h_seed = (a2h_intervals_accumulated == 0);
@@ -1565,15 +1574,15 @@ finalize_passes:
 
         if (a2h_intervals_accumulated == A2H_INTERVALS_TARGET) {
 #if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
-          interval_pending.bit(4) = 0;
+          aggregation_interval_pending.bit(4) = 0;
 #endif
-          interval_pending.bit(2) = 1;
+          aggregation_interval_pending.bit(2) = 1;
 #if MNC_AGGREGATION_ENABLE_OPEN_PREVIEWS
         } else if (a2h_intervals_accumulated != 0) {
           // A completed ten-minute interval advances the non-normative
           // two-hour preview.  Its cadence is therefore only once per ten
           // minutes and reuses the shared finalizer on a later invocation.
-          interval_pending.bit(4) = 1;
+          aggregation_interval_pending.bit(4) = 1;
 #endif
         }
       }

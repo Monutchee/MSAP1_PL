@@ -148,4 +148,10 @@ void hls_aggregation_engine(hls::stream<single_cycle_word_t> &s_result,
                             hls::stream<record_axis_t> &m_basic,
                             hls::stream<record_axis_t> &m_agg);
 
+// Software scheduling hook used by the R5C1 build of this shared source.
+// The HLS top remains free-running and does not call this function.  R5C1
+// uses it to drain only real deferred interval work instead of repeatedly
+// invoking the comparatively expensive arbitrary-precision datapath.
+bool hls_aggregation_engine_has_pending_work();
+
 #endif  // AGGREGATION_ENGINE_HPP
