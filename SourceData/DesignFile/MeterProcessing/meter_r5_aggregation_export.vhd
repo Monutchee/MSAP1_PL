@@ -8,19 +8,16 @@ use xpm.vcomponents.all;
 use work.meter_r5_aggregation_pkg.all;
 
 -- Packetized export of the exact SingleCycleEngine sufficient-stat result to
--- R5C1.  In migration/shadow mode it observes words already accepted by the
--- PL AggregationEngine and may discard a whole packet without backpressuring
--- metrology.  In authoritative mode it owns SingleCycle READY and reserves a
--- complete packet before accepting word zero, so backpressure is possible
--- only between result packets and a partial packet can never enter the FIFO.
+-- R5C1.  This diagnostic/offload branch must never backpressure the metrology
+-- producer.  At word zero it either reserves storage for the complete packet
+-- or selects whole-packet discard; both choices continue accepting every
+-- source word through the packet boundary.  A congested R5 transport can
+-- therefore lose an explicitly counted export packet, but it cannot disturb
+-- the SingleCycle engine or any other measurement path.
 entity meter_r5_aggregation_export is
   generic (
-    -- Shadow mode must never backpressure the existing PL aggregation path;
-    -- it therefore accepts every observed word and drops a whole packet when
-    -- its private reservation cannot be made.  In authoritative mode this
-    -- exporter owns SingleCycle READY and waits at word zero until space for
-    -- the complete packet is available.  Once a packet starts, its reserved
-    -- storage guarantees READY remains asserted through the final word.
+    -- Retained for source compatibility with the migration build.  Both
+    -- modes now use identical non-blocking whole-packet capture semantics.
     G_AUTHORITATIVE_INPUT : boolean := false
   );
   port (
@@ -120,6 +117,14 @@ architecture rtl of meter_r5_aggregation_export is
   signal crc_state            : std_logic_vector(31 downto 0) := R5_AGG_CRC_INITIAL;
 
   signal complete_packet_count : unsigned(4 downto 0) := (others => '0');
+  -- XPM FWFT FIFOs can expose additional output-stage capacity beyond their
+  -- configured RAM depth.  Do not use the FIFO's delayed data count as the
+  -- packet-admission authority: doing so can accept more contexts than the
+  -- matching complete-packet counter can represent.  This credit counter
+  -- includes the packet currently being captured, every completed packet,
+  -- and the packet currently being serialized.
+  signal reserved_packet_count : unsigned(4 downto 0) := (others => '0');
+  signal packet_reserve_pulse  : std_logic;
   signal packet_complete_pulse : std_logic;
   signal packet_sent_pulse     : std_logic;
 
@@ -139,6 +144,8 @@ begin
   -- zero.  The inequality deliberately leaves no dependence on downstream
   -- READY once capture of a packet has begun.
   reserve_packet <= '1' when
+    reserved_packet_count <
+      to_unsigned(CONTEXT_FIFO_DEPTH, reserved_packet_count'length) and
     unsigned(result_fifo_count) <=
       to_unsigned(RESULT_FIFO_DEPTH - R5_AGG_RESULT_WORDS,
                   result_fifo_count'length) and
@@ -147,17 +154,11 @@ begin
     result_fifo_full = '0' and context_fifo_full = '0' and
     result_fifo_wr_busy = '0' and context_fifo_wr_busy = '0' else '0';
 
-  authoritative_input : if G_AUTHORITATIVE_INPUT generate
-    -- Backpressure is legal only between packets.  The reservation made for
-    -- word zero covers all remaining result words plus their context.
-    input_ready <= reserve_packet when input_index = 0 else capture_packet;
-  end generate;
-
-  shadow_input : if not G_AUTHORITATIVE_INPUT generate
-    -- The shadow tap observes words already accepted by the PL engine.  It
-    -- must never influence that handshake, even when its own queues are full.
-    input_ready <= '1';
-  end generate;
+  -- Never allow R5C1 congestion to propagate into the measurement pipeline.
+  -- reserve_packet is sampled only at word zero.  When it is false, the
+  -- exporter consumes and discards every word until the packet boundary and
+  -- increments dropped_packet_count exactly once at the final word.
+  input_ready <= aresetn;
 
   result_word_ready_o <= input_ready;
   input_accept <= result_word_valid_i and input_ready;
@@ -165,6 +166,8 @@ begin
   result_fifo_write <= input_accept and capture_current_word;
   context_fifo_write <= input_accept and reserve_packet
                         when input_index = 0 else '0';
+  packet_reserve_pulse <= input_accept and reserve_packet
+                          when input_index = 0 else '0';
   packet_complete_pulse <= input_accept and capture_packet
                            when input_index = R5_AGG_RESULT_WORDS - 1 else '0';
   packet_sent_pulse <= output_accept when output_phase = OUTPUT_CRC else '0';
@@ -324,6 +327,33 @@ begin
           end if;
         end if;
         complete_packet_count <= next_count;
+      end if;
+    end if;
+  end process;
+
+  -- Admission credits are taken at source word zero and returned only after
+  -- the complete framed packet (including CRC and TLAST) is accepted by the
+  -- AXI-Stream sink.  This makes the packet boundary—not an implementation-
+  -- specific XPM count—the single source of truth for queue capacity.
+  process (aclk)
+    variable next_reserved : unsigned(4 downto 0);
+  begin
+    if rising_edge(aclk) then
+      if aresetn = '0' then
+        reserved_packet_count <= (others => '0');
+      else
+        next_reserved := reserved_packet_count;
+        if packet_reserve_pulse = '1' and packet_sent_pulse = '0' then
+          if next_reserved <
+             to_unsigned(CONTEXT_FIFO_DEPTH, next_reserved'length) then
+            next_reserved := next_reserved + 1;
+          end if;
+        elsif packet_reserve_pulse = '0' and packet_sent_pulse = '1' then
+          if next_reserved /= 0 then
+            next_reserved := next_reserved - 1;
+          end if;
+        end if;
+        reserved_packet_count <= next_reserved;
       end if;
     end if;
   end process;

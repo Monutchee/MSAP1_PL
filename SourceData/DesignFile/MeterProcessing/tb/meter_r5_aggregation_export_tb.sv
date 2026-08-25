@@ -5,6 +5,13 @@ module meter_r5_aggregation_export_tb;
   localparam int CONTEXT_WORDS = 13;
   localparam int PAYLOAD_WORDS = RESULT_WORDS + CONTEXT_WORDS;
   localparam int FRAME_WORDS = 4 + PAYLOAD_WORDS + 1;
+  localparam int INITIAL_PACKETS = 2;
+  localparam int OVERFLOW_INPUT_PACKETS = 20;
+  localparam int RETAINED_OVERFLOW_PACKETS = 16;
+  localparam int RECOVERY_PACKETS = 1;
+  localparam int TOTAL_OUTPUT_PACKETS = INITIAL_PACKETS
+                                            + RETAINED_OVERFLOW_PACKETS
+                                            + RECOVERY_PACKETS;
   localparam logic [31:0] MAGIC = 32'h3147_4741;
   localparam logic [31:0] CONTRACT = 32'h0000_0001;
 
@@ -47,10 +54,11 @@ module meter_r5_aggregation_export_tb;
   wire [7:0] queue_level;
   wire [31:0] status;
 
-  logic [31:0] observed [0:(2 * FRAME_WORDS) - 1];
-  logic observed_last [0:(2 * FRAME_WORDS) - 1];
+  logic [31:0] observed [0:(TOTAL_OUTPUT_PACKETS * FRAME_WORDS) - 1];
+  logic observed_last [0:(TOTAL_OUTPUT_PACKETS * FRAME_WORDS) - 1];
   int observed_count = 0;
   int ready_counter = 0;
+  logic stall_output = 1'b0;
 
   always #5 clock = ~clock;
 
@@ -104,13 +112,19 @@ module meter_r5_aggregation_export_tb;
       axis_ready <= 1'b0;
     end else begin
       ready_counter <= ready_counter + 1;
-      axis_ready <= (ready_counter % 7 != 1) && (ready_counter % 11 != 4);
+      if (stall_output)
+        axis_ready <= 1'b0;
+      else
+        axis_ready <= (ready_counter % 7 != 1) && (ready_counter % 11 != 4);
     end
   end
 
   always_ff @(posedge clock) begin
+    if (resetn && result_word_valid && !result_word_ready)
+      $fatal(1, "R5 exporter backpressured the metrology source");
+
     if (resetn && axis_valid && axis_ready) begin
-      if (observed_count >= 2 * FRAME_WORDS)
+      if (observed_count >= TOTAL_OUTPUT_PACKETS * FRAME_WORDS)
         $fatal(1, "exporter produced extra output words");
       if (axis_keep !== 4'hf)
         $fatal(1, "TKEEP was not 0xf at output word %0d", observed_count);
@@ -221,10 +235,9 @@ module meter_r5_aggregation_export_tb;
         @(negedge clock);
         result_word = result_value(seq, index);
         result_word_valid = 1'b1;
-        // VALID remains asserted and the word remains stable until the
-        // exporter accepts it.  Word zero may wait while a whole-packet
-        // reservation is unavailable; later words must proceed from that
-        // reservation without creating a partial packet.
+        // VALID remains asserted and the word remains stable until accepted.
+        // The R5 export branch must accept every word even when its own output
+        // transport is blocked; it may only discard a complete packet.
         do @(posedge clock); while (!result_word_ready);
         // Move the live context after the accepting edge, outside the DUT's
         // sampling region, so the test has no mixed-language scheduling race.
@@ -309,7 +322,70 @@ module meter_r5_aggregation_export_tb;
     if (!status[0] || status[1] || status[2])
       $fatal(1, "unexpected exporter status %08x", status);
 
-    $display("PASS: meter_r5_aggregation_export_tb");
+    // Block the R5 transport and offer more complete packets than the
+    // 16-packet context queue can retain.  The first 16 packets must remain
+    // byte-exact, the rest must be discarded as whole packets, and READY at
+    // the metrology source must never fall.
+    stall_output = 1'b1;
+    repeat (4) @(posedge clock);
+    for (int packet = 0; packet < OVERFLOW_INPUT_PACKETS; packet++)
+      send_packet(32'h1000_0000 + packet, 1'b0);
+    repeat (8) @(posedge clock);
+
+    if (accepted_packets !== INITIAL_PACKETS + RETAINED_OVERFLOW_PACKETS ||
+        dropped_packets !== OVERFLOW_INPUT_PACKETS - RETAINED_OVERFLOW_PACKETS ||
+        transmitted_packets !== INITIAL_PACKETS || framing_errors !== 32'd0)
+      $fatal(1,
+        "stalled counter mismatch accepted=%0d dropped=%0d transmitted=%0d errors=%0d",
+        accepted_packets, dropped_packets, transmitted_packets, framing_errors);
+    if (queue_level !== RETAINED_OVERFLOW_PACKETS)
+      $fatal(1, "stalled queue level mismatch: %0d", queue_level);
+
+    stall_output = 1'b0;
+    fork
+      begin
+        wait (observed_count ==
+              (INITIAL_PACKETS + RETAINED_OVERFLOW_PACKETS) * FRAME_WORDS);
+      end
+      begin
+        repeat (100000) @(posedge clock);
+        $fatal(1, "timed out draining retained overflow packets");
+      end
+    join_any
+    disable fork;
+
+    for (int packet = 0; packet < RETAINED_OVERFLOW_PACKETS; packet++)
+      verify_packet(INITIAL_PACKETS + packet, 32'h1000_0000 + packet);
+
+    // After downstream recovery, a new packet must be accepted and framed
+    // normally; a prior drop must not poison subsequent packet alignment.
+    send_packet(32'h2000_0000, 1'b0);
+    fork
+      begin
+        wait (observed_count == TOTAL_OUTPUT_PACKETS * FRAME_WORDS);
+      end
+      begin
+        repeat (20000) @(posedge clock);
+        $fatal(1, "timed out waiting for post-overflow recovery packet");
+      end
+    join_any
+    disable fork;
+    repeat (4) @(posedge clock);
+
+    verify_packet(TOTAL_OUTPUT_PACKETS - 1, 32'h2000_0000);
+    if (accepted_packets !== TOTAL_OUTPUT_PACKETS ||
+        dropped_packets !== OVERFLOW_INPUT_PACKETS - RETAINED_OVERFLOW_PACKETS ||
+        transmitted_packets !== TOTAL_OUTPUT_PACKETS ||
+        framing_errors !== 32'd0)
+      $fatal(1,
+        "final counter mismatch accepted=%0d dropped=%0d transmitted=%0d errors=%0d",
+        accepted_packets, dropped_packets, transmitted_packets, framing_errors);
+    if (last_sequence !== 32'h2000_0000 || queue_level !== 0)
+      $fatal(1, "post-overflow last sequence or queue level mismatch");
+    if (!status[0] || !status[1] || status[2])
+      $fatal(1, "unexpected post-overflow exporter status %08x", status);
+
+    $display("PASS: meter_r5_aggregation_export_tb (whole-packet overflow recovery)");
     $finish;
   end
 endmodule

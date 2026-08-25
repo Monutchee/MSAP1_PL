@@ -1872,6 +1872,24 @@
                   "C_HAS_AXIS_TKEEP": {
                     "value": "true"
                   },
+                  "C_RX_FIFO_DEPTH": {
+                    "value": "8192"
+                  },
+                  "C_RX_FIFO_PE_THRESHOLD": {
+                    "value": "5"
+                  },
+                  "C_RX_FIFO_PF_THRESHOLD": {
+                    "value": "507"
+                  },
+                  "C_TX_FIFO_DEPTH": {
+                    "value": "2048"
+                  },
+                  "C_TX_FIFO_PE_THRESHOLD": {
+                    "value": "5"
+                  },
+                  "C_TX_FIFO_PF_THRESHOLD": {
+                    "value": "507"
+                  },
                   "C_USE_TX_CTRL": {
                     "value": "0"
                   }

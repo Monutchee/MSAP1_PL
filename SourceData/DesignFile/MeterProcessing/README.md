@@ -163,10 +163,13 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
 
 The `R5_AGG_EXPORT_*` registers describe a private exact co-release link to
 R5C1.  Its fixed contract guard and CRC are image-integrity checks, not a
-compatibility-negotiation interface.  During shadow validation the PL HLS
-AggregationEngine remains authoritative and the exporter is strictly
-observational: R5 backpressure can only increase its own whole-packet drop
-counter and cannot stall capture or any measurement stream.
+compatibility-negotiation interface.  R5C1 is the production aggregation
+authority; the retained HLS AggregationEngine is a focused numerical reference
+and is not elaborated by the production wrapper.  The exporter is a
+nonbackpressuring observer of the SingleCycle packet boundary: it reserves
+storage for a complete packet at word 0 or consumes and discards that complete
+packet.  R5 congestion can therefore increase only the explicit whole-packet
+drop counter; it cannot stall capture or any measurement stream.
 
 Frequency and grid shadow fields commit on the existing processing `APPLY`
 toggle at the same frame boundary as RMS. Applying a new configuration clears

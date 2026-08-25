@@ -82,8 +82,11 @@
   CRC32C word. It is a private PL/R5C1 co-release contract: the fixed contract
   word detects a mixed bitstream/firmware image, but there is no negotiation,
   legacy decoder, or compatibility fallback. The exporter uses AMD XPM FIFOs
-  and reserves a complete packet before accepting word 0; FIFO congestion
-  therefore backpressures only at a packet boundary. R5C1 returns one complete
+  and uses an explicit complete-packet credit before retaining word 0. When
+  private-link storage is unavailable it still consumes the complete
+  SingleCycle packet, discards that packet as one unit, and increments the
+  sticky drop diagnostic. It must never deassert the upstream READY signal or
+  backpressure metrology. R5C1 returns one complete
   256-byte record through the FIFO TX AXI stream into
   `MTR_AXI_Switch/S04_AXIS`. There is intentionally no PL runtime fallback
   when the co-released R5 image or FIFO path is unavailable.
