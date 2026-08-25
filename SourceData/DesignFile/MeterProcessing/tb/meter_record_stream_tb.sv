@@ -715,7 +715,8 @@ module meter_record_stream_tb;
             agg_phasor_checked == 1 && agg_unbal_checked == 1)
       else $fatal(1, "content checks incomplete");
     assert (scyc_drop_count == 0)
-      else $fatal(1, "single-cycle shim dropped %0d beats", scyc_drop_count);
+      else $fatal(1, "single-cycle shim dropped %0d input frames",
+                  scyc_drop_count);
     assert (basic_tap_sequence == BLOCKS && mtr2_tap_sequence == 1)
       else $fatal(1, "tap sequences %0d/%0d", basic_tap_sequence,
                   mtr2_tap_sequence);

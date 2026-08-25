@@ -24,6 +24,12 @@ use work.metering_pkg.all;
 --     finalize/record-serialization latency without a custom wide FIFO or a
 --     1,024-bit routed HLS interface.  Overflow is still observational: the
 --     capture path is never backpressured and every discarded frame counts.
+--   * the diagnostic SCYC stream is isolated by a second AMD XPM FIFO.  HLS
+--     is always ready to emit that non-authoritative record; space for all 64
+--     words is reserved at record start, otherwise the complete diagnostic
+--     record is discarded.  A stalled dashboard/DMA path therefore cannot
+--     stall the authoritative m_result stream or make the sample FIFO lose
+--     metrology frames.
 --   * APPLY is carried as a level; the engine detects the edge.
 entity meter_single_cycle_hls_shim is
   port (
@@ -58,7 +64,7 @@ entity meter_single_cycle_hls_shim is
     frequency_millihz_i  : in std_logic_vector(31 downto 0);
     frequency_status_i   : in std_logic_vector(31 downto 0);
 
-    -- SCYC-v2 diagnostic record stream (to the exported M_AXIS_SCYC).
+    -- SCYC-v5 diagnostic record stream (to the exported M_AXIS_SCYC).
     m_axis_scyc_tdata  : out std_logic_vector(31 downto 0);
     m_axis_scyc_tkeep  : out std_logic_vector(3 downto 0);
     m_axis_scyc_tvalid : out std_logic;
@@ -128,6 +134,16 @@ architecture rtl of meter_single_cycle_hls_shim is
   constant SAMPLE_FIFO_WR_COUNT_WIDTH  : positive := 8;
   constant SAMPLE_FIFO_RD_COUNT_WIDTH  : positive := 13;
 
+  -- The diagnostic output is exactly one 64-word record per completed grid
+  -- cycle.  A 1,024-word, 32-bit XPM FIFO holds 16 records in one compact
+  -- BRAM-backed queue.  Reserving a complete record before accepting its
+  -- first word prevents a full FIFO from ever exposing a partial record.
+  constant DIAG_RECORD_WORDS         : positive := 64;
+  constant DIAG_FIFO_DEPTH           : positive := 1024;
+  constant DIAG_FIFO_COUNT_WIDTH     : positive := 11;
+  constant DIAG_FIFO_RESERVE_LIMIT   : natural :=
+    DIAG_FIFO_DEPTH - DIAG_RECORD_WORDS;
+
   signal sample_fifo_din     : std_logic_vector(BEAT_BITS - 1 downto 0);
   signal sample_fifo_dout    : std_logic_vector(SAMPLE_WORD_BITS - 1 downto 0);
   signal sample_fifo_write   : std_logic;
@@ -150,8 +166,31 @@ architecture rtl of meter_single_cycle_hls_shim is
   signal staged_index     : std_logic_vector(63 downto 0) := (others => '0');
   signal staged_malformed : std_logic := '0';
 
-  signal m_axis_tlast_vec : std_logic_vector(0 downto 0);
-  signal m_axis_tstrb     : std_logic_vector(3 downto 0);
+  signal hls_diag_tdata     : std_logic_vector(31 downto 0);
+  signal hls_diag_tkeep     : std_logic_vector(3 downto 0);
+  signal hls_diag_tstrb     : std_logic_vector(3 downto 0);
+  signal hls_diag_tvalid    : std_logic;
+  signal hls_diag_tlast_vec : std_logic_vector(0 downto 0);
+
+  signal diag_fifo_dout     : std_logic_vector(31 downto 0);
+  signal diag_fifo_write    : std_logic;
+  signal diag_fifo_read     : std_logic;
+  signal diag_fifo_full     : std_logic;
+  signal diag_fifo_empty    : std_logic;
+  signal diag_fifo_wr_busy  : std_logic;
+  signal diag_fifo_rd_busy  : std_logic;
+  signal diag_fifo_valid    : std_logic;
+  -- The queue is synchronous, so this small external occupancy counter is
+  -- exact and avoids depending on an optional XPM count port for the atomic
+  -- 64-word record reservation.  Storage itself remains an AMD XPM BRAM.
+  signal diag_fifo_occupancy : unsigned(DIAG_FIFO_COUNT_WIDTH - 1 downto 0) :=
+    (others => '0');
+  signal diag_start_allowed : std_logic;
+  signal diag_record_keep   : std_logic := '0';
+  signal diag_input_word    : natural range 0 to DIAG_RECORD_WORDS - 1 := 0;
+  signal diag_output_word   : natural range 0 to DIAG_RECORD_WORDS - 1 := 0;
+  signal diag_drop_count    : unsigned(31 downto 0) := (others => '0');
+  signal diag_format_errors : unsigned(31 downto 0) := (others => '0');
 begin
   -- XPM asymmetric width conversion emits the least-significant 32-bit word
   -- first.  That is the packet order defined by single_cycle_sample_packet.
@@ -161,6 +200,31 @@ begin
   sample_fifo_write <= staged_valid and not sample_fifo_full and
                        not sample_fifo_wr_busy;
 
+  -- The HLS diagnostic master is deliberately never backpressured.  At the
+  -- first word of each fixed-size record, reserve all 64 FIFO locations.  If
+  -- that reservation cannot be made, consume and discard the whole record.
+  -- The authoritative m_result output retains its normal handshake.
+  diag_start_allowed <= '1' when diag_fifo_wr_busy = '0' and
+                                 diag_fifo_full = '0' and
+                                 diag_fifo_occupancy <=
+                                   to_unsigned(DIAG_FIFO_RESERVE_LIMIT,
+                                               DIAG_FIFO_COUNT_WIDTH)
+                        else '0';
+  diag_fifo_write <= hls_diag_tvalid and diag_start_allowed
+                     when diag_input_word = 0 else
+                     hls_diag_tvalid and diag_record_keep;
+
+  diag_fifo_valid <= '1' when diag_fifo_empty = '0' and
+                              diag_fifo_rd_busy = '0' else '0';
+  diag_fifo_read <= diag_fifo_valid and m_axis_scyc_tready;
+
+  m_axis_scyc_tdata  <= diag_fifo_dout;
+  m_axis_scyc_tkeep  <= (others => '1');
+  m_axis_scyc_tvalid <= diag_fifo_valid;
+  m_axis_scyc_tlast  <= '1' when diag_fifo_valid = '1' and
+                                diag_output_word = DIAG_RECORD_WORDS - 1
+                        else '0';
+
   core : hls_single_cycle_engine_ip
     port map (
       ap_clk          => aclk,
@@ -168,18 +232,16 @@ begin
       s_sample_TDATA  => sample_fifo_dout,
       s_sample_TVALID => sample_fifo_valid,
       s_sample_TREADY => in_ready,
-      m_axis_TDATA    => m_axis_scyc_tdata,
-      m_axis_TVALID   => m_axis_scyc_tvalid,
-      m_axis_TREADY   => m_axis_scyc_tready,
-      m_axis_TKEEP    => m_axis_scyc_tkeep,
-      m_axis_TSTRB    => m_axis_tstrb,
-      m_axis_TLAST    => m_axis_tlast_vec,
+      m_axis_TDATA    => hls_diag_tdata,
+      m_axis_TVALID   => hls_diag_tvalid,
+      m_axis_TREADY   => '1',
+      m_axis_TKEEP    => hls_diag_tkeep,
+      m_axis_TSTRB    => hls_diag_tstrb,
+      m_axis_TLAST    => hls_diag_tlast_vec,
       m_result_TDATA  => m_result_tdata,
       m_result_TVALID => m_result_tvalid,
       m_result_TREADY => m_result_tready
     );
-  m_axis_scyc_tlast <= m_axis_tlast_vec(0);
-
   drop_count_o <= std_logic_vector(drop_count);
 
   sample_frame_fifo : xpm_fifo_sync
@@ -228,6 +290,116 @@ begin
       sbiterr => open,
       dbiterr => open
     );
+
+  -- Narrow storage is intentional.  A 2,048-bit atomic write port would
+  -- require many shallow BRAM slices and create a wide routed bus.  The
+  -- fixed-record reservation above gives the same all-or-drop behavior while
+  -- keeping the queue 32 bits wide and compact.
+  diagnostic_record_fifo : xpm_fifo_sync
+    generic map (
+      DOUT_RESET_VALUE    => "0",
+      ECC_MODE            => "no_ecc",
+      FIFO_MEMORY_TYPE    => "block",
+      FIFO_READ_LATENCY   => 0,
+      FIFO_WRITE_DEPTH    => DIAG_FIFO_DEPTH,
+      FULL_RESET_VALUE    => 0,
+      PROG_EMPTY_THRESH   => 2,
+      PROG_FULL_THRESH    => DIAG_FIFO_RESERVE_LIMIT,
+      RD_DATA_COUNT_WIDTH => DIAG_FIFO_COUNT_WIDTH,
+      READ_DATA_WIDTH     => 32,
+      READ_MODE           => "fwft",
+      SIM_ASSERT_CHK      => 1,
+      USE_ADV_FEATURES    => "0000",
+      WAKEUP_TIME         => 0,
+      WRITE_DATA_WIDTH    => 32,
+      WR_DATA_COUNT_WIDTH => DIAG_FIFO_COUNT_WIDTH
+    )
+    port map (
+      sleep => '0',
+      rst => not aresetn,
+      wr_clk => aclk,
+      wr_en => diag_fifo_write,
+      din => hls_diag_tdata,
+      full => diag_fifo_full,
+      overflow => open,
+      wr_rst_busy => diag_fifo_wr_busy,
+      rd_en => diag_fifo_read,
+      dout => diag_fifo_dout,
+      empty => diag_fifo_empty,
+      underflow => open,
+      rd_rst_busy => diag_fifo_rd_busy,
+      data_valid => open,
+      almost_empty => open,
+      almost_full => open,
+      prog_empty => open,
+      prog_full => open,
+      rd_data_count => open,
+      wr_data_count => open,
+      wr_ack => open,
+      injectsbiterr => '0',
+      injectdbiterr => '0',
+      sbiterr => open,
+      dbiterr => open
+    );
+
+  -- Track the fixed HLS record boundary independently of TLAST.  TLAST and
+  -- byte qualifiers are checked as contract diagnostics, while the exported
+  -- stream regenerates a clean boundary every 64 words.
+  process (aclk)
+  begin
+    if rising_edge(aclk) then
+      if aresetn = '0' then
+        diag_record_keep <= '0';
+        diag_input_word <= 0;
+        diag_output_word <= 0;
+        diag_fifo_occupancy <= (others => '0');
+        diag_drop_count <= (others => '0');
+        diag_format_errors <= (others => '0');
+      else
+        -- Count accepted XPM transactions.  A simultaneous push/pop leaves
+        -- occupancy unchanged; record admission is decided only at word 0.
+        if diag_fifo_write = '1' and diag_fifo_read = '0' then
+          diag_fifo_occupancy <= diag_fifo_occupancy + 1;
+        elsif diag_fifo_write = '0' and diag_fifo_read = '1' then
+          diag_fifo_occupancy <= diag_fifo_occupancy - 1;
+        end if;
+
+        if hls_diag_tvalid = '1' then
+          if diag_input_word = 0 then
+            diag_record_keep <= diag_start_allowed;
+            if diag_start_allowed = '0' then
+              diag_drop_count <= diag_drop_count + 1;
+            end if;
+          end if;
+
+          if hls_diag_tkeep /= "1111" or hls_diag_tstrb /= "1111" then
+            diag_format_errors <= diag_format_errors + 1;
+          elsif diag_input_word = DIAG_RECORD_WORDS - 1 then
+            if hls_diag_tlast_vec(0) /= '1' then
+              diag_format_errors <= diag_format_errors + 1;
+            end if;
+          elsif hls_diag_tlast_vec(0) /= '0' then
+            diag_format_errors <= diag_format_errors + 1;
+          end if;
+
+          if diag_input_word = DIAG_RECORD_WORDS - 1 then
+            diag_input_word <= 0;
+            diag_record_keep <= '0';
+          else
+            diag_input_word <= diag_input_word + 1;
+          end if;
+        end if;
+
+        if diag_fifo_read = '1' then
+          if diag_output_word = DIAG_RECORD_WORDS - 1 then
+            diag_output_word <= 0;
+          else
+            diag_output_word <= diag_output_word + 1;
+          end if;
+        end if;
+      end if;
+    end if;
+  end process;
 
   -- Assemble the atomic wide write from the staged frame and the registered
   -- one-cycle-later timing context.  This wide vector is local to the XPM
