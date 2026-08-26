@@ -116,21 +116,6 @@ entity meter_core is
     s_axi_simulator_rvalid  : out std_logic;
     s_axi_simulator_rready  : in  std_logic;
 
-    -- One AXIS master per record producer (32-bit, 64-beat packets). The
-    -- block design gives each a packet-mode axis_data_fifo and one
-    -- axis_switch slave port; the switch output feeds the meter DMA.
-    m_axis_mtr1_tdata  : out std_logic_vector(31 downto 0);
-    m_axis_mtr1_tkeep  : out std_logic_vector(3 downto 0);
-    m_axis_mtr1_tvalid : out std_logic;
-    m_axis_mtr1_tready : in  std_logic;
-    m_axis_mtr1_tlast  : out std_logic;
-
-    m_axis_mtr2_tdata  : out std_logic_vector(31 downto 0);
-    m_axis_mtr2_tkeep  : out std_logic_vector(3 downto 0);
-    m_axis_mtr2_tvalid : out std_logic;
-    m_axis_mtr2_tready : in  std_logic;
-    m_axis_mtr2_tlast  : out std_logic;
-
     -- PQEVT-v1 record stream: the sliding Urms(1/2) / event tier's own
     -- producer port (metrology M12).
     m_axis_pq_tdata  : out std_logic_vector(31 downto 0);
@@ -285,7 +270,7 @@ architecture structural of meter_core is
   -- ordered 221-word sufficient-statistics packet. The private exporter adds
   -- context and CRC32C for R5C1, which owns every interval record. Returned
   -- MTR1/MTR2 records bypass this module through the block-design AXIS switch;
-  -- the legacy wrapper outputs and their record taps remain idle.
+  -- MeterCore no longer exposes duplicate legacy record outputs or taps.
   signal scyc_shim_drop_count : std_logic_vector(31 downto 0);
   signal grid_cycle_locked    : std_logic;
   signal grid_cycle_fallback  : std_logic;
@@ -306,10 +291,6 @@ architecture structural of meter_core is
   signal r5_agg_queue_level       : std_logic_vector(7 downto 0);
   signal r5_agg_status            : std_logic_vector(31 downto 0);
 
-  signal mtr1_axis_tdata  : std_logic_vector(31 downto 0);
-  signal mtr1_axis_tkeep  : std_logic_vector(3 downto 0);
-  signal mtr1_axis_tvalid : std_logic;
-  signal mtr1_axis_tlast  : std_logic;
   -- Sliding Urms(1/2) / PQ event producer (M12). Its shim observes the
   -- same accepted-frame fan-out the single-cycle shim does.
   signal pq_axis_tdata      : std_logic_vector(31 downto 0);
@@ -325,21 +306,6 @@ architecture structural of meter_core is
   signal pq_tap_event_seq    : std_logic_vector(31 downto 0);
   signal pq_status           : std_logic_vector(31 downto 0);
   signal pq_event_active     : std_logic;
-
-  signal mtr2_axis_tdata  : std_logic_vector(31 downto 0);
-  signal mtr2_axis_tkeep  : std_logic_vector(3 downto 0);
-  signal mtr2_axis_tvalid : std_logic;
-  signal mtr2_axis_tlast  : std_logic;
-
-  signal mtr1_tap_sequence     : std_logic_vector(31 downto 0);
-  signal mtr1_tap_status       : std_logic_vector(31 downto 0);
-  signal mtr1_tap_emit_drops   : std_logic_vector(31 downto 0);
-  signal mtr1_tap_result_drops : std_logic_vector(31 downto 0);
-  signal mtr2_tap_sequence     : std_logic_vector(31 downto 0);
-  signal mtr2_tap_emit_drops   : std_logic_vector(31 downto 0);
-  signal mtr2_tap_reset        : std_logic_vector(31 downto 0);
-  signal mtr2_tap_ineligible   : std_logic_vector(31 downto 0);
-  signal mtr2_tap_continuity   : std_logic_vector(31 downto 0);
 
   signal waveform_enable      : std_logic;
   signal waveform_clear_stats : std_logic;
@@ -830,20 +796,18 @@ begin
       pq_status_i => pq_status,
       grid_active_config_i => grid_active_config,
       grid_status_i => grid_status,
-      -- Aggregation health from the MTR2 record tap ("as of the last
-      -- emitted aggregate"; the counters ride in record words 33..35 and
-      -- the record count is the record's own sequence word). AGG_STATUS
-      -- has no live equivalent since the RTL engine's retirement and
-      -- reads zero; HLS_AGG_MISMATCH_COUNT is reserved (the
-      -- compared-pair trial ended); HLS_AGG_DROP_COUNT now carries the
-      -- MTR1 sample-beat FIFO drop counter (any nonzero is a fault).
+      -- The retired PL interval/result diagnostics keep their AXI-Lite
+      -- offsets and read zero. AGG_STATUS has no live equivalent since the
+      -- RTL engine's retirement and HLS_AGG_MISMATCH_COUNT remains reserved.
+      -- HLS_AGG_DROP_COUNT is the exception: it remains the live
+      -- SingleCycle sample-beat FIFO drop counter (any nonzero is a fault).
       agg_status_i => (others => '0'),
-      agg_record_count_i => mtr2_tap_sequence,
-      agg_reset_count_i => mtr2_tap_reset,
-      agg_ineligible_count_i => mtr2_tap_ineligible,
-      agg_continuity_count_i => mtr2_tap_continuity,
-      agg_drop_count_i => mtr2_tap_emit_drops,
-      legacy_agg_record_count_i => mtr2_tap_sequence,
+      agg_record_count_i => (others => '0'),
+      agg_reset_count_i => (others => '0'),
+      agg_ineligible_count_i => (others => '0'),
+      agg_continuity_count_i => (others => '0'),
+      agg_drop_count_i => (others => '0'),
+      legacy_agg_record_count_i => (others => '0'),
       legacy_agg_mismatch_count_i => (others => '0'),
       -- The sample-domain loss point is now the single-cycle shim's FIFO
       -- (the retired Mtr1 shim's counter died with it).
@@ -864,9 +828,9 @@ begin
       harmonic_frontend_malformed_i => harmonic_frontend_malformed,
       harmonic_xfft_fault_count_i => harmonic_xfft_faults,
       active_generation_i => active_generation,
-      result_sequence_i => mtr1_tap_sequence,
-      result_drop_count_i => mtr1_tap_result_drops,
-      packet_drop_count_i => mtr1_tap_emit_drops,
+      result_sequence_i => (others => '0'),
+      result_drop_count_i => (others => '0'),
+      packet_drop_count_i => (others => '0'),
       status_i => processing_status
     );
 
@@ -1022,17 +986,9 @@ begin
 
   -- R5C1 is the only interval-aggregation owner. The exporter consumes the
   -- SingleCycle packet without backpressuring metrology and emits a complete,
-  -- integrity-protected private-link frame. MTR1/MTR2 return through the
-  -- block-design meter switch, so these legacy PL outputs remain idle.
+  -- integrity-protected private-link frame. Finished MTR1/MTR2 records return
+  -- through the independent block-design R5 FIFO path.
   scyc_result_tready <= r5_export_input_ready;
-  mtr1_axis_tdata <= (others => '0');
-  mtr1_axis_tkeep <= (others => '1');
-  mtr1_axis_tvalid <= '0';
-  mtr1_axis_tlast <= '0';
-  mtr2_axis_tdata <= (others => '0');
-  mtr2_axis_tkeep <= (others => '1');
-  mtr2_axis_tvalid <= '0';
-  mtr2_axis_tlast <= '0';
 
   -- R5 receives this same configuration snapshot in every input packet.
   active_generation <= shadow_generation;
@@ -1078,25 +1034,12 @@ begin
       status_o => r5_agg_status
     );
 
-  m_axis_mtr1_tdata <= mtr1_axis_tdata;
-  m_axis_mtr1_tkeep <= mtr1_axis_tkeep;
-  m_axis_mtr1_tvalid <= mtr1_axis_tvalid;
-  m_axis_mtr1_tlast <= mtr1_axis_tlast;
-
   -- STATUS (0x0C): enabled, apply pending, calculation busy, overflow.
-  -- The PL interval fields are retained for register compatibility.
-  processing_status <= (31 downto 4 => '0') & mtr1_tap_status(0) & '0' &
+  -- Retired PL busy/overflow fields stay zero for register compatibility.
+  processing_status <= (31 downto 2 => '0') &
                        (apply_toggle xor apply_seen) & active_enable;
 
-  -- Legacy PL record outputs remain in the module-reference interface for
-  -- block-design compatibility. R5C1 records enter the switch independently.
-  m_axis_mtr2_tdata <= mtr2_axis_tdata;
-  m_axis_mtr2_tkeep <= mtr2_axis_tkeep;
-  m_axis_mtr2_tvalid <= mtr2_axis_tvalid;
-  m_axis_mtr2_tlast <= mtr2_axis_tlast;
-
-  -- Legacy record taps remain wired to the idle outputs and therefore read
-  -- zero. R5C1 reports aggregation health through its firmware contract.
+  -- R5C1 reports aggregation health through its firmware contract.
   -- Single-cycle producer: sample-beat shim + HLS engine (per-cycle
   -- provenance in M2; statistics/power/phasor accumulate here from M3).
   -- Its result stream feeds the private R5C1 exporter.
@@ -1214,50 +1157,4 @@ begin
                pq_tap_kind(10 downto 8) &       -- [3:1]   event type
                pq_event_active;                 -- [0]     event in progress
 
-  mtr1_tap : entity work.record_word_tap
-    port map (
-      aclk => aclk,
-      aresetn => aresetn,
-      tdata_i => mtr1_axis_tdata,
-      tvalid_i => mtr1_axis_tvalid,
-      tready_i => m_axis_mtr1_tready,
-      tlast_i => mtr1_axis_tlast,
-      sequence_o => mtr1_tap_sequence,
-      status_o => mtr1_tap_status,
-      emit_drops_o => mtr1_tap_emit_drops,
-      result_drops_o => mtr1_tap_result_drops,
-      reset_count_o => open,
-      ineligible_count_o => open,
-      continuity_count_o => open,
-      aux0_o => open,
-      aux1_o => open,
-      framing_error_o => open,
-      framing_error_count_o => open
-    );
-
-  mtr2_tap : entity work.record_word_tap
-    generic map (
-      -- Words 33..35 belong to AGG-v3; the sibling records reuse them
-      -- as payload/reserved space and must not reach the registers.
-      G_DIAG_FORMAT => x"00020003"
-    )
-    port map (
-      aclk => aclk,
-      aresetn => aresetn,
-      tdata_i => mtr2_axis_tdata,
-      tvalid_i => mtr2_axis_tvalid,
-      tready_i => m_axis_mtr2_tready,
-      tlast_i => mtr2_axis_tlast,
-      sequence_o => mtr2_tap_sequence,
-      status_o => open,
-      emit_drops_o => mtr2_tap_emit_drops,
-      result_drops_o => open,
-      reset_count_o => mtr2_tap_reset,
-      ineligible_count_o => mtr2_tap_ineligible,
-      continuity_count_o => mtr2_tap_continuity,
-      aux0_o => open,
-      aux1_o => open,
-      framing_error_o => open,
-      framing_error_count_o => open
-    );
 end architecture;

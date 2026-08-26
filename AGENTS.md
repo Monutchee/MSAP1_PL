@@ -22,15 +22,17 @@
   single-cycle metering numerics are implemented by Vitis HLS inside this
   hierarchy. In the production configuration R5C1 owns interval aggregation
   and returns finished 256-byte MTR1/MTR2 records through the bidirectional
-  AXI FIFO MM-S into the existing AXIS switch in `TopDesign.bd`; the wrapper's
-  legacy `M_AXIS_MTR1` and `M_AXIS_MTR2` outputs remain idle.
+  AXI FIFO MM-S into `MTR_AXI_Switch/S02_AXIS` in `TopDesign.bd`. The retired
+  duplicate `M_AXIS_MTR1` and `M_AXIS_MTR2` wrapper interfaces do not exist.
+  The compact record-switch order is S00 SingleCycle, S01 PQ, S02 R5C1
+  return, and S03 harmonics.
 - M16 harmonic acquisition is also owned inside `MeterCore_Wrapper`: the
   fixed 32 kSPS 16/25 polyphase conditioner, URAM-backed 4,096-frame ping/pong
   frontend, packaged `hls_harmonic_engine_ip`, XFFT fault handling, and
   4,096-word record FIFO are one hierarchy. The block design owns only one
   XFFT v9.1 customization connected through the wrapper's four `*_FFT_*` AXIS
   interfaces and six event scalars. Finished records leave on the dedicated
-  `M_AXIS_HARMONIC` port and join `MTR_AXI_Switch/S05_AXIS`; do not merge them
+  `M_AXIS_HARMONIC` port and join `MTR_AXI_Switch/S03_AXIS`; do not merge them
   into `M_AXIS_PQ`. The production conditioner profile accepts only exact
   6,400-frame 10/12-cycle blocks at measured 32 kSPS. Other geometries emit
   no valid spectral window. Its read-only health window is `0xCC`--`0xE4` in
@@ -101,7 +103,7 @@
   sticky drop diagnostic. It must never deassert the upstream READY signal or
   backpressure metrology. R5C1 returns one complete
   256-byte record through the FIFO TX AXI stream into
-  `MTR_AXI_Switch/S04_AXIS`. There is intentionally no PL runtime fallback
+  `MTR_AXI_Switch/S02_AXIS`. There is intentionally no PL runtime fallback
   when the co-released R5 image or FIFO path is unavailable.
 - `SourceData/HLS_DesignFile/` holds Vitis HLS components: C++ sources are
   the design input; the shared `HLS_DesignFile/run_hls.sh [component]`
@@ -187,11 +189,18 @@ vivado -mode batch -source SourceData/Script/AI_gen/check_meter_core.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_meter_frequency.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_r5_aggregation_export.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_metering_pipeline.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/check_metering_module_references.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/check_meter_record_switch.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/check_meter_record_transport.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_metering_synthesis.tcl -tclargs MeterCore_Wrapper
 vivado -mode batch -source SourceData/Script/AI_gen/verify_ad7771_design.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/synth_ad7771_design.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/implement_ad7771_design.tcl
 ```
+
+For a project created before M16, run `register_hls_components.tcl` and then
+`register_m16_harmonic_sources.tcl` once before the PL build so both the
+packaged HarmonicEngine IP and its maintained RTL boundary are in `sources_1`.
 
 - Run the focused capture check for RTL changes and BD verification for any
   integration change. Run synthesis for interface, clock, reset, or constraint

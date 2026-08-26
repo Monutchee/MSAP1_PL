@@ -12,6 +12,14 @@ are internal. The Vivado owner adds only one XFFT v9.1 customization, connects
 its four AXIS interfaces and event pins, and connects the dedicated
 `M_AXIS_HARMONIC` producer to the record switch.
 
+On a project that predates M16, register the packaged IP and maintained RTL
+sources before synthesis:
+
+```sh
+vivado -mode batch -source SourceData/Script/register_hls_components.tcl
+vivado -mode batch -source SourceData/Script/register_m16_harmonic_sources.tcl
+```
+
 ## Production geometry
 
 Every spectrum covers one contiguous grid-synchronous basic block:
@@ -80,11 +88,13 @@ Important behavior:
 The earlier BRAM sizing route used 38 RAMB36. The embedded production setting
 deliberately moves that storage to six URAMs so the external XFFT and the rest
 of TopDesign retain BRAM headroom. The final pre-XFFT `MeterCore_Wrapper`
-focused synthesis on K26 at 100 MHz passes with WNS +1.629 ns and uses 38,581
-CLB LUTs (32.94%), 58,608 registers (25.02%), 76 BRAM tiles (52.78%), six
-URAMs (9.38%), and 238 DSPs (19.07%). Re-run the full routed PL
-resource/timing gate after integration; focused synthesis is not a routed
-system figure.
+focused synthesis on K26 at 100 MHz passes with WNS +1.629 ns and uses 38,564
+CLB LUTs (32.93%), 58,639 registers (25.03%), 76 BRAM tiles (52.78%), six
+URAMs (9.38%), and 238 DSPs (19.07%). The integrated full-PL route passes at
+WNS +0.102 ns / TNS 0 with 11,339 / 14,640 physical CLBs (77.45%), 101.5
+BRAM tiles, six URAMs, and zero unsafe/unknown CDC endpoints or critical DRC
+warnings. Bitstream/XSA generation and target soak remain separate release
+gates.
 
 ## XFFT v9.1 customization
 
@@ -191,14 +201,15 @@ MeterCore raw frame observer
   <- S_AXIS_FFT_STATUS <------- XFFT M_AXIS_STATUS
   <- xfft_event_* <------------ XFFT event outputs
   -> embedded HarmonicEngine -> embedded 4096-word packet FIFO
-  -> M_AXIS_HARMONIC -> MTR_AXI_Switch/S05_AXIS -> existing meter DMA
+  -> M_AXIS_HARMONIC -> MTR_AXI_Switch/S03_AXIS -> existing meter DMA
 ```
 
-`MTR_AXI_Switch` currently has five inputs (S00..S04, with the R5 aggregation
-return on S04). Increase `NUM_SI` to 6 and use S05 for harmonics. The required
+`MTR_AXI_Switch` has exactly four inputs: S00 SingleCycle packet FIFO, S01 PQ
+packet FIFO, S02 R5 aggregation return, and S03 harmonics. The required
 4,096-word XPM packet FIFO is already inside MeterCore and has capacity for all
 42 x 64-word records plus margin; do not add a duplicate external FIFO. Keep
-switch arbitration on TLAST.
+True Round-Robin switch arbitration on TLAST, with maximum-transfer and cycle
+arbitration disabled.
 
 Do not put sample payloads on RPMsg. R5C0 changes in this milestone only
 extend the simulator configuration ABI for fractional harmonic/interharmonic

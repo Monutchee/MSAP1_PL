@@ -51,13 +51,33 @@ set expected_interfaces [list \
   meter_core/S_AXI_CAPTURE meter_core/S_AXI_CONVERSION \
   meter_core/S_AXI_PROCESSING meter_core/S_AXI_WAVEFORM \
   meter_core/S_AXI_SIMULATOR \
-  meter_core/M_AXIS_MTR1 meter_core/M_AXIS_MTR2 \
-  meter_core/M_AXIS_PQ meter_core/M_AXIS_SCYC \
+  meter_core/M_AXIS_PQ meter_core/M_AXIS_HARMONIC \
+  meter_core/M_AXIS_SCYC \
   meter_core/M_AXIS_R5_AGG_INPUT \
-  meter_core/M_AXIS_WAVEFORM]
+  meter_core/M_AXIS_WAVEFORM \
+  meter_core/M_AXIS_FFT_DATA meter_core/S_AXIS_FFT_DATA \
+  meter_core/M_AXIS_FFT_CONFIG meter_core/S_AXIS_FFT_STATUS]
 foreach interface_name $expected_interfaces {
   if {[llength [get_bd_intf_pins -quiet $interface_name]] != 1} {
     error "missing inferred interface $interface_name"
+  }
+}
+
+foreach legacy_interface [list meter_core/M_AXIS_MTR1 meter_core/M_AXIS_MTR2] {
+  if {[llength [get_bd_intf_pins -quiet $legacy_interface]] != 0} {
+    error "retired interface $legacy_interface is still present"
+  }
+}
+
+foreach event_pin [list \
+    xfft_event_frame_started \
+    xfft_event_tlast_unexpected \
+    xfft_event_tlast_missing \
+    xfft_event_status_channel_halt \
+    xfft_event_data_in_channel_halt \
+    xfft_event_data_out_channel_halt] {
+  if {[llength [get_bd_pins -quiet meter_core/$event_pin]] != 1} {
+    error "missing XFFT event pin meter_core/$event_pin"
   }
 }
 
@@ -69,8 +89,16 @@ if {[get_property CONFIG.FREQ_HZ $meter_clock] != 99999001} {
   error "MeterCore aclk FREQ_HZ metadata was not inferred as 99999001"
 }
 if {[get_property CONFIG.ASSOCIATED_BUSIF $meter_clock] ne \
-    "S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:S_AXI_WAVEFORM:S_AXI_SIMULATOR:M_AXIS_MTR1:M_AXIS_MTR2:M_AXIS_PQ:M_AXIS_SCYC:M_AXIS_R5_AGG_INPUT:M_AXIS_WAVEFORM"} {
+    "S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:S_AXI_WAVEFORM:S_AXI_SIMULATOR:M_AXIS_PQ:M_AXIS_HARMONIC:M_AXIS_SCYC:M_AXIS_R5_AGG_INPUT:M_AXIS_WAVEFORM:M_AXIS_FFT_DATA:S_AXIS_FFT_DATA:M_AXIS_FFT_CONFIG:S_AXIS_FFT_STATUS"} {
   error "MeterCore aclk AXI interface associations were not inferred"
+}
+
+set meter_reset [get_bd_pins -quiet meter_core/aresetn]
+if {[llength $meter_reset] != 1} {
+  error "missing inferred MeterCore reset pin"
+}
+if {[get_property CONFIG.POLARITY $meter_reset] ne "ACTIVE_LOW"} {
+  error "MeterCore aresetn polarity metadata was not inferred as ACTIVE_LOW"
 }
 
 puts "Metering module-reference interface inference PASS"

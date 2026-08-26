@@ -212,10 +212,11 @@ is pinned by `meter_r5_aggregation_pkg.vhd` and
 
 R5C1 owns Basic, 150/180-cycle, UTC 10-minute, and 2-hour aggregation and
 record serialization. It returns one complete 256-byte record through the
-AXI FIFO TX channel into `MTR_AXI_Switch/S04_AXIS`; the wrapper's legacy
-`M_AXIS_MTR1` and `M_AXIS_MTR2` outputs remain idle. Every returned record is
-64 x 32-bit beats with TLAST on beat 63 before it joins the Linux meter-DMA
-path. RPMsg remains control-plane only.
+AXI FIFO TX channel into `MTR_AXI_Switch/S02_AXIS`. The retired duplicate
+`M_AXIS_MTR1` and `M_AXIS_MTR2` wrapper interfaces are removed. Every returned
+record is 64 x 32-bit beats with TLAST on beat 63 before it joins the Linux
+meter-DMA path. The other compact switch inputs are S00 SingleCycle, S01 PQ,
+and S03 harmonics. RPMsg remains control-plane only.
 
 The fixed-point interval algorithm and its host tests are owned under
 `MSAP1_RPU/R5c1/src/MainApp/aggregation/`. Shared record maps, sufficient

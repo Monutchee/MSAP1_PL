@@ -16,7 +16,9 @@ Raw ADC simulator --------+                       |
                +-> VLA positive zero-cross frequency --+
                |                                      |
                |         result hub <- coherent results+
-               |              -> MTR1 packetizer -> meter DMA
+               |              -> SCYC/PQ packet FIFOs -> meter DMA
+               |              -> private R5C1 export -> returned records
+               |                                      -> meter DMA
                |
                +-> nonblocking 256-frame XPM FIFO
                        -> WFM1 packetizer -> waveform DMA
@@ -66,7 +68,7 @@ and one record-switch connection:
 | `M_AXIS_FFT_CONFIG` | XFFT `S_AXIS_CONFIG` |
 | `S_AXIS_FFT_STATUS` | XFFT `M_AXIS_STATUS` |
 | six `xfft_event_*` inputs | matching XFFT event outputs |
-| `M_AXIS_HARMONIC` | `MTR_AXI_Switch/S05_AXIS` after increasing `NUM_SI` to 6 |
+| `M_AXIS_HARMONIC` | `MTR_AXI_Switch/S03_AXIS` |
 
 Use the exact XFFT property dictionary in
 `HLS_DesignFile/MeterProcessing/HarmonicEngine/README.md`. All interfaces use
@@ -75,16 +77,22 @@ accepts it and drains status continuously. The processing read-only registers
 `0xCC`--`0xE4` expose conditioner, frontend, and XFFT health for the routed
 soak gate.
 
-The final repository-side, pre-XFFT `MeterCore_Wrapper` synthesis on K26 at
-100 MHz passes with WNS +1.629 ns and uses 38,581 CLB LUTs (32.94%), 58,608
-registers (25.02%), 76 BRAM tiles (52.78%), six URAMs (9.38%), and 238 DSPs
-(19.07%). These are focused synthesis figures; repeat the full routed gate
-after adding XFFT and the S05 record-switch connection.
+The repository-side, pre-XFFT `MeterCore_Wrapper` synthesis on K26 at
+100 MHz passes with WNS +1.629 ns and uses 38,564 CLB LUTs (32.93%), 58,639
+registers (25.03%), 76 BRAM tiles (52.78%), six URAMs (9.38%), and 238 DSPs
+(19.07%). The integrated XFFT and compact four-input record switch also pass
+the full K26 route at WNS +0.102 ns / TNS 0, using 54,178 LUTs (46.26%),
+81,930 registers (34.98%), 11,339 physical CLBs (77.45%), 101.5 BRAM tiles
+(70.49%), six URAMs (9.38%), and 242 DSPs (19.39%). Routed CDC has zero
+unsafe/unknown endpoints and DRC has zero critical warnings.
 
-`M_AXIS_METER` emits the existing 256-byte MTR1 records as 64 32-bit beats,
-with `TLAST` asserted on beat 63. The module-reference clock metadata is
-99,999,001 Hz. `adc_dclk` remains an independent ADC-source clock and the
-capture entity retains the established CDC implementation.
+All meter-record producers emit 256-byte records as 64 32-bit beats with
+`TLAST` asserted on beat 63. `MTR_AXI_Switch` has exactly four inputs:
+S00 SingleCycle, S01 PQ, S02 R5C1-returned MTR1/MTR2, and S03 harmonics. The
+retired duplicate `M_AXIS_MTR1` and `M_AXIS_MTR2` MeterCore interfaces are
+absent. The module-reference clock metadata is 99,999,001 Hz. `adc_dclk`
+remains an independent ADC-source clock and the capture entity retains the
+established CDC implementation.
 
 ## Raw ADC simulator
 
