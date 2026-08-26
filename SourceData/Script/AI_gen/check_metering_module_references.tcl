@@ -9,17 +9,6 @@ file delete -force $work_root
 file mkdir $work_root
 cd $work_root
 
-# Packaged HLS RTL (IP repository entry); refreshed by 'mnc HLS build' or
-# SourceData/HLS_DesignFile/run_hls.sh <component>.
-set hls_agg_hdl [file join $project_root SourceData HLS_DesignFile \
-  ip_repo AggregationEngine hdl verilog]
-if {![file isdirectory $hls_agg_hdl]} {
-  error "missing $hls_agg_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
-}
-set hls_agg_verilog [concat \
-  [lsort [glob -directory $hls_agg_hdl *.v *.vh]] \
-  [list [file join $design_root MeterProcessing tb hls_aggregation_engine_ip.v]]]
-
 create_project -in_memory -part xck26-sfvc784-2LV-c
 set_property source_mgmt_mode All [current_project]
 set vhdl_2008_sources [list \
@@ -40,7 +29,8 @@ set vhdl_2008_sources [list \
   [file join $design_root MeterProcessing meter_frequency.vhd] \
   [file join $design_root MeterProcessing grid_cycle_timing.vhd] \
   [file join $design_root MeterProcessing record_word_tap.vhd] \
-  [file join $design_root MeterProcessing meter_aggregation_hls_shim.vhd] \
+  [file join $design_root MeterProcessing meter_r5_aggregation_pkg.vhd] \
+  [file join $design_root MeterProcessing meter_r5_aggregation_export.vhd] \
   [file join $design_root MeterCore adc_simulator_pkg.vhd] \
   [file join $design_root MeterCore adc_simulator.vhd] \
   [file join $design_root MeterCore adc_source_mux.vhd] \
@@ -50,8 +40,7 @@ set vhdl_2008_sources [list \
 set wrapper_sources [list \
   [file join $design_root MeterCore MeterCore_Wrapper.vhd]]
 
-add_files -norecurse [concat $vhdl_2008_sources $wrapper_sources \
-  $hls_agg_verilog]
+add_files -norecurse [concat $vhdl_2008_sources $wrapper_sources]
 set_property FILE_TYPE {VHDL 2008} [get_files $vhdl_2008_sources]
 update_compile_order -fileset sources_1
 create_bd_design metering_module_reference_check
@@ -63,6 +52,8 @@ set expected_interfaces [list \
   meter_core/S_AXI_PROCESSING meter_core/S_AXI_WAVEFORM \
   meter_core/S_AXI_SIMULATOR \
   meter_core/M_AXIS_MTR1 meter_core/M_AXIS_MTR2 \
+  meter_core/M_AXIS_PQ meter_core/M_AXIS_SCYC \
+  meter_core/M_AXIS_R5_AGG_INPUT \
   meter_core/M_AXIS_WAVEFORM]
 foreach interface_name $expected_interfaces {
   if {[llength [get_bd_intf_pins -quiet $interface_name]] != 1} {
@@ -78,7 +69,7 @@ if {[get_property CONFIG.FREQ_HZ $meter_clock] != 99999001} {
   error "MeterCore aclk FREQ_HZ metadata was not inferred as 99999001"
 }
 if {[get_property CONFIG.ASSOCIATED_BUSIF $meter_clock] ne \
-    "S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:S_AXI_WAVEFORM:S_AXI_SIMULATOR:M_AXIS_MTR1:M_AXIS_MTR2:M_AXIS_SCYC:M_AXIS_WAVEFORM"} {
+    "S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:S_AXI_WAVEFORM:S_AXI_SIMULATOR:M_AXIS_MTR1:M_AXIS_MTR2:M_AXIS_PQ:M_AXIS_SCYC:M_AXIS_R5_AGG_INPUT:M_AXIS_WAVEFORM"} {
   error "MeterCore aclk AXI interface associations were not inferred"
 }
 

@@ -12,7 +12,7 @@ use work.measurement_record_bus_pkg.all;
 -- normative map: HLS_DesignFile/common/include/measurement_record.hpp).
 -- This tap watches the beats of every accepted packet and republishes
 -- those words to the AXI-Lite register file, so the registers read "as of
--- the last emitted record" — the aggregation-engine register precedent, now
+-- the last emitted record" -- the legacy register precedent, now
 -- uniform for every producer.
 --
 -- Strictly passive: it never drives or gates the stream, so it cannot

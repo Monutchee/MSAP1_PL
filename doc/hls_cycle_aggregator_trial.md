@@ -1,5 +1,12 @@
 # HLS trial: 150/180-cycle aggregator
 
+> **Historical trial (superseded 2026-08-25).** This document records an
+> earlier PL aggregation experiment; it does not describe the current design.
+> PL now exports each SingleCycle packet to R5C1, which exclusively owns
+> interval aggregation and record construction. The retired PL
+> `AggregationEngine` component, packaged IP, shim, and fallback branch have
+> been removed.
+
 **Date:** 2026-08-11 · **Tools:** Vitis/Vivado 2025.2 · **Part:**
 xck26-sfvc784-2LV-c (KR260) · **Clock:** 100 MHz metering `aclk`
 

@@ -81,9 +81,8 @@ struct met_bit_width<0ULL> {
 // floor(dividend / DIVISOR) for a compile-time divisor, by the same
 // restoring recurrence as floor_div. The remainder before each subtract
 // is at most 2*DIVISOR - 1, so it is sized exactly for the divisor
-// instead of carrying a full-width remainder for nothing (generalized
-// from the aggregation engine's private floor_div_15; DIVISOR = 15 is
-// bit-identical to it).
+// instead of carrying a full-width remainder for nothing. DIVISOR = 15
+// remains bit-identical to the interval algorithm's original helper.
 template <int WIDTH, int DIVISOR>
 ap_uint<WIDTH> floor_div_const(ap_uint<WIDTH> dividend) {
   static_assert(DIVISOR >= 2, "a constant divisor below 2 divides nothing");
