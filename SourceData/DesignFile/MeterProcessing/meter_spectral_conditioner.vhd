@@ -16,6 +16,9 @@
 -- observational and has no input READY. A phase costs 65*7=455 clocks, well
 -- below the 3,124-clock minimum frame spacing at 32 kSPS/99.999 MHz. Any
 -- violated service interval is counted and invalidates the affected window.
+-- A registered commit cycle after each lane's final MAC separates the DSP
+-- accumulator from saturation/frame storage, so a phase costs 65*7+7=462
+-- clocks and still retains more than 2,600 clocks of production margin.
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -83,7 +86,8 @@ architecture rtl of meter_spectral_conditioner is
   constant C_ROM_WORDS        : positive := C_PHASE_COUNT * C_PHASE_TAPS;
   constant C_U32_MAX          : unsigned(31 downto 0) := (others => '1');
 
-  type state_t is (S_IDLE, S_DECIDE, S_PREFETCH, S_MAC, S_STORE, S_CLOSE);
+  type state_t is (
+    S_IDLE, S_DECIDE, S_PREFETCH, S_MAC, S_COMMIT, S_STORE, S_CLOSE);
   signal state : state_t;
 
   type history_row_t is array (0 to C_PHASE_TAPS-1) of
@@ -515,22 +519,13 @@ begin
                   resize(mac_product, accumulated_value'length);
               end if;
               if to_integer(mac_tap) = C_PHASE_TAPS - 1 then
-                computed_frame(
-                  to_integer(mac_channel)*SAMPLE_WIDTH+SAMPLE_WIDTH-1 downto
-                  to_integer(mac_channel)*SAMPLE_WIDTH) <=
-                    std_logic_vector(polyphase_saturate(accumulated_value));
-                mac_accumulator <= (others => '0');
+                -- Register the completed lane sum before saturation. Keeping
+                -- the history mux, multiplier/accumulator, saturation, and
+                -- computed-frame write in one cycle creates a 34-level path
+                -- to every computed_frame bit at 100 MHz.
+                mac_accumulator <= accumulated_value;
                 mac_tap <= (others => '0');
-                if to_integer(mac_channel) = CHANNELS - 1 then
-                  mac_channel <= (others => '0');
-                  coefficient_enable <= '0';
-                  state <= S_STORE;
-                else
-                  -- Tap zero for the next lane was prefetched while the final
-                  -- tap accumulated.
-                  mac_channel <= mac_channel + 1;
-                  rom_fetch_tap <= to_unsigned(1, rom_fetch_tap'length);
-                end if;
+                state <= S_COMMIT;
               else
                 mac_accumulator <= accumulated_value;
                 mac_tap <= mac_tap + 1;
@@ -539,6 +534,25 @@ begin
                 else
                   rom_fetch_tap <= mac_tap + 2;
                 end if;
+              end if;
+
+            when S_COMMIT =>
+              computed_frame(
+                to_integer(mac_channel)*SAMPLE_WIDTH+SAMPLE_WIDTH-1 downto
+                to_integer(mac_channel)*SAMPLE_WIDTH) <=
+                  std_logic_vector(polyphase_saturate(mac_accumulator));
+              mac_accumulator <= (others => '0');
+              if to_integer(mac_channel) = CHANNELS - 1 then
+                mac_channel <= (others => '0');
+                coefficient_enable <= '0';
+                state <= S_STORE;
+              else
+                -- Tap zero for the next lane has remained selected during
+                -- the commit cycle. Advance the synchronous ROM to tap one
+                -- while the registered tap-zero product is consumed next.
+                mac_channel <= mac_channel + 1;
+                rom_fetch_tap <= to_unsigned(1, rom_fetch_tap'length);
+                state <= S_MAC;
               end if;
 
             when S_STORE =>
