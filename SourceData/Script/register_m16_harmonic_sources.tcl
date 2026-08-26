@@ -28,13 +28,24 @@ if {$open_now eq ""} {
 }
 
 set sv_sources [list \
-    [file join $processing_dir meter_spectral_conditioner.sv] \
     [file join $processing_dir meter_spectral_frontend.sv]]
 set vhdl_sources [list \
+    [file join $processing_dir meter_spectral_conditioner.vhd] \
     [file join $processing_dir meter_harmonic_hls_shim.vhd]]
 set memory_sources [list \
     [file join $processing_dir meter_spectral_conditioner_q20.mem]]
 set required_sources [concat $sv_sources $vhdl_sources $memory_sources]
+
+# Migrate projects registered before the conditioner moved from
+# SystemVerilog to VHDL. Remove the stale source reference even though the
+# old file no longer exists on disk.
+set legacy_conditioner [file join $processing_dir meter_spectral_conditioner.sv]
+set legacy_refs [get_files -quiet -of_objects [get_filesets sources_1] \
+    $legacy_conditioner]
+if {[llength $legacy_refs] != 0} {
+    remove_files -fileset sources_1 $legacy_refs
+    puts "Removed legacy conditioner source: $legacy_conditioner"
+}
 
 set missing_sources [list]
 foreach source $required_sources {

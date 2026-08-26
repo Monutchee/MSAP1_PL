@@ -68,7 +68,7 @@ read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_r5_aggregation
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_r5_aggregation_export.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_sliding_rms_hls_shim.vhd]
-read_verilog -sv [file join $design_root MeterProcessing meter_spectral_conditioner.sv]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_spectral_conditioner.vhd]
 read_verilog -sv [file join $design_root MeterProcessing meter_spectral_frontend.sv]
 read_verilog [lsort [glob -directory $hls_scyc_hdl *.v]]
 read_verilog [lsort [glob -directory $hls_pq_hdl *.v]]

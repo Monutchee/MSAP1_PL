@@ -76,6 +76,7 @@ set vhdl2008_sources [list \
   [file join $design_root MeterProcessing meter_r5_aggregation_export.vhd] \
   [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_sliding_rms_hls_shim.vhd] \
+  [file join $design_root MeterProcessing meter_spectral_conditioner.vhd] \
   [file join $design_root MeterProcessing meter_harmonic_hls_shim.vhd] \
   [file join $design_root MeterCore adc_simulator_pkg.vhd] \
   [file join $design_root MeterCore adc_simulator.vhd] \
@@ -90,8 +91,6 @@ set spectral_frontend [file join $design_root MeterProcessing \
   meter_spectral_frontend.sv]
 set spectral_testbench [file join $design_root MeterProcessing tb \
   meter_spectral_frontend_tb.sv]
-set spectral_conditioner [file join $design_root MeterProcessing \
-  meter_spectral_conditioner.sv]
 set conditioner_testbench [file join $design_root MeterProcessing tb \
   meter_spectral_conditioner_tb.sv]
 set conditioner_coefficients [file join $design_root MeterProcessing \
@@ -122,7 +121,7 @@ puts [exec $xvlog -i $hls_sim_wave_hdl {*}$hls_sim_wave_verilog 2>@1]
 puts [exec $xvlog -i $hls_scyc_hdl {*}$hls_scyc_verilog 2>@1]
 puts [exec $xvlog -i $hls_pq_hdl {*}$hls_pq_verilog 2>@1]
 puts [exec $xvlog -i $hls_harmonic_hdl {*}$hls_harmonic_verilog 2>@1]
-puts [exec $xvlog --sv $spectral_frontend $spectral_conditioner 2>@1]
+puts [exec $xvlog --sv $spectral_frontend 2>@1]
 puts [exec $xvhdl --2008 {*}$core_vhdl2008_sources 2>@1]
 puts [exec $xvhdl $boundary_wrapper 2>@1]
 puts [exec $xvlog [file join $vivado_root data verilog src glbl.v] 2>@1]

@@ -335,50 +335,6 @@ architecture structural of meter_core is
   signal block_nominal_hz         : std_logic_vector(7 downto 0);
   signal block_flags              : std_logic_vector(2 downto 0);
 
-  -- M16 harmonic path.  The SystemVerilog conditioner is instantiated as a
-  -- mixed-language component; every other block remains in this maintained
-  -- VHDL module-reference hierarchy.
-  component meter_spectral_conditioner is
-    generic (
-      CHANNELS               : integer := 7;
-      SAMPLE_WIDTH           : integer := 24;
-      CONTEXT_BITS           : integer := 576;
-      EXPECTED_SOURCE_FRAMES : integer := 6400;
-      OUTPUT_FRAMES          : integer := 4096;
-      SOURCE_RATE_HZ         : integer := 32000
-    );
-    port (
-      aclk    : in std_logic;
-      aresetn : in std_logic;
-      frame_accept_i        : in std_logic;
-      raw_frame_i           : in std_logic_vector(255 downto 0);
-      frame_user_i          : in std_logic_vector(383 downto 0);
-      frame_closes_block_i  : in std_logic;
-      grid_locked_i         : in std_logic;
-      grid_nominal_hz_i     : in std_logic_vector(7 downto 0);
-      grid_cycle_count_i    : in std_logic_vector(7 downto 0);
-      config_enable_i       : in std_logic;
-      config_apply_toggle_i : in std_logic;
-      source_frame_rate_i       : in std_logic_vector(31 downto 0);
-      source_frame_rate_valid_i : in std_logic;
-      frequency_millihz_i       : in std_logic_vector(31 downto 0);
-      frequency_valid_i         : in std_logic;
-      active_scale_q16_i        : in std_logic_vector(255 downto 0);
-      emit_drops_i              : in std_logic_vector(31 downto 0);
-      m_axis_context_tdata  : out std_logic_vector(575 downto 0);
-      m_axis_context_tvalid : out std_logic;
-      m_axis_context_tready : in  std_logic;
-      m_axis_frame_tdata  : out std_logic_vector(167 downto 0);
-      m_axis_frame_tvalid : out std_logic;
-      m_axis_frame_tready : in  std_logic;
-      m_axis_frame_tlast  : out std_logic;
-      m_axis_frame_fault  : out std_logic;
-      completed_blocks_o  : out std_logic_vector(31 downto 0);
-      invalid_blocks_o    : out std_logic_vector(31 downto 0);
-      service_overruns_o  : out std_logic_vector(31 downto 0)
-    );
-  end component;
-
   signal harmonic_context_tdata  : std_logic_vector(575 downto 0);
   signal harmonic_context_tvalid : std_logic;
   signal harmonic_context_tready : std_logic;
@@ -905,7 +861,7 @@ begin
   -- M16 spectral observer.  The fixed profile is qualified only for an exact
   -- 32 kSPS / 6,400-frame basic block; other geometries are explicitly
   -- invalidated by the frontend instead of being dropped or zero padded.
-  harmonic_conditioner : meter_spectral_conditioner
+  harmonic_conditioner : entity work.meter_spectral_conditioner
     port map (
       aclk => aclk,
       aresetn => aresetn,
