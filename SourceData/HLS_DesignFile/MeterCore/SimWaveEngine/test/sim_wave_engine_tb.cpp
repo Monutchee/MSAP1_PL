@@ -46,7 +46,7 @@ struct ChannelSpec {
 
 // Global harmonic slots for the request under test (zero = disabled).
 struct HarmonicSpec {
-  unsigned order = 0;
+  unsigned long ratio_q16 = 0;
   unsigned mask = 0;
   unsigned fraction_q16 = 0;
   unsigned long phase = 0;
@@ -89,11 +89,11 @@ static sim_wave_request_t pack_request(unsigned long base_phase,
   }
   request.range(SIM_WAVE_REQ_VALID_MASK_LSB + 7, SIM_WAVE_REQ_VALID_MASK_LSB) = mask;
   for (int slot = 0; slot < SIM_WAVE_HARMONIC_SLOTS; ++slot) {
-    const int lsb = SIM_WAVE_REQ_HARMONIC_LSB + slot * 64;
-    request.range(lsb + 7, lsb) = g_harmonics[slot].order;
-    request.range(lsb + 15, lsb + 8) = g_harmonics[slot].mask;
-    request.range(lsb + 31, lsb + 16) = g_harmonics[slot].fraction_q16;
-    request.range(lsb + 63, lsb + 32) = ap_uint<32>(g_harmonics[slot].phase);
+    const int lsb = SIM_WAVE_REQ_HARMONIC_LSB + slot * 96;
+    request.range(lsb + 31, lsb) = g_harmonics[slot].ratio_q16;
+    request.range(lsb + 39, lsb + 32) = g_harmonics[slot].mask;
+    request.range(lsb + 63, lsb + 48) = g_harmonics[slot].fraction_q16;
+    request.range(lsb + 95, lsb + 64) = ap_uint<32>(g_harmonics[slot].phase);
   }
   request.range(SIM_WAVE_REQ_EVENT_SCALE_LSB + 18, SIM_WAVE_REQ_EVENT_SCALE_LSB) =
       ap_uint<19>(g_event_scale);
@@ -156,11 +156,12 @@ static double golden_unclamped(unsigned long base_phase, unsigned long frame_ind
                  (double)noise_counts_model(frame_index, lane, ch.noise);
   for (int slot = 0; slot < SIM_WAVE_HARMONIC_SLOTS; ++slot) {
     const HarmonicSpec &h = g_harmonics[slot];
-    if (h.order == 0 || ((h.mask >> lane) & 1u) == 0 || h.fraction_q16 == 0)
+    if (h.ratio_q16 == 0 || ((h.mask >> lane) & 1u) == 0 ||
+        h.fraction_q16 == 0)
       continue;
     const unsigned long harmonic_angle =
-        (unsigned long)(((unsigned long long)h.order * angle + h.phase) &
-                        0xFFFFFFFFull);
+        (unsigned long)((((unsigned long long)h.ratio_q16 * angle) >> 16) +
+                        h.phase);
     const double harmonic_turns = (double)harmonic_angle / 4294967296.0;
     value += (double)peak * ((double)h.fraction_q16 / 65536.0) *
              std::sin(2.0 * M_PI * harmonic_turns) * (131071.0 / 131072.0);
@@ -174,7 +175,8 @@ static double harmonic_tolerance(int lane, long peak) {
   double extra = 0.0;
   for (int slot = 0; slot < SIM_WAVE_HARMONIC_SLOTS; ++slot) {
     const HarmonicSpec &h = g_harmonics[slot];
-    if (h.order == 0 || ((h.mask >> lane) & 1u) == 0 || h.fraction_q16 == 0)
+    if (h.ratio_q16 == 0 || ((h.mask >> lane) & 1u) == 0 ||
+        h.fraction_q16 == 0)
       continue;
     const double component =
         std::fabs((double)peak) * ((double)h.fraction_q16 / 65536.0);
@@ -239,7 +241,7 @@ static void check_frame(const char *what, unsigned long base_phase,
 }
 
 int main() {
-  static_assert(SIM_WAVE_REQ_BITS == 1440, "request beat width is normative");
+  static_assert(SIM_WAVE_REQ_BITS == 1568, "request beat width is normative");
   static_assert(SIM_WAVE_RSP_BITS == 264, "response beat width is normative");
   static_assert(SIM_WAVE_REQ_FRAME_INDEX_LSB == 64 &&
                     SIM_WAVE_REQ_PEAK_LSB == 128 &&
@@ -247,8 +249,8 @@ int main() {
                     SIM_WAVE_REQ_DC_LSB == 640 && SIM_WAVE_REQ_NOISE_LSB == 896,
                 "request lane bases are normative");
   static_assert(SIM_WAVE_REQ_HARMONIC_LSB == 1152 &&
-                    SIM_WAVE_REQ_EVENT_SCALE_LSB == 1408 &&
-                    SIM_WAVE_REQ_EVENT_MASK_LSB == 1432,
+                    SIM_WAVE_REQ_EVENT_SCALE_LSB == 1536 &&
+                    SIM_WAVE_REQ_EVENT_MASK_LSB == 1560,
                 "request harmonic and event bases are normative");
 
   // --- Zero request: all lanes zero, no flags. --------------------------
@@ -351,8 +353,8 @@ int main() {
   // --- the double model (which itself encodes the physical rule that a --
   // --- balanced set's 3rd harmonic lands zero-sequence). -----------------
   {
-    g_harmonics[0] = {3, 0x70, (unsigned)(0.05 * 65536), 0};
-    g_harmonics[1] = {5, 0x70, (unsigned)(0.03 * 65536), 0x20000000ul};
+    g_harmonics[0] = {3u << 16, 0x70, (unsigned)(0.05 * 65536), 0};
+    g_harmonics[1] = {5u << 16, 0x70, (unsigned)(0.03 * 65536), 0x20000000ul};
     ChannelSpec ch[SIM_WAVE_CHANNELS] = {};
     ch[4] = {4000000, 0x55555555ul, 0, 0, true};   // Vc at +120 deg
     ch[5] = {4000000, 0xAAAAAAABul, 0, 0, true};   // Vb at -120 deg
@@ -364,6 +366,22 @@ int main() {
     }
     g_harmonics[0] = {};
     g_harmonics[1] = {};
+  }
+
+  // --- Fractional interharmonic: 3.1 x fundamental uses the same Q16.16
+  // --- physical lane-angle rule and matches the independent model. -------
+  {
+    g_harmonics[0] = {(3u << 16) + 6554u, 0x70,
+                      (unsigned)(0.04 * 65536), 0x10000000ul};
+    ChannelSpec ch[SIM_WAVE_CHANNELS] = {};
+    ch[4] = {3000000, 0x55555555ul, 0, 0, true};
+    ch[5] = {3000000, 0xAAAAAAABul, 0, 0, true};
+    ch[6] = {3000000, 0x00000000ul, 0, 0, true};
+    for (int step = 0; step < 64; ++step) {
+      check_frame("3.1 interharmonic", (unsigned long)step * 0x02134567ul,
+                  (unsigned long)step, ch);
+    }
+    g_harmonics[0] = {};
   }
 
   // --- Saturation: sine + dc past each rail clamps and flags, per lane. -
@@ -512,7 +530,7 @@ int main() {
   {
     ChannelSpec ch[SIM_WAVE_CHANNELS] = {};
     ch[0] = {4000000, 0, 0, 0, true};
-    g_harmonics[0] = {3, 0x01, 6554, 0};  // 10 % third harmonic
+    g_harmonics[0] = {3u << 16, 0x01, 6554, 0};  // 10 % third harmonic
     g_event_scale = 0x08000;              // 0.5
     g_event_mask = 0x01;
     check_frame("half-scale sag under a 10 % third harmonic", 0x01234567ul, 7, ch);

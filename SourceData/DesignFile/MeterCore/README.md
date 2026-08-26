@@ -81,7 +81,7 @@ decode is 12 bits wide (4 KB window). The current register contract is:
 | Offset | Register |
 | ---: | --- |
 | `0x00` | Identifier (`SIM1`) |
-| `0x04` | Version (`0x00010003`) |
+| `0x04` | Version (`0x00010004`) |
 | `0x08` | Shadow control |
 | `0x0C` | Shadow sample rate, frame/s |
 | `0x10` | Shadow signal frequency, mHz |
@@ -106,8 +106,8 @@ decode is 12 bits wide (4 KB window). The current register contract is:
 | `0xB0`-`0xCC` | Eight active DC-offset readbacks |
 | `0xD0`-`0xEC` | Eight unsigned noise-amplitude shadow registers, counts |
 | `0x100`-`0x11C` | Eight active noise-amplitude readbacks |
-| `0x200`-`0x21C` | Four harmonic slots, two words each (shadow) |
-| `0x220`-`0x23C` | Four harmonic slots, two words each (active readback) |
+| `0x200`-`0x22C` | Four harmonic/interharmonic slots, three words each (shadow) |
+| `0x240`-`0x26C` | Four harmonic/interharmonic slots, three words each (active readback) |
 | `0x300` | Shadow event control: channel mask `[7:0]`, repeat `[8]` |
 | `0x304` | Shadow event scale, unsigned Q16 (`0x10000` unity, cap 4.0) |
 | `0x308` | Shadow event timing: duration `[15:0]`, period `[31:16]`, half cycles |
@@ -118,6 +118,10 @@ decode is 12 bits wide (4 KB window). The current register contract is:
 
 Peak counts outside the signed 24-bit range saturate and increment the
 saturation counter, as does any sine + DC + noise sum that crosses a rail.
+Each spectral-tone slot is `{frequency ratio Q16.16, channel mask plus Q16
+fraction, phase Q0.32}`. Integer ratios inject harmonics through order 127;
+fractional ratios inject interharmonics while preserving the frequency-scaled
+three-phase lane relationship.
 The noise amplitude is the half-width of a uniform distribution (RMS =
 amplitude / sqrt(3)); zero disables the path. If downstream backpressure consumes the single pending
 sample slot before another scheduled frame can be emitted, the simulator

@@ -95,6 +95,8 @@ architecture rtl of adc_simulator is
   end component;
 
   type word_array_t is array (0 to 7) of std_logic_vector(31 downto 0);
+  type harmonic_word_array_t is array (0 to SIM_WAVE_HARMONIC_WORDS - 1) of
+    std_logic_vector(31 downto 0);
 
   signal shadow_control     : std_logic_vector(31 downto 0) := (others => '0');
   signal shadow_sample_rate : std_logic_vector(31 downto 0) := std_logic_vector(to_unsigned(32000, 32));
@@ -106,7 +108,7 @@ architecture rtl of adc_simulator is
   signal shadow_phase       : word_array_t := (others => (others => '0'));
   signal shadow_dc          : word_array_t := (others => (others => '0'));
   signal shadow_noise       : word_array_t := (others => (others => '0'));
-  signal shadow_harmonic    : word_array_t := (others => (others => '0'));
+  signal shadow_harmonic    : harmonic_word_array_t := (others => (others => '0'));
 
   signal active_control     : std_logic_vector(31 downto 0) := (others => '0');
   signal active_sample_rate : std_logic_vector(31 downto 0) := std_logic_vector(to_unsigned(32000, 32));
@@ -118,7 +120,7 @@ architecture rtl of adc_simulator is
   signal active_phase       : word_array_t := (others => (others => '0'));
   signal active_dc          : word_array_t := (others => (others => '0'));
   signal active_noise       : word_array_t := (others => (others => '0'));
-  signal active_harmonic    : word_array_t := (others => (others => '0'));
+  signal active_harmonic    : harmonic_word_array_t := (others => (others => '0'));
 
   -- Event sequencer bank and state.  ARMED waits for the next half-cycle
   -- boundary, RUNNING applies the envelope for the committed duration,
@@ -199,7 +201,7 @@ architecture rtl of adc_simulator is
     phase_v       : word_array_t;
     dc_v          : word_array_t;
     noise_v       : word_array_t;
-    harmonic_v    : word_array_t;
+    harmonic_v    : harmonic_word_array_t;
     event_scale_v : std_logic_vector(18 downto 0);
     event_mask_v  : std_logic_vector(7 downto 0)) return std_logic_vector is
     variable beat : std_logic_vector(SIM_WAVE_REQ_BITS - 1 downto 0) := (others => '0');
@@ -649,7 +651,8 @@ begin
                 array_index := (write_address - ADC_SIM_REG_SHADOW_NOISE_BASE) / 4;
                 shadow_noise(array_index) <= merge_strobes(shadow_noise(array_index), wdata, wstrb);
               elsif write_address >= ADC_SIM_REG_SHADOW_HARMONIC_BASE and
-                    write_address < ADC_SIM_REG_SHADOW_HARMONIC_BASE + 32 and
+                    write_address < ADC_SIM_REG_SHADOW_HARMONIC_BASE +
+                                      SIM_WAVE_HARMONIC_WORDS * 4 and
                     (write_address mod 4) = 0 then
                 array_index := (write_address - ADC_SIM_REG_SHADOW_HARMONIC_BASE) / 4;
                 shadow_harmonic(array_index) <= merge_strobes(shadow_harmonic(array_index), wdata, wstrb);
@@ -755,12 +758,14 @@ begin
                 array_index := (read_address - ADC_SIM_REG_ACTIVE_NOISE_BASE) / 4;
                 rdata <= active_noise(array_index);
               elsif read_address >= ADC_SIM_REG_SHADOW_HARMONIC_BASE and
-                    read_address < ADC_SIM_REG_SHADOW_HARMONIC_BASE + 32 and
+                    read_address < ADC_SIM_REG_SHADOW_HARMONIC_BASE +
+                                     SIM_WAVE_HARMONIC_WORDS * 4 and
                     (read_address mod 4) = 0 then
                 array_index := (read_address - ADC_SIM_REG_SHADOW_HARMONIC_BASE) / 4;
                 rdata <= shadow_harmonic(array_index);
               elsif read_address >= ADC_SIM_REG_ACTIVE_HARMONIC_BASE and
-                    read_address < ADC_SIM_REG_ACTIVE_HARMONIC_BASE + 32 and
+                    read_address < ADC_SIM_REG_ACTIVE_HARMONIC_BASE +
+                                     SIM_WAVE_HARMONIC_WORDS * 4 and
                     (read_address mod 4) = 0 then
                 array_index := (read_address - ADC_SIM_REG_ACTIVE_HARMONIC_BASE) / 4;
                 rdata <= active_harmonic(array_index);

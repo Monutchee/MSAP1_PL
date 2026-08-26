@@ -1,7 +1,7 @@
 #ifndef SIM_WAVE_ENGINE_HPP
 #define SIM_WAVE_ENGINE_HPP
 
-// The request beat is 1440 bits, past ap_int's 1024 default; raise the
+// The request beat is 1568 bits, past ap_int's 1024 default; raise the
 // ceiling before the first ap_int.h include in every translation unit
 // (the build also passes -DAP_INT_MAX_W as belt and braces).
 #ifndef AP_INT_MAX_W
@@ -44,11 +44,11 @@
 //             the legacy table's amplitude convention: peak counts map to
 //             peak * 131071/131072 output counts.
 //   dc      : signed DC offset counts added after scaling.
-//   harmonics: up to four global slots, each adding
-//             fraction * peak * sin(order * angle + slot phase) to the
-//             lanes its channel mask selects (layout below). Harmonic
-//             phase offsets scale with the lane's fundamental offset by
-//             the order — the physical 3-phase relationship.
+//   harmonics: up to four global slots, each adding fraction * peak *
+//             sin(ratio * angle + slot phase) to the lanes its channel
+//             mask selects (layout below). The Q16.16 frequency ratio is
+//             an integer for harmonics and fractional for interharmonics;
+//             the lane phase offset scales by that same ratio.
 //   event   : a timed amplitude envelope from the VHDL event sequencer.
 //             The Q16 scale multiplies the PEAK of every channel the
 //             event mask selects, before the sine and before the
@@ -97,15 +97,15 @@ static const int SIM_WAVE_REQ_PEAK_LSB        = 128;  // [383:128]  8 x s24 in s
 static const int SIM_WAVE_REQ_PHASE_LSB       = 384;  // [639:384]  8 x Q0.32 turns
 static const int SIM_WAVE_REQ_DC_LSB          = 640;  // [895:640]  8 x s24 in s32
 static const int SIM_WAVE_REQ_NOISE_LSB       = 896;  // [1151:896] 8 x u24 in u32
-// Four global harmonic slots (M5). Each slot is 64 bits:
-//   [7:0]   order (0 disables the slot; 1 would duplicate the fundamental)
-//   [15:8]  channel mask (which lanes receive this harmonic)
-//   [31:16] amplitude as a Q16 fraction of the lane's fundamental peak
-//   [63:32] phase offset, Q0.32 turns, ON TOP of the physical rule below
-// A harmonic's angle is order * (base_phase + lane phase) + slot phase:
-// scaling the lane offset by the order is the physical relationship, so a
-// 3rd harmonic on a balanced 0/-120/+120 set lands zero-sequence (all in
-// phase) exactly as on a real grid.
+// Four global harmonic/interharmonic slots (M16), each 96 bits / 3 words:
+//   [31:0]  frequency/order ratio, unsigned Q16.16 (0 disables)
+//   [39:32] channel mask (which lanes receive the tone)
+//   [47:40] reserved zero
+//   [63:48] amplitude as a Q16 fraction of the lane's fundamental peak
+//   [95:64] phase offset, Q0.32 turns, on top of the physical rule below
+// A tone's angle is ratio * (base_phase + lane phase) + slot phase. Integer
+// order 3 therefore keeps the physical zero-sequence rule; ratio 3.1 creates
+// an interharmonic whose lane relationship follows its actual frequency.
 static const int SIM_WAVE_REQ_HARMONIC_LSB    = 1152;
 static const int SIM_WAVE_HARMONIC_SLOTS      = 4;
 // Event envelope (M12), one word:
@@ -114,11 +114,11 @@ static const int SIM_WAVE_HARMONIC_SLOTS      = 4;
 //   [31:24] channel mask (which lanes the envelope multiplies)
 // A unity scale or an empty mask leaves the frame bit-identical to the
 // pre-event datapath, so a quiet simulator is unaffected by this field.
-static const int SIM_WAVE_REQ_EVENT_LSB       = 1408;
-static const int SIM_WAVE_REQ_EVENT_SCALE_LSB = 1408;
-static const int SIM_WAVE_REQ_EVENT_MASK_LSB  = 1432;
+static const int SIM_WAVE_REQ_EVENT_LSB       = 1536;
+static const int SIM_WAVE_REQ_EVENT_SCALE_LSB = 1536;
+static const int SIM_WAVE_REQ_EVENT_MASK_LSB  = 1560;
 static const int SIM_WAVE_EVENT_SCALE_UNITY   = 0x10000;
-static const int SIM_WAVE_REQ_BITS            = 1440; // 180 bytes on AXIS
+static const int SIM_WAVE_REQ_BITS            = 1568; // 196 bytes on AXIS
 
 // Response beat: one converted frame.
 static const int SIM_WAVE_RSP_SAMPLE_LSB     = 0;    // [255:0]   8 x s24 in s32

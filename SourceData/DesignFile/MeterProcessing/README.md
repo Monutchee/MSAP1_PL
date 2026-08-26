@@ -102,6 +102,11 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
 
 ## Modules
 
+- `meter_spectral_frontend`: M16's vendor-neutral two-bank 4,096-frame
+  spectral buffer and CH0-through-CH6 XFFT scheduler. It is deliberately not
+  instantiated here yet; the conditioner, XFFT, record FIFO, and block-design
+  wiring are handed off in
+  `HLS_DesignFile/MeterProcessing/HarmonicEngine/README.md`.
 - `meter_mtr1_hls_shim`: packs one 1264-bit sample beat per accepted
   converted frame (layout mirrors `mtr1_engine.hpp` MTR1_IN_*, kept in
   lock step), buffers up to eight beats, hosts the packaged

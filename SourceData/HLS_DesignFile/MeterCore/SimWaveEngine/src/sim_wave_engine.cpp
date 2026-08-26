@@ -89,18 +89,20 @@ channel_lanes:
 harmonic_slots:
       for (int slot = 0; slot < SIM_WAVE_HARMONIC_SLOTS; ++slot) {
 #pragma HLS PIPELINE off
-        const int slot_lsb = SIM_WAVE_REQ_HARMONIC_LSB + slot * 64;
-        const ap_uint<8> order = request.range(slot_lsb + 7, slot_lsb);
-        const ap_uint<8> slot_mask = request.range(slot_lsb + 15, slot_lsb + 8);
-        const ap_uint<16> fraction = request.range(slot_lsb + 31, slot_lsb + 16);
+        const int slot_lsb = SIM_WAVE_REQ_HARMONIC_LSB + slot * 96;
+        const ap_uint<32> ratio_q16 = request.range(slot_lsb + 31, slot_lsb);
+        const ap_uint<8> slot_mask = request.range(slot_lsb + 39, slot_lsb + 32);
+        const ap_uint<16> fraction = request.range(slot_lsb + 63, slot_lsb + 48);
         const ap_uint<32> slot_phase =
-            request.range(slot_lsb + 63, slot_lsb + 32);
-        if (order == 0 || slot_mask[lane] == 0 || fraction == 0) {
+            request.range(slot_lsb + 95, slot_lsb + 64);
+        if (ratio_q16 == 0 || slot_mask[lane] == 0 || fraction == 0) {
           continue;
         }
-        // order * angle wraps mod 2^32 = mod one turn: exact.
+        // Q16.16 ratio * Q0.32 turns, floored back to Q0.32; retaining
+        // the low 32 bits is modulo one turn. Integer ratios are exact.
+        const ap_uint<64> ratio_product = ratio_q16 * lane_angle;
         const ap_uint<32> harmonic_angle =
-            ap_uint<32>(order * lane_angle) + slot_phase;
+            ap_uint<32>(ratio_product >> 16) + slot_phase;
         const ap_int<39> harmonic_sine = met_sin_q32(harmonic_angle);
         const ap_int<53> scaled_peak = peak * ap_int<17>(ap_uint<17>(fraction));
         const ap_int<92> harmonic_product = scaled_peak * harmonic_sine;

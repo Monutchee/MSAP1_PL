@@ -77,6 +77,10 @@ set core_vhdl2008_sources [list \
   [file join $design_root MeterCore meter_core.vhd]]
 set boundary_wrapper [file join $design_root MeterCore MeterCore_Wrapper.vhd]
 set simulator_testbench [file join $design_root MeterCore tb adc_simulator_tb.sv]
+set spectral_frontend [file join $design_root MeterProcessing \
+  meter_spectral_frontend.sv]
+set spectral_testbench [file join $design_root MeterProcessing tb \
+  meter_spectral_frontend_tb.sv]
 
 file delete -force $work_root
 file mkdir $work_root
@@ -101,6 +105,7 @@ puts [exec $xvhdl --2008 {*}$core_vhdl2008_sources 2>@1]
 puts [exec $xvhdl $boundary_wrapper 2>@1]
 puts [exec $xvlog [file join $vivado_root data verilog src glbl.v] 2>@1]
 puts [exec $xvlog --sv $simulator_testbench 2>@1]
+puts [exec $xvlog --sv $spectral_frontend $spectral_testbench 2>@1]
 puts [exec $xelab -a --mt off adc_simulator_tb \
   -s adc_simulator_tb_sim 2>@1]
 set simulator_axsim [file join $work_root xsim.dir adc_simulator_tb_sim axsim]
@@ -109,6 +114,19 @@ set simulator_log \
 puts $simulator_log
 if {![string match "*PASS: adc_simulator_tb*" $simulator_log]} {
   error "ADC simulator simulation did not report PASS"
+}
+
+# The M16 frontend TB uses its small behavioral banks; production keeps the
+# default XPM BRAM implementation, which is checked by the focused OOC synth.
+puts [exec $xelab -a --mt off meter_spectral_frontend_tb \
+  -s meter_spectral_frontend_tb_sim 2>@1]
+set spectral_axsim \
+  [file join $work_root xsim.dir meter_spectral_frontend_tb_sim axsim]
+set spectral_log \
+  [exec env "LD_LIBRARY_PATH=$simulator_libraries" $spectral_axsim 2>@1]
+puts $spectral_log
+if {![string match "*meter_spectral_frontend PASS*" $spectral_log]} {
+  error "M16 spectral frontend simulation did not report PASS"
 }
 
 # Elaborate the production configuration explicitly and prove that the
@@ -121,4 +139,4 @@ puts "MeterCore production simulator-disabled elaboration PASS"
 
 cd $original_dir
 file delete -force $work_root
-puts "MeterCore elaboration and ADC simulator mixed-language simulation PASS"
+puts "MeterCore elaboration, ADC simulator, and M16 frontend simulations PASS"

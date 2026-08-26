@@ -229,7 +229,7 @@ module adc_simulator_tb;
     read_reg(12'h000, value);
     assert (value == 32'h5349_4d31) else $fatal(1, "bad simulator identifier");
     read_reg(12'h004, value);
-    assert (value == 32'h0001_0003) else $fatal(1, "bad simulator version");
+    assert (value == 32'h0001_0004) else $fatal(1, "bad simulator version");
 
     // --- Cardinal sine values, banking, framing, backpressure. ----------
     // CH0 is a 1000-count sine; phase advances by 90 degrees per frame.
@@ -346,24 +346,29 @@ module adc_simulator_tb;
     write_reg(12'h040, 32'd1000);
     write_reg(12'h080, 32'h4000_0000);
     // Slot 0: 2nd harmonic on CH0 at 50% of the fundamental, +90 degrees.
-    write_reg(12'h200, 32'h8000_0102);
-    write_reg(12'h204, 32'h4000_0000);
-    read_reg(12'h220, value);
+    write_reg(12'h200, 32'h0002_0000); // frequency ratio 2.0, Q16.16
+    write_reg(12'h204, 32'h8000_0001); // 50% amplitude, CH0 mask
+    write_reg(12'h208, 32'h4000_0000); // +90 degrees
+    read_reg(12'h240, value);
     assert (value == 0) else $fatal(1, "harmonic slot active before APPLY");
     write_reg(12'h008, 32'h0000_0003);
     axis_ready = 1'b0;
     write_reg(12'h01c, 32'h0000_0001);
     // Frame 0: fundamental sin(0) = 0, harmonic 0.5 * 1000 * sin(90 deg).
     consume_frame(expected_sine(500, 0.25), 2, 1'b0);
-    read_reg(12'h220, value);
-    assert (value == 32'h8000_0102)
+    read_reg(12'h240, value);
+    assert (value == 32'h0002_0000)
       else $fatal(1, "active harmonic word0 readback mismatch");
-    read_reg(12'h224, value);
-    assert (value == 32'h4000_0000)
+    read_reg(12'h244, value);
+    assert (value == 32'h8000_0001)
       else $fatal(1, "active harmonic word1 readback mismatch");
+    read_reg(12'h248, value);
+    assert (value == 32'h4000_0000)
+      else $fatal(1, "active harmonic word2 readback mismatch");
     // Silence the slot again for the scenarios that follow.
     write_reg(12'h200, 32'd0);
     write_reg(12'h204, 32'd0);
+    write_reg(12'h208, 32'd0);
 
     // --- Missed-sample accounting under deliberate overrun. -------------
     // 5000 frame/s ticks every 2 clocks; a frame needs far longer, so the
