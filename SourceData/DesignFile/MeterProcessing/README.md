@@ -144,29 +144,28 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
 | `0x6c` | `GRID_SHADOW_CONFIG` | [7:0] cycles/block, [15:8] nominal Hz, [16] enable |
 | `0x70` | `GRID_ACTIVE_CONFIG` | committed grid-timing readback |
 | `0x74` | `GRID_STATUS` | [0] locked, [1] reference usable, [2] enabled, [15:8] cycles in open block |
-| `0x78` | `AGG_STATUS` | reads 0 — the HLS engines expose no live open-aggregate view; liveness shows as `0x7c` advancing |
-| `0x7c` | `AGG_RECORD_COUNT` | MTR2 record sequence, as of the last emitted aggregate (tap on word 3) |
-| `0x80` | `AGG_RESET_COUNT` | MTR2 record word 33, as of the last emit |
-| `0x84` | `AGG_INELIGIBLE_COUNT` | MTR2 record word 34, as of the last emit |
-| `0x88` | `AGG_CONTINUITY_COUNT` | MTR2 record word 35, as of the last emit |
-| `0x8c` | `AGG_DROP_COUNT` | MTR2 record word 11 (`emit_drops`, constant 0: emission is blocking) |
-| `0x90` | `HLS_AGG_RECORD_COUNT` | mirrors `AGG_RECORD_COUNT` |
+| `0x78` | `AGG_STATUS` | retired PL aggregation diagnostic; reads 0 |
+| `0x7c` | `AGG_RECORD_COUNT` | retired PL aggregation diagnostic; reads 0 |
+| `0x80` | `AGG_RESET_COUNT` | retired PL aggregation diagnostic; reads 0 |
+| `0x84` | `AGG_INELIGIBLE_COUNT` | retired PL aggregation diagnostic; reads 0 |
+| `0x88` | `AGG_CONTINUITY_COUNT` | retired PL aggregation diagnostic; reads 0 |
+| `0x8c` | `AGG_DROP_COUNT` | retired PL aggregation diagnostic; reads 0 |
+| `0x90` | `HLS_AGG_RECORD_COUNT` | retired compared-pair diagnostic; reads 0 |
 | `0x94` | `HLS_AGG_MISMATCH_COUNT` | reserved, reads 0 (the compared-pair trial ended) |
-| `0x98` | `HLS_AGG_DROP_COUNT` | sample beats the MTR1 shim FIFO discarded while the engine was finalizing (any nonzero value is a fault) |
-| `0xb0` | `R5_AGG_EXPORT_STATUS` | private PL -> R5C1 shadow-export state and sticky transport faults |
+| `0x98` | `HLS_AGG_DROP_COUNT` | SingleCycle shim result-packet drops (any nonzero value is a fault) |
+| `0xb0` | `R5_AGG_EXPORT_STATUS` | private PL -> R5C1 exporter state and sticky transport faults |
 | `0xb4` | `R5_AGG_EXPORT_ACCEPTED_COUNT` | complete single-cycle result packets admitted to the private exporter |
 | `0xb8` | `R5_AGG_EXPORT_DROPPED_COUNT` | whole packets dropped because private exporter storage was unavailable; never partial packets |
 | `0xbc` | `R5_AGG_EXPORT_TRANSMITTED_COUNT` | complete CRC-protected frames accepted by the downstream AXI-Stream sink |
-| `0xc0` | `R5_AGG_EXPORT_FRAMING_ERRORS` | malformed authoritative result packets observed by the shadow tap |
+| `0xc0` | `R5_AGG_EXPORT_FRAMING_ERRORS` | malformed SingleCycle result packets observed by the exporter |
 | `0xc4` | `R5_AGG_EXPORT_LAST_SEQUENCE` | sequence of the most recently admitted result packet |
 | `0xc8` | `R5_AGG_EXPORT_QUEUE_LEVEL` | complete packets awaiting private-link transmission |
 
 The `R5_AGG_EXPORT_*` registers describe a private exact co-release link to
 R5C1.  Its fixed contract guard and CRC are image-integrity checks, not a
-compatibility-negotiation interface.  R5C1 is the production aggregation
-authority; the retained HLS AggregationEngine is a focused numerical reference
-and is not elaborated by the production wrapper.  The exporter is a
-nonbackpressuring observer of the SingleCycle packet boundary: it reserves
+compatibility-negotiation interface. R5C1 is the sole aggregation authority;
+PL contains no interval-aggregation implementation or fallback. The exporter
+is a nonbackpressuring consumer of the SingleCycle packet boundary: it reserves
 storage for a complete packet at word 0 or consumes and discards that complete
 packet.  R5 congestion can therefore increase only the explicit whole-packet
 drop counter; it cannot stall capture or any measurement stream.
@@ -178,48 +177,24 @@ basic block from spanning configuration generations. The RPU derives the
 cycle count from the declared nominal frequency (50 Hz → 10, 60 Hz → 12);
 the PL does not validate the pairing.
 
-## Record streams and the 150/180-cycle aggregation engine
+## Interval-record path
 
-Both record producers are Vitis HLS engines that build and serialize
-their own 256-byte records; the wire formats are normative in C++
-(`SourceData/HLS_DesignFile/common/include/measurement_record.hpp`: the
-common envelope in words 0..12 — magic `MTR1`, format, size 256,
-per-producer sequence, generation, sample rate, sample count, valid mask,
-status, 64-bit first-sample timestamp, emit/result drop words — plus the
-MTR1-v3 and MTR2-v2 interior maps).
+The PL SingleCycle engine emits one fixed 221-word sufficient-statistics
+packet for every complete grid cycle. `meter_r5_aggregation_export.vhd`
+appends 13 configuration and health words, a four-word private-link header,
+and CRC32C, then sends the complete 239-word frame to R5C1. The packet layout
+is pinned by `meter_r5_aggregation_pkg.vhd` and
+`common/include/single_cycle_packet.hpp`.
 
-- The MTR1 engine (`HLS_DesignFile/MeterProcessing/Mtr1Engine`) emits one
-  `0x00010003` record per basic block on `M_AXIS_MTR1` and one
-  basic-result beat (common `basic_result_beat.hpp`, 808 bits) to the
-  aggregator.
-- The aggregation engine (`HLS_DesignFile/MeterProcessing/Mtr2Engine`)
-  consumes exactly 15 consecutive eligible basic results — never raw
-  samples, never a wall-clock timer — and emits one `0x00020002` record
-  per completed 150-cycle (50 Hz) / 180-cycle (60 Hz) aggregate on
-  `M_AXIS_MTR2`. RMS lanes aggregate as floor(sqrt(floor(mean of
-  squares))) in the Q16 domain with 132-bit accumulators; frequency is
-  the arithmetic mean, published only when all 15 inputs were valid.
-  Eligibility mirrors the APU rule: cycle-locked, not fallback, not the
-  first block after APPLY, exact 10/12 cycle count, one generation /
-  nominal / sample rate, consecutive sequences and gapless sample ranges;
-  any violation discards the partial aggregate, counted per cause in
-  record words 33..35.
+R5C1 owns Basic, 150/180-cycle, UTC 10-minute, and 2-hour aggregation and
+record serialization. It returns one complete 256-byte record through the
+AXI FIFO TX channel into `MTR_AXI_Switch/S04_AXIS`; the wrapper's legacy
+`M_AXIS_MTR1` and `M_AXIS_MTR2` outputs remain idle. Every returned record is
+64 x 32-bit beats with TLAST on beat 63 before it joins the Linux meter-DMA
+path. RPMsg remains control-plane only.
 
-Each producer's stream leaves `MeterCore_Wrapper` as its own AXIS master;
-the block design gives each a packet-mode `axis_data_fifo` and an
-`axis_switch` slave port (arbitrate-on-TLAST), and the switch feeds the
-meter DMA. Every record is exactly 64 x 32-bit beats with TLAST on beat
-63 — the DMA-ring framing invariant, watchdogged in fabric by
-`record_word_tap`. Future producers add an engine, a wrapper port, a
-FIFO, and a switch port; nothing existing changes. RPMsg remains
-control-plane only; measurement records stay on DMA.
-
-Records leave the Q16 domain at serialization: mean and RMS words carry
-signed 64-bit micro-units (`Q16 >> 16`, arithmetic); the raw-count RMS
-word carries ADC counts. The per-engine C++ headers pin the arithmetic
-(floor semantics, saturation, sticky overflow-until-APPLY) and the
-accepted APPLY-race divergences; each engine's golden C bench runs as C
-simulation and C/RTL co-simulation on every `mnc HLS build` /
-`run_hls.sh` build, and `tb/meter_record_stream_tb.sv` drives the whole
-chain — real shim, both packaged engines, both exported streams — with
-word-exact golden records under TREADY backpressure.
+The fixed-point interval algorithm and its host tests are owned under
+`MSAP1_RPU/R5c1/src/MainApp/aggregation/`. Shared record maps, sufficient
+statistics, finalization arithmetic, and serial math remain under
+`SourceData/HLS_DesignFile/common/include/` so the PL producer and R5C1
+consumer compile against one co-released contract.

@@ -509,8 +509,8 @@ inline void fill_envelope(record_image_t &image, const ap_uint<32> sequence,
                           const ap_uint<64> first_sample) {
 // Keep this as one callable formatter in multi-tier producers.  Inlining it at
 // every record call site creates a separate set of word decoders and enables
-// for the same BRAM-backed image, which is especially costly in the shared
-// aggregation engine.
+// for the same BRAM-backed image, which is especially costly in the interval
+// record builder.
 #pragma HLS INLINE off
   image.word[MREC_SEQUENCE_WORD] = sequence;
   image.word[MREC_GENERATION_WORD] = generation;
@@ -547,7 +547,7 @@ mrec_clear:
 // Runtime-format serializer. Identical framing guarantee to the template
 // below; the format travels as a value so ONE serializer instance can
 // emit records of several formats. That matters where a single engine
-// owns more than one tier: the aggregation engine emits eight record
+// owns more than one tier: the interval service emits multiple record
 // formats across two intervals, and without this each call site would
 // carry its own copy of the 64-beat loop and its 2048-bit image buffer.
 inline void serialize_record_format(record_image_t &image, uint32_t format,

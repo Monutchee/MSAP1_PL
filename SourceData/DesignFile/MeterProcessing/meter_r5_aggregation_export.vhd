@@ -8,18 +8,13 @@ use xpm.vcomponents.all;
 use work.meter_r5_aggregation_pkg.all;
 
 -- Packetized export of the exact SingleCycleEngine sufficient-stat result to
--- R5C1.  This diagnostic/offload branch must never backpressure the metrology
+-- R5C1. This private production path must never backpressure the metrology
 -- producer.  At word zero it either reserves storage for the complete packet
 -- or selects whole-packet discard; both choices continue accepting every
 -- source word through the packet boundary.  A congested R5 transport can
 -- therefore lose an explicitly counted export packet, but it cannot disturb
 -- the SingleCycle engine or any other measurement path.
 entity meter_r5_aggregation_export is
-  generic (
-    -- Retained for source compatibility with the migration build.  Both
-    -- modes now use identical non-blocking whole-packet capture semantics.
-    G_AUTHORITATIVE_INPUT : boolean := false
-  );
   port (
     aclk    : in std_logic;
     aresetn : in std_logic;

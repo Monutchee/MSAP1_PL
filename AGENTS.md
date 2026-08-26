@@ -52,34 +52,31 @@
   merge-safe sufficient-statistic images, the shared interval finalize
   (`metrology_finalize.hpp`), and serial math -- are single-defined in
   `SourceData/HLS_DesignFile/common/include/` and compiled by R5C1. The
-  retained PL `AggregationEngine` branch exists only as a focused numerical
-  reference and must not be elaborated by the production wrapper. Aggregates
-  are formed from exactly 15 eligible Basic results --
+  interval algorithm itself is owned by
+  `MSAP1_RPU/R5c1/src/MainApp/aggregation/`; PL contains no aggregation
+  implementation or fallback. Aggregates are formed from exactly 15 eligible
+  Basic results --
   never from raw samples or a wall-clock timer -- and
   aggregate data never travels over RPMsg. Like every metrology observer
   the engines must never backpressure measurement (the single-cycle
   shim's beat FIFO absorbs finalize latency and counts any overflow; on a
   dead reference grid timing keeps cycle boundaries running synthetically
   at nominal cadence so the whole chain keeps producing flagged results).
-  Health registers `0x24`-`0x2c` and `0x78`-`0x98` in the processing
-  block are "as of the last emitted record" (the counters ride inside the
-  records, republished by `record_word_tap`); `AGG_STATUS` `0x78` and the
-  reserved mismatch register `0x94` read zero, and `0x98` now counts
-  single-cycle shim FIFO drops. Never wire two
+  Health registers `0x24`-`0x2c` remain "as of the last emitted SCYC
+  record". The retired PL aggregation registers `0x78`-`0x94` read zero;
+  `0x98` counts SingleCycle result-packet drops. Never wire two
   `register_mode=off` HLS axis ports directly together: a raw HLS axis
   master gates TVALID on TREADY (AXI-illegal) and deadlocks against a
   TVALID-gated reader -- keep the boundary register on every HLS axis
   master.
-- R5C1 is the production aggregation authority. The production
-  `MeterCore_Wrapper` sets `G_R5_AGGREGATION_AUTHORITATIVE=true`, which removes
-  the PL HLS `AggregationEngine` from the elaborated hierarchy and gives the
-  exporter ownership of the SingleCycle handshake.
+- R5C1 is the sole aggregation authority. `MeterCore_Wrapper` gives the
+  exporter unconditional ownership of the SingleCycle handshake.
   `meter_r5_aggregation_export.vhd` receives the exact 221-word SingleCycle
   packet, captures its 13
   context words when result word 0 is accepted, and emits one complete
   239-word packet on `M_AXIS_R5_AGG_INPUT`. The packet contains a four-word
-  integrity header, the exact current 234-word AggregationEngine input, and a
-  CRC32C word. It is a private PL/R5C1 co-release contract: the fixed contract
+  integrity header, the exact 234-word aggregation input, and a CRC32C word.
+  It is a private PL/R5C1 co-release contract: the fixed contract
   word detects a mixed bitstream/firmware image, but there is no negotiation,
   legacy decoder, or compatibility fallback. The exporter uses AMD XPM FIFOs
   and uses an explicit complete-packet credit before retaining word 0. When
@@ -214,11 +211,9 @@ vivado -mode batch -source SourceData/Script/AI_gen/implement_ad7771_design.tcl
   project. Keep them read-only, and keep them free of any query that a
   read-only open falsifies -- `IS_LOCKED` is the known one, because a
   read-only project reports every IP as locked.
-- For cycle-aggregator changes, `HLS_DesignFile/run_hls.sh` (or
-  `mnc HLS build`) runs the twelve-scenario golden bench as C simulation and
-  C/RTL co-simulation on the generated core, and `check_meter_core.tcl`
-  validates a complete MTR2 record through the shim and engine inside the
-  real pipeline.
+- For interval-aggregation changes, run the R5C1 focused host suite documented
+  in `MSAP1_RPU/AGENTS.md`; PL verification covers only the SingleCycle packet
+  and private exporter boundary.
 - Implementation must complete timing/CDC/DRC/I/O review and exports the
   bitstream-inclusive XSA to `../runtime-generated/bin_file/MSAP1_PL.xsa`.
 

@@ -49,7 +49,6 @@ set vhdl2008_sources [list \
     [file join $design_dir MeterProcessing record_word_tap.vhd] \
     [file join $design_dir MeterProcessing meter_r5_aggregation_pkg.vhd] \
     [file join $design_dir MeterProcessing meter_r5_aggregation_export.vhd] \
-    [file join $design_dir MeterProcessing meter_aggregation_hls_shim.vhd] \
     [file join $design_dir MeterCore adc_simulator_pkg.vhd] \
     [file join $design_dir MeterCore adc_simulator.vhd] \
     [file join $design_dir MeterCore adc_source_mux.vhd] \

@@ -8,7 +8,7 @@ or record word maps.
 | Header | Owns |
 |---|---|
 | `include/metering_types.hpp` | channel geometry, IEC 61000-4-30 block geometry, block flags, scalar types (samples, Q16 lanes, micro-units, the 64-bit sample index) |
-| `include/basic_result_beat.hpp` | the Basic result event beat (808 bits): layout constants, `basic_result_t`, explicit `pack`/`unpack` — the MTR1-engine → aggregator stream contract |
+| `include/single_cycle_packet.hpp` | the 221-word SingleCycle sufficient-statistics packet consumed by the R5C1 interval owner |
 | `include/measurement_record.hpp` | the 256-byte record: common envelope (words 0–12), format-word reservation table, MTR1-v3 / MTR2-v2 interior maps, `record_image_t`, `record_axis_t`, `clear_record`, `serialize_record<FORMAT>` |
 
 ## Using from a component
@@ -29,10 +29,9 @@ tb.cflags=-Isrc -I../../common/include
   here; a component-local copy is a review defect. Temporary duplicates
   during migration are listed below and carry a pinning `static_assert`
   in `test/common_headers_test.cpp` so they cannot drift silently.
-- **Shim lock-step.** Any VHDL shim that carries one of these beats
-  mirrors the offsets here and says so at its declaration; the
-  integration/equivalence benches catch drift (the aggregation-engine rule,
-  `AGENTS.md`).
+- **Boundary lock-step.** Any PL/R5C1 boundary that carries one of these
+  packets mirrors the offsets here and says so at its declaration; focused
+  exporter and decoder tests catch drift.
 - **Software ships with hardware.** The record envelope and word maps
   bind the APU decoder (`MSAP1_APU common/msap1/meter/meter_record.hpp`).
   A change here and the APU change land in the same release — the kernel
@@ -40,16 +39,18 @@ tb.cflags=-Isrc -I../../common/include
 - **Framing is inviolable.** 64 × 32-bit beats per record, TLAST on beat
   63, TKEEP full. `serialize_record` is the only sanctioned emitter.
 
-## Status / migration map (2026-08-16)
+## Current ownership map (2026-08-25)
 
-| Definition | Current normative source | Migrates |
+| Definition | Current normative source | Consumer |
 |---|---|---|
-| Record envelope + MTR1-v3/MTR2-v2 maps | **normative here** — both engines emit them; APU-side review/update (plan §13 Q4) ships in the same release | PL side done |
-| Basic result beat | **this header** (the MTR2 engine migrated at its record-output extension; the old `CAGG_IN_*` constants are gone) | done |
-| Aggregate output beat (`CAGG_OUT_*`) | retired — the extended aggregator emits records, not beats | done |
-| VHDL mirrors (`measurement_record_bus_pkg.vhd`, shim constants) | comment-linked mirrors | retire with their last VHDL consumer |
+| Record envelope + MTR1-v3/MTR2-v2 maps | **normative here** | R5C1 record construction and APU decoding |
+| SingleCycle packet | `include/single_cycle_packet.hpp` | PL exporter and R5C1 interval owner |
+| Interval aggregate state/result | `include/agg_block_result.hpp` | R5C1 only |
+| VHDL boundary mirrors | `measurement_record_bus_pkg.vhd` and `meter_r5_aggregation_pkg.vhd` | PL-to-R5C1 packet export |
 
-Plan: `doc/future_plan/measurement_record_transport_redesign.md` §5.
+There is no PL aggregation implementation, packaged aggregation IP, shim, or
+fallback branch. Historical trial and migration documents under `doc/` are
+explicitly marked as superseded.
 
 ## Verifying
 

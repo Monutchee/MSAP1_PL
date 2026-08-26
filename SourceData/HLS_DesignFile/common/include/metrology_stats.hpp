@@ -206,7 +206,7 @@ static const ap_int<31> MET_SQRT3_HALF_Q30 = 929887697;
 
 // Rotate a mean-phasor vector by either +120 degrees (the 'a' operator) or
 // +240 degrees ('a squared').  One direction-selectable function is
-// intentional: the aggregation engine invokes the rotations sequentially,
+// intentional: the interval algorithm invokes the rotations sequentially,
 // so HLS can time-share one pair of constant multipliers instead of creating
 // separate +120 and +240 degree datapaths.  This trades a few cycles at the
 // low-rate interval finalizer for substantially less placed arithmetic.

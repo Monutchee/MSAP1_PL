@@ -9,14 +9,7 @@ entity MeterCore_Wrapper is
     -- resource-constrained production targets (K24): the block leaves
     -- the netlist entirely. Settable on the block-design module
     -- reference (CONFIG.G_SIMULATOR_ENABLE) without editing sources.
-    G_SIMULATOR_ENABLE : boolean := true;
-
-    -- Production authority belongs to R5C1.  true removes the PL HLS
-    -- AggregationEngine from the elaborated hierarchy; R5C1 returns complete
-    -- MTR1/MTR2 records through the private FIFO TX stream and the existing
-    -- meter-DMA AXI-stream switch.  Focused PL numerical tests may override
-    -- this generic to false to exercise the retained reference implementation.
-    G_R5_AGGREGATION_AUTHORITATIVE : boolean := true
+    G_SIMULATOR_ENABLE : boolean := true
   );
   port (
     aclk    : in std_logic;
@@ -323,8 +316,7 @@ architecture structural of MeterCore_Wrapper is
 begin
   implementation : entity work.meter_core
     generic map (
-      G_SIMULATOR_ENABLE => G_SIMULATOR_ENABLE,
-      G_R5_AGGREGATION_AUTHORITATIVE => G_R5_AGGREGATION_AUTHORITATIVE
+      G_SIMULATOR_ENABLE => G_SIMULATOR_ENABLE
     )
     port map (
       aclk => aclk,

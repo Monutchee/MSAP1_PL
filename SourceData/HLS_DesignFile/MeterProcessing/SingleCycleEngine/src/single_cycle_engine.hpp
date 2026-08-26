@@ -32,7 +32,8 @@
 //              per-lane and line-line RMS words are diagnostics; the
 //              mergeable statistics on m_result stay authoritative.
 //   m_result : one fixed SCYC_PACKET_WORDS x 32-bit packet per completed
-//              cycle — the internal contract of AggregationEngine.  The
+//              cycle -- the private input contract of the R5C1 interval
+//              service. The
 //              narrow stream avoids a 7,072-bit physical interface while
 //              preserving every field of single_cycle_result_t.
 //

@@ -80,11 +80,11 @@ entity meter_processing_axi_regs is
 
     -- HLS cycle-aggregator trial health (read-only; see
     -- measurement_record_bus_pkg for the register semantics).
-    hls_agg_record_count_i             : in  word32_t;
-    hls_agg_mismatch_count_i           : in  word32_t;
-    hls_agg_drop_count_i               : in  word32_t;
+    legacy_agg_record_count_i          : in  word32_t;
+    legacy_agg_mismatch_count_i        : in  word32_t;
+    legacy_agg_drop_count_i            : in  word32_t;
 
-    -- Exact co-release PL -> R5C1 shadow-export transport diagnostics.
+    -- Exact co-release PL -> R5C1 export transport diagnostics.
     -- They remain observational and never affect capture or metrology.
     r5_agg_export_status_i             : in  word32_t;
     r5_agg_export_accepted_count_i     : in  word32_t;
@@ -324,11 +324,11 @@ begin
             when AGG_REG_CONTINUITY_COUNT / 4 => rdata <= agg_continuity_count_i;
             when AGG_REG_DROP_COUNT / 4 => rdata <= agg_drop_count_i;
             when HLS_AGG_REG_RECORD_COUNT / 4 =>
-              rdata <= hls_agg_record_count_i;
+              rdata <= legacy_agg_record_count_i;
             when HLS_AGG_REG_MISMATCH_COUNT / 4 =>
-              rdata <= hls_agg_mismatch_count_i;
+              rdata <= legacy_agg_mismatch_count_i;
             when HLS_AGG_REG_DROP_COUNT / 4 =>
-              rdata <= hls_agg_drop_count_i;
+              rdata <= legacy_agg_drop_count_i;
             when R5_AGG_EXPORT_REG_STATUS / 4 =>
               rdata <= r5_agg_export_status_i;
             when R5_AGG_EXPORT_REG_ACCEPTED_COUNT / 4 =>

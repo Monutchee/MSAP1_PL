@@ -12,7 +12,7 @@
 
 // The single-cycle measurement result — one value per complete,
 // non-overlapping grid cycle, produced by the single-cycle engine and
-// consumed by the shared aggregation engine. This is the reusable-primitive
+// consumed by the R5C1 interval service. This is the reusable-primitive
 // contract of the metrology redesign: higher tiers merge these sufficient
 // statistics; they never re-derive them from samples.
 //

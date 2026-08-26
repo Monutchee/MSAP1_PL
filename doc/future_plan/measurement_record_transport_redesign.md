@@ -1,5 +1,11 @@
 # Measurement path HLS rewrite + AMD AXIS transport — implementation plan
 
+> **Historical plan (superseded 2026-08-25).** The as-built design no longer
+> contains a PL aggregation engine or HLS aggregation fallback. PL exports the
+> 234-word SingleCycle packet to R5C1; R5C1 exclusively owns interval
+> aggregation and returns completed records. Details below are retained only
+> as design history and must not be used as the current architecture contract.
+
 Status: detailed implementation plan, revision 3, 2026-08-15, branch
 `feat/hls_mtr1`. Supersedes revision 2 (same file, git history) after
 design review resolved the open decisions:

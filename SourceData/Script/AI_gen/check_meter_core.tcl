@@ -7,14 +7,6 @@ set work_root [file join /tmp msap1_meter_core_sim]
 
 # Packaged HLS RTL (IP repository entry); refreshed by 'mnc HLS build' or
 # SourceData/HLS_DesignFile/run_hls.sh <component>.
-set hls_agg_hdl [file join $project_root SourceData HLS_DesignFile \
-  ip_repo AggregationEngine hdl verilog]
-if {![file isdirectory $hls_agg_hdl]} {
-  error "missing $hls_agg_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
-}
-set hls_agg_verilog [concat \
-  [lsort [glob -directory $hls_agg_hdl *.v]] \
-  [list [file join $design_root MeterProcessing tb hls_aggregation_engine_ip.v]]]
 set hls_pq_hdl [file join $project_root SourceData HLS_DesignFile \
   ip_repo SlidingOneCycleRmsEngine hdl verilog]
 if {![file isdirectory $hls_pq_hdl]} {
@@ -74,7 +66,6 @@ set vhdl2008_sources [list \
   [file join $design_root MeterProcessing record_word_tap.vhd] \
   [file join $design_root MeterProcessing meter_r5_aggregation_pkg.vhd] \
   [file join $design_root MeterProcessing meter_r5_aggregation_export.vhd] \
-  [file join $design_root MeterProcessing meter_aggregation_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_sliding_rms_hls_shim.vhd] \
   [file join $design_root MeterCore adc_simulator_pkg.vhd] \
@@ -85,7 +76,6 @@ set vhdl2008_sources [list \
 set core_vhdl2008_sources [list \
   [file join $design_root MeterCore meter_core.vhd]]
 set boundary_wrapper [file join $design_root MeterCore MeterCore_Wrapper.vhd]
-set testbench [file join $design_root MeterCore tb meter_core_tb.sv]
 set simulator_testbench [file join $design_root MeterCore tb adc_simulator_tb.sv]
 
 file delete -force $work_root
@@ -95,8 +85,7 @@ file mkdir $work_root
 # directory, so stage them beside the compiled snapshot. Sweep EVERY
 # packaged engine (sim-wave sine LUT, single-cycle trig LUT, the M9
 # CORDIC atan table, anything future).
-foreach hdl_dir [list $hls_sim_wave_hdl $hls_scyc_hdl \
-                     $hls_agg_hdl $hls_pq_hdl] {
+foreach hdl_dir [list $hls_sim_wave_hdl $hls_scyc_hdl $hls_pq_hdl] {
   foreach rom_image [glob -nocomplain -directory $hdl_dir *.dat] {
     file copy -force $rom_image $work_root
   }
@@ -105,25 +94,12 @@ set original_dir [pwd]
 cd $work_root
 
 puts [exec $xvhdl --2008 {*}$vhdl2008_sources 2>@1]
-puts [exec $xvlog -i $hls_agg_hdl {*}$hls_agg_verilog 2>@1]
 puts [exec $xvlog -i $hls_sim_wave_hdl {*}$hls_sim_wave_verilog 2>@1]
 puts [exec $xvlog -i $hls_scyc_hdl {*}$hls_scyc_verilog 2>@1]
 puts [exec $xvlog -i $hls_pq_hdl {*}$hls_pq_verilog 2>@1]
 puts [exec $xvhdl --2008 {*}$core_vhdl2008_sources 2>@1]
 puts [exec $xvhdl $boundary_wrapper 2>@1]
-puts [exec $xvlog --sv $testbench 2>@1]
 puts [exec $xvlog [file join $vivado_root data verilog src glbl.v] 2>@1]
-puts [exec $xelab -a --mt off -L xpm meter_core_tb glbl \
-  -s meter_core_tb_sim 2>@1]
-
-set axsim [file join $work_root xsim.dir meter_core_tb_sim axsim]
-set simulation_log \
-  [exec env "LD_LIBRARY_PATH=$simulator_libraries" $axsim 2>@1]
-puts $simulation_log
-if {![string match "*PASS: meter_core_tb*" $simulation_log]} {
-  error "MeterCore integration simulation did not report PASS"
-}
-
 puts [exec $xvlog --sv $simulator_testbench 2>@1]
 puts [exec $xelab -a --mt off adc_simulator_tb \
   -s adc_simulator_tb_sim 2>@1]
@@ -135,17 +111,14 @@ if {![string match "*PASS: adc_simulator_tb*" $simulator_log]} {
   error "ADC simulator simulation did not report PASS"
 }
 
-# Elaborate the production configuration explicitly.  The numerical bench
-# above overrides aggregation authority to exercise the retained PL reference,
-# so this dedicated elaboration proves that the R5-authoritative branch removes
-# the HLS AggregationEngine and that the simulator-disabled shape still binds.
+# Elaborate the production configuration explicitly and prove that the
+# simulator-disabled shape still binds.
 set disabled_log [exec $xelab --mt off MeterCore_Wrapper glbl \
   -generic_top "G_SIMULATOR_ENABLE=false" \
-  -generic_top "G_R5_AGGREGATION_AUTHORITATIVE=true" \
   -s meter_core_sim_disabled 2>@1]
 puts $disabled_log
-puts "MeterCore production R5-authoritative, simulator-disabled elaboration PASS"
+puts "MeterCore production simulator-disabled elaboration PASS"
 
 cd $original_dir
 file delete -force $work_root
-puts "MeterCore and ADC simulator mixed-language simulations PASS"
+puts "MeterCore elaboration and ADC simulator mixed-language simulation PASS"

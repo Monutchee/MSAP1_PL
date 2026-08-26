@@ -20,14 +20,7 @@ entity meter_core is
     -- (K24 production target) and a minimal AXI-lite stub answers its
     -- register window with zeros so the RPU probe fails cleanly (the
     -- AdcController isolates simulator-init failure by design).
-    G_SIMULATOR_ENABLE : boolean := true;
-
-    -- Production switch for the private PL<->R5C1 aggregation datapath.
-    -- true removes the HLS AggregationEngine from the elaborated design, lets
-    -- the R5 exporter own SingleCycle READY, and expects R5-produced MTR1/MTR2
-    -- records to re-enter the meter DMA through the block-design AXI-stream
-    -- switch. false is retained only for focused PL-reference tests.
-    G_R5_AGGREGATION_AUTHORITATIVE : boolean := true
+    G_SIMULATOR_ENABLE : boolean := true
   );
   port (
     aclk    : in std_logic;
@@ -250,16 +243,11 @@ architecture structural of meter_core is
   signal apply_seen        : std_logic;
   signal processing_status : std_logic_vector(31 downto 0);
 
-  -- All record producers are Vitis HLS engines that build and serialize
-  -- their own 256-byte records (normative contracts:
-  -- HLS_DesignFile/common/include/measurement_record.hpp plus each
-  -- engine's header). The single-cycle shim packs one sample beat per
-  -- accepted frame; the shared aggregation tier consumes its ordered result
-  -- packets and emits every completed/open aggregate record directly
-  -- (HLS-to-HLS AXIS, no event conversion anywhere). Engine
-  -- health counters ride inside the
-  -- records; record_word_tap republishes them to the register file, "as
-  -- of the last emitted record".
+  -- The PL SingleCycle engine builds its own SCYC diagnostic record and an
+  -- ordered 221-word sufficient-statistics packet. The private exporter adds
+  -- context and CRC32C for R5C1, which owns every interval record. Returned
+  -- MTR1/MTR2 records bypass this module through the block-design AXIS switch;
+  -- the legacy wrapper outputs and their record taps remain idle.
   signal scyc_shim_drop_count : std_logic_vector(31 downto 0);
   signal grid_cycle_locked    : std_logic;
   signal grid_cycle_fallback  : std_logic;
@@ -271,8 +259,6 @@ architecture structural of meter_core is
   -- the aggregation shim appends its context.
   signal scyc_result_tdata  : std_logic_vector(31 downto 0);
   signal scyc_result_tvalid : std_logic;
-  signal scyc_result_accepted : std_logic;
-  signal r5_export_input_valid : std_logic;
   signal r5_export_input_ready : std_logic;
   signal r5_agg_accepted_packets  : std_logic_vector(31 downto 0);
   signal r5_agg_dropped_packets   : std_logic_vector(31 downto 0);
@@ -758,11 +744,11 @@ begin
       agg_ineligible_count_i => mtr2_tap_ineligible,
       agg_continuity_count_i => mtr2_tap_continuity,
       agg_drop_count_i => mtr2_tap_emit_drops,
-      hls_agg_record_count_i => mtr2_tap_sequence,
-      hls_agg_mismatch_count_i => (others => '0'),
+      legacy_agg_record_count_i => mtr2_tap_sequence,
+      legacy_agg_mismatch_count_i => (others => '0'),
       -- The sample-domain loss point is now the single-cycle shim's FIFO
       -- (the retired Mtr1 shim's counter died with it).
-      hls_agg_drop_count_i => scyc_shim_drop_count,
+      legacy_agg_drop_count_i => scyc_shim_drop_count,
       r5_agg_export_status_i => r5_agg_status,
       r5_agg_export_accepted_count_i => r5_agg_accepted_packets,
       r5_agg_export_dropped_count_i => r5_agg_dropped_packets,
@@ -846,89 +832,30 @@ begin
   -- Live fallback view: enabled but running on synthetic boundaries.
   grid_cycle_fallback <= grid_cycle_mode and not grid_cycle_locked;
 
-  -- Exactly one consumer owns the SingleCycle result handshake.  The legacy
-  -- branch retains the PL reference engine for focused numerical comparison;
-  -- the production wrapper selects the R5-authoritative branch below.
-  pl_aggregation_authority : if not G_R5_AGGREGATION_AUTHORITATIVE generate
-    aggregation_producer : entity work.meter_aggregation_hls_shim
-      port map (
-        aclk => aclk,
-        aresetn => aresetn,
-        s_result_tdata => scyc_result_tdata,
-        s_result_tvalid => scyc_result_tvalid,
-        s_result_tready => scyc_result_tready,
-        cycle_locked_i => grid_cycle_locked,
-        cycle_fallback_i => grid_cycle_fallback,
-        shadow_generation_i => shadow_generation,
-        shadow_sample_rate_i => shadow_sample_rate,
-        shadow_valid_mask_i => shadow_valid_mask,
-        shadow_enable_i => shadow_enable,
-        shadow_dc_remove_i => shadow_dc_remove,
-        config_apply_toggle_i => apply_toggle,
-        frequency_status_i => frequency_status,
-        frequency_period_i => frequency_period_q16,
-        frequency_sequence_i => frequency_sequence,
-        capture_frame_count_i => capture_frame_count,
-        capture_header_errors_i => capture_headers,
-        capture_overflows_i => capture_overflows,
-        capture_alerts_i => capture_alerts,
-        ten_minute_target_sample_i => ten_minute_target_sample,
-        ten_minute_target_valid_i => ten_minute_target_valid,
-        ten_minute_target_update_i => ten_minute_target_update,
-        m_axis_basic_tdata => mtr1_axis_tdata,
-        m_axis_basic_tkeep => mtr1_axis_tkeep,
-        m_axis_basic_tvalid => mtr1_axis_tvalid,
-        m_axis_basic_tready => m_axis_mtr1_tready,
-        m_axis_basic_tlast => mtr1_axis_tlast,
-        m_axis_agg_tdata => mtr2_axis_tdata,
-        m_axis_agg_tkeep => mtr2_axis_tkeep,
-        m_axis_agg_tvalid => mtr2_axis_tvalid,
-        m_axis_agg_tready => m_axis_mtr2_tready,
-        m_axis_agg_tlast => mtr2_axis_tlast,
-        active_generation_o => active_generation,
-        active_enable_o => active_enable,
-        apply_seen_o => apply_seen
-      );
+  -- R5C1 is the only interval-aggregation owner. The exporter consumes the
+  -- SingleCycle packet without backpressuring metrology and emits a complete,
+  -- integrity-protected private-link frame. MTR1/MTR2 return through the
+  -- block-design meter switch, so these legacy PL outputs remain idle.
+  scyc_result_tready <= r5_export_input_ready;
+  mtr1_axis_tdata <= (others => '0');
+  mtr1_axis_tkeep <= (others => '1');
+  mtr1_axis_tvalid <= '0';
+  mtr1_axis_tlast <= '0';
+  mtr2_axis_tdata <= (others => '0');
+  mtr2_axis_tkeep <= (others => '1');
+  mtr2_axis_tvalid <= '0';
+  mtr2_axis_tlast <= '0';
 
-    r5_export_input_valid <= scyc_result_accepted;
-  end generate;
-
-  -- In authoritative mode the PL aggregation instance is not elaborated.
-  -- The exporter reserves a complete packet before asserting READY for word
-  -- zero, so any R5/FIFO congestion backpressures only at a packet boundary.
-  -- MTR1/MTR2 now return from R5 through the block-design meter stream switch;
-  -- these legacy PL outputs therefore remain idle.
-  r5_aggregation_authority : if G_R5_AGGREGATION_AUTHORITATIVE generate
-    scyc_result_tready <= r5_export_input_ready;
-    r5_export_input_valid <= scyc_result_tvalid;
-
-    mtr1_axis_tdata <= (others => '0');
-    mtr1_axis_tkeep <= (others => '1');
-    mtr1_axis_tvalid <= '0';
-    mtr1_axis_tlast <= '0';
-    mtr2_axis_tdata <= (others => '0');
-    mtr2_axis_tkeep <= (others => '1');
-    mtr2_axis_tvalid <= '0';
-    mtr2_axis_tlast <= '0';
-
-    -- R5 receives this same configuration snapshot in every input packet.
-    -- Reflect it immediately in the legacy processing-register readback; R5
-    -- health is the authoritative aggregation diagnostic in this mode.
-    active_generation <= shadow_generation;
-    active_enable <= shadow_enable;
-    apply_seen <= apply_toggle;
-  end generate;
-
-  scyc_result_accepted <= scyc_result_tvalid and scyc_result_tready;
+  -- R5 receives this same configuration snapshot in every input packet.
+  active_generation <= shadow_generation;
+  active_enable <= shadow_enable;
+  apply_seen <= apply_toggle;
 
   r5_aggregation_export : entity work.meter_r5_aggregation_export
-    generic map (
-      G_AUTHORITATIVE_INPUT => G_R5_AGGREGATION_AUTHORITATIVE
-    )
     port map (
       aclk => aclk,
       aresetn => aresetn,
-      result_word_valid_i => r5_export_input_valid,
+      result_word_valid_i => scyc_result_tvalid,
       result_word_ready_o => r5_export_input_ready,
       result_word_i => scyc_result_tdata,
       cycle_locked_i => grid_cycle_locked,
@@ -969,27 +896,22 @@ begin
   m_axis_mtr1_tlast <= mtr1_axis_tlast;
 
   -- STATUS (0x0C): enabled, apply pending, calculation busy, overflow.
-  -- The HLS engine exposes no live busy view (the AGG_STATUS precedent);
-  -- overflow is the sticky arithmetic bit of the last emitted record.
+  -- The PL interval fields are retained for register compatibility.
   processing_status <= (31 downto 4 => '0') & mtr1_tap_status(0) & '0' &
                        (apply_toggle xor apply_seen) & active_enable;
 
-  -- The 150/180-cycle tier no longer has a producer of its own (roadmap
-  -- A1): ONE engine owns both finalized tiers, so the aggregate record
-  -- quad leaves the same shim as the basic quad on a second master. The
-  -- 7072-bit block-result beat between them became an internal variable,
-  -- which retired meter_agg150_180_hls_shim.vhd, its FIFO, and both sets
-  -- of boundary registers on that beat.
+  -- Legacy PL record outputs remain in the module-reference interface for
+  -- block-design compatibility. R5C1 records enter the switch independently.
   m_axis_mtr2_tdata <= mtr2_axis_tdata;
   m_axis_mtr2_tkeep <= mtr2_axis_tkeep;
   m_axis_mtr2_tvalid <= mtr2_axis_tvalid;
   m_axis_mtr2_tlast <= mtr2_axis_tlast;
 
-  -- Register-file taps on both record streams ("as of the last emitted
-  -- record"); strictly observational.
+  -- Legacy record taps remain wired to the idle outputs and therefore read
+  -- zero. R5C1 reports aggregation health through its firmware contract.
   -- Single-cycle producer: sample-beat shim + HLS engine (per-cycle
   -- provenance in M2; statistics/power/phasor accumulate here from M3).
-  -- Its result stream feeds the 10/12-cycle merge tier (M7).
+  -- Its result stream feeds the private R5C1 exporter.
   scyc_producer : entity work.meter_single_cycle_hls_shim
     port map (
       aclk => aclk,

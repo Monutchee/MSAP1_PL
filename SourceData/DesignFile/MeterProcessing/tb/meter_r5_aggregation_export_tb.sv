@@ -62,11 +62,7 @@ module meter_r5_aggregation_export_tb;
 
   always #5 clock = ~clock;
 
-  meter_r5_aggregation_export #(
-    // Exercise the cutover behavior: the exporter owns READY and reserves a
-    // complete R5 input packet before accepting SingleCycle word zero.
-    .G_AUTHORITATIVE_INPUT(1'b1)
-  ) dut (
+  meter_r5_aggregation_export dut (
     .aclk(clock),
     .aresetn(resetn),
     .result_word_valid_i(result_word_valid),
