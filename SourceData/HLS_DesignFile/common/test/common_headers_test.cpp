@@ -83,6 +83,7 @@ static void test_agg_block_round_trip() {
   in.frequency_valid = 1;
   in.apply_toggle = 1;
   in.dc_remove = 1;
+  in.utc_resynchronized = 1;
   for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
     in.sum[lane] = ap_int<128>(-1234567891234LL) * (lane + 1);
     in.square[lane] = (ap_uint<128>(1) << 96) + lane;
@@ -107,6 +108,7 @@ static void test_agg_block_round_trip() {
             out.sample_rate_hz == in.sample_rate_hz &&
             out.nominal_hz == in.nominal_hz &&
             out.valid_mask == in.valid_mask && out.flags == in.flags &&
+            out.utc_resynchronized == in.utc_resynchronized &&
             out.cycle_count == in.cycle_count && out.status == in.status &&
             out.frequency_millihz == in.frequency_millihz &&
             out.frequency_valid == in.frequency_valid &&

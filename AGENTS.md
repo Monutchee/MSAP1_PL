@@ -62,6 +62,11 @@
   shim's beat FIFO absorbs finalize latency and counts any overflow; on a
   dead reference grid timing keeps cycle boundaries running synthetically
   at nominal cadence so the whole chain keeps producing flagged results).
+  The shared record contract reserves BASIC-v4 timing bit 19 for the first
+  UTC-resynchronized Basic, and AGG-v3 status bits 3/4 for the continuing
+  overlap/new synchronized 150/180-cycle pair. AGG-v3 words 36/37 carry the
+  actual last contributing sample because the continuing overlap record's
+  summed contribution count can exceed its physical first-to-last span.
   Health registers `0x24`-`0x2c` remain "as of the last emitted SCYC
   record". The retired PL aggregation registers `0x78`-`0x94` read zero;
   `0x98` counts SingleCycle result-packet drops. Never wire two

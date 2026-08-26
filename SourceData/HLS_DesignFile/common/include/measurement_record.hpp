@@ -221,6 +221,9 @@ static const int MTR1_TIMING_WORD        = 13;
 static const int MTR1_TIMING_NOMINAL_LSB = 0;   // [7:0]  declared nominal Hz
 static const int MTR1_TIMING_CYCLES_LSB  = 8;   // [15:8] complete cycles in block
 static const int MTR1_TIMING_FLAGS_LSB   = 16;  // [18:16] MET_FLAG_* (locked/fallback/first)
+// Additive M15 provenance.  The format IDs stay unchanged: older readers
+// already ignore the formerly-reserved upper timing bits.
+static const int MTR1_TIMING_UTC_RESYNCHRONIZED_BIT = 19;
 
 // Words 16..55: MET_CHANNEL_LANES x 5 words per channel.
 static const int MTR1_CH_BASE_WORD    = MREC_PAYLOAD_WORD;
@@ -469,6 +472,11 @@ static const int SCYC_FUND_BASE_WORD = 50;  // sequence/sample-range breaks
 // MTR2 status bits (word 8), beyond the common arithmetic bit.
 static const int MTR2_STATUS_COMPLETE_BIT  = 1;  // always set — only complete aggregates emit
 static const int MTR2_STATUS_FREQUENCY_BIT = 2;  // all 15 frequency inputs were valid
+// The continuing pre-boundary interval and the new UTC-synchronized interval
+// deliberately overlap.  These additive bits make that standards-defined
+// transition distinguishable from a duplicated/corrupt record.
+static const int MTR2_STATUS_UTC_OVERLAP_BIT = 3;
+static const int MTR2_STATUS_UTC_RESYNCHRONIZED_BIT = 4;
 
 // ---------------------------------------------------------------------------
 // Record image and AXIS serialization.
