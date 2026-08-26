@@ -578,28 +578,32 @@ proc pl_build_running_runs {} {
 # unexpected property value can delay a message but can never let a stage
 # continue over an unfinished run.
 # Headline utilization from a report_utilization file: the GUI Project
-# Summary numbers (LUT/FF/BRAM/DSP used, available, percent) as parseable
-# stage output.  A routed implementation report also contains physical CLB
-# occupancy; synthesis cannot report that value because its cells have not
-# been placed yet.  Silent if either the report or an individual row is
-# missing (a failed stage already said why).
+# Summary numbers (LUT/FF/BRAM/URAM/DSP used, available, percent) as parseable
+# stage output.  Resources marked capacity-dependent are reported only when
+# the target device provides them, so one report format works for parts both
+# with and without URAM.  A routed implementation report also contains
+# physical CLB occupancy; synthesis cannot report that value because its
+# cells have not been placed yet.  Silent if either the report or an
+# individual row is missing (a failed stage already said why).
 proc pl_build_utilization_summary {rpt {prefix PL_BUILD_UTIL}} {
     if {![file exists $rpt]} {
         return
     }
     set rows {
-        LUT          "CLB LUTs"
-        LUTRAM       "LUT as Memory"
-        CLB          "CLB"
-        FF           "CLB Registers"
-        BRAM         "Block RAM Tile"
-        DSP          "DSPs"
-        CONTROL_SETS "Unique Control Sets"
+        {LUT          "CLB LUTs"            always}
+        {LUTRAM       "LUT as Memory"       always}
+        {CLB          "CLB"                 always}
+        {FF           "CLB Registers"       always}
+        {BRAM         "Block RAM Tile"      always}
+        {URAM         "URAM"                when_available}
+        {DSP          "DSPs"                always}
+        {CONTROL_SETS "Unique Control Sets" always}
     }
     set handle [open $rpt r]
     set content [read $handle]
     close $handle
-    foreach {tag row} $rows {
+    foreach row_spec $rows {
+        lassign $row_spec tag row availability
         set found 0
         foreach line [split $content "\n"] {
             set cells [lmap cell [split $line "|"] {string trim $cell}]
@@ -611,6 +615,15 @@ proc pl_build_utilization_summary {rpt {prefix PL_BUILD_UTIL}} {
                 set used [lindex $cells 2]
                 set available [lindex $cells 5]
                 set percent [lindex $cells 6]
+                if {$availability eq "when_available" &&
+                        (![string is double -strict $available] ||
+                        $available <= 0)} {
+                    # Some Vivado/device combinations retain a zero-capacity
+                    # resource row.  That is a device capability, not useful
+                    # utilization, so omit it just like an absent row.
+                    set found 1
+                    break
+                }
                 puts "${prefix}_${tag}=$used/$available (${percent}%)"
                 set found 1
                 break
