@@ -23,7 +23,7 @@ module meter_spectral_frontend #(
     parameter int SAMPLE_WIDTH = 24,
     parameter int FFT_LENGTH   = 4096,
     parameter int CONTEXT_BITS = 576,
-    // Production must retain the default XPM BRAM implementation.  The
+    // Production must retain the default XPM URAM implementation.  The
     // behavioral alternative exists only for small, vendor-library-free TBs.
     parameter bit USE_XPM      = 1'b1
 ) (
@@ -38,6 +38,9 @@ module meter_spectral_frontend #(
     input  logic                                  s_axis_frame_tvalid,
     output logic                                  s_axis_frame_tready,
     input  logic                                  s_axis_frame_tlast,
+    // A conditioner/profile/geometry fault invalidates the complete bank
+    // even when its AXIS frame count and TLAST happen to look correct.
+    input  logic                                  s_axis_frame_fault,
 
     output logic [CONTEXT_BITS-1:0]               m_axis_context_tdata,
     output logic                                  m_axis_context_tvalid,
@@ -158,7 +161,8 @@ module meter_spectral_frontend #(
         effective_bank = capture_active ? capture_bank : selected_bank;
         effective_discard = capture_active ? capture_discard
                                            : !selected_bank_available;
-        effective_fault = capture_active ? capture_framing_fault : 1'b0;
+        effective_fault = (capture_active ? capture_framing_fault : 1'b0) |
+                          s_axis_frame_fault;
         effective_index = capture_active ? capture_index : '0;
         expected_last = effective_index == FFT_LENGTH - 1;
         memory_write_enable = aresetn && frame_fire && window_active &&
@@ -170,9 +174,10 @@ module meter_spectral_frontend #(
 
     generate
         if (USE_XPM) begin : g_xpm_banks
-            // Explicit XPM simple-dual-port banks keep the wide 4K memories
-            // in BRAM. Inference maps this geometry to LUTRAM on Vivado
-            // 2025.2; XPM also pins the two-cycle scheduler read latency.
+            // Explicit XPM simple-dual-port banks map the wide 4K windows to
+            // six K26 URAMs (three per bank). This preserves scarce BRAM for
+            // XFFT and the rest of the block design. XPM also pins the
+            // two-cycle scheduler read latency.
             for (genvar bank = 0; bank < 2; bank++) begin : g_window_bank
                 localparam logic BANK_ID = bank;
                 logic unused_sbiterr;
@@ -180,7 +185,7 @@ module meter_spectral_frontend #(
 
                 xpm_memory_sdpram #(
                     .MEMORY_SIZE        (FFT_LENGTH * FRAME_WIDTH),
-                    .MEMORY_PRIMITIVE   ("block"),
+                    .MEMORY_PRIMITIVE   ("ultra"),
                     .CLOCKING_MODE      ("common_clock"),
                     .ECC_MODE           ("no_ecc"),
                     .MEMORY_INIT_FILE   ("none"),
@@ -192,7 +197,7 @@ module meter_spectral_frontend #(
                     .READ_DATA_WIDTH_B  (FRAME_WIDTH),
                     .ADDR_WIDTH_B       (ADDR_WIDTH),
                     .READ_LATENCY_B     (2),
-                    .WRITE_MODE_B       ("no_change")
+                    .WRITE_MODE_B       ("read_first")
                 ) window_bank_i (
                     .sleep          (1'b0),
                     .clka           (aclk),
@@ -268,7 +273,7 @@ module meter_spectral_frontend #(
                 if (selected_bank_available) begin
                     context_bank[selected_bank] <= context_with_drops;
                     bank_preference <= !selected_bank;
-                end else begin
+                end else if (dropped_windows != 32'hffffffff) begin
                     dropped_windows <= dropped_windows + 1'b1;
                 end
             end
@@ -278,6 +283,19 @@ module meter_spectral_frontend #(
                     if (effective_discard) begin
                         if (s_axis_frame_tlast)
                             capture_active <= 1'b0;
+                    end else if (s_axis_frame_fault) begin
+                        // An explicit upstream fault has whole-window scope.
+                        // Count it once, suppress this beat's memory write,
+                        // and consume through TLAST to regain alignment.
+                        if (!capture_framing_fault &&
+                            malformed_windows != 32'hffffffff)
+                            malformed_windows <= malformed_windows + 1'b1;
+                        if (s_axis_frame_tlast) begin
+                            capture_active <= 1'b0;
+                        end else begin
+                            capture_active        <= 1'b1;
+                            capture_framing_fault <= 1'b1;
+                        end
                     end else if (effective_fault) begin
                         // A missing expected TLAST already invalidated this
                         // block.  Consume through the eventual TLAST to regain
@@ -285,7 +303,8 @@ module meter_spectral_frontend #(
                         if (s_axis_frame_tlast)
                             capture_active <= 1'b0;
                     end else if (s_axis_frame_tlast != expected_last) begin
-                        malformed_windows <= malformed_windows + 1'b1;
+                        if (malformed_windows != 32'hffffffff)
+                            malformed_windows <= malformed_windows + 1'b1;
                         if (s_axis_frame_tlast) begin
                             // Early TLAST: this bank was never published.
                             capture_active <= 1'b0;
@@ -303,7 +322,8 @@ module meter_spectral_frontend #(
                     end
                 end else if (s_axis_frame_tlast) begin
                     // A complete orphan frame arrived without its context.
-                    malformed_windows <= malformed_windows + 1'b1;
+                    if (malformed_windows != 32'hffffffff)
+                        malformed_windows <= malformed_windows + 1'b1;
                 end
             end
 
@@ -356,7 +376,8 @@ module meter_spectral_frontend #(
                         if (fft_index == FFT_LENGTH - 1) begin
                             if (channel_index == CHANNELS - 1) begin
                                 bank_ready[active_bank] <= 1'b0;
-                                completed_windows <= completed_windows + 1'b1;
+                                if (completed_windows != 32'hffffffff)
+                                    completed_windows <= completed_windows + 1'b1;
                                 scheduler_state <= S_IDLE;
                             end else begin
                                 channel_index <= channel_index + 1'b1;

@@ -23,6 +23,11 @@ entity adc_conversion is
     m_axis_tready    : in  std_logic;
     m_axis_tlast     : out std_logic;
 
+    -- Atomically committed Q16.16 micro-unit/count scales.  MeterCore's
+    -- harmonic conditioner works from the preserved raw 24-bit counts and
+    -- carries these active gains in the spectrum provenance context.
+    active_scale_q16_o : out std_logic_vector(255 downto 0);
+
     s_axi_awaddr     : in  std_logic_vector(7 downto 0);
     s_axi_awvalid    : in  std_logic;
     s_axi_awready    : out std_logic;
@@ -72,6 +77,11 @@ architecture rtl of adc_conversion is
   signal apply_waiting     : std_logic;
   signal can_accept        : std_logic;
 begin
+  active_scale_export : for index in 0 to 7 generate
+    active_scale_q16_o((index * 32) + 31 downto index * 32) <=
+      active_scale(index);
+  end generate;
+
   register_bank : entity work.adc_conversion_axi_regs
     port map (
       aclk => aclk,

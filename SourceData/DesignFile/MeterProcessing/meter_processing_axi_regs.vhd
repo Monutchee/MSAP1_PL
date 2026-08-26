@@ -94,6 +94,15 @@ entity meter_processing_axi_regs is
     r5_agg_export_last_sequence_i      : in  word32_t;
     r5_agg_export_queue_level_i        : in  word32_t;
 
+    -- M16 conditioner/frontend/XFFT health (read-only).
+    harmonic_conditioned_blocks_i      : in  word32_t;
+    harmonic_invalid_blocks_i          : in  word32_t;
+    harmonic_service_overruns_i        : in  word32_t;
+    harmonic_frontend_completed_i      : in  word32_t;
+    harmonic_frontend_dropped_i        : in  word32_t;
+    harmonic_frontend_malformed_i      : in  word32_t;
+    harmonic_xfft_fault_count_i        : in  word32_t;
+
     active_generation_i     : in  word32_t;
     result_sequence_i       : in  word32_t;
     result_drop_count_i     : in  word32_t;
@@ -343,6 +352,20 @@ begin
               rdata <= r5_agg_export_last_sequence_i;
             when R5_AGG_EXPORT_REG_QUEUE_LEVEL / 4 =>
               rdata <= r5_agg_export_queue_level_i;
+            when HARMONIC_REG_CONDITIONED_BLOCKS / 4 =>
+              rdata <= harmonic_conditioned_blocks_i;
+            when HARMONIC_REG_INVALID_BLOCKS / 4 =>
+              rdata <= harmonic_invalid_blocks_i;
+            when HARMONIC_REG_SERVICE_OVERRUNS / 4 =>
+              rdata <= harmonic_service_overruns_i;
+            when HARMONIC_REG_FRONTEND_COMPLETED / 4 =>
+              rdata <= harmonic_frontend_completed_i;
+            when HARMONIC_REG_FRONTEND_DROPPED / 4 =>
+              rdata <= harmonic_frontend_dropped_i;
+            when HARMONIC_REG_FRONTEND_MALFORMED / 4 =>
+              rdata <= harmonic_frontend_malformed_i;
+            when HARMONIC_REG_XFFT_FAULT_COUNT / 4 =>
+              rdata <= harmonic_xfft_fault_count_i;
             when others => rdata <= (others => '0');
           end case;
           rvalid <= '1';

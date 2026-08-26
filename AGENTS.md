@@ -24,6 +24,17 @@
   and returns finished 256-byte MTR1/MTR2 records through the bidirectional
   AXI FIFO MM-S into the existing AXIS switch in `TopDesign.bd`; the wrapper's
   legacy `M_AXIS_MTR1` and `M_AXIS_MTR2` outputs remain idle.
+- M16 harmonic acquisition is also owned inside `MeterCore_Wrapper`: the
+  fixed 32 kSPS 16/25 polyphase conditioner, URAM-backed 4,096-frame ping/pong
+  frontend, packaged `hls_harmonic_engine_ip`, XFFT fault handling, and
+  4,096-word record FIFO are one hierarchy. The block design owns only one
+  XFFT v9.1 customization connected through the wrapper's four `*_FFT_*` AXIS
+  interfaces and six event scalars. Finished records leave on the dedicated
+  `M_AXIS_HARMONIC` port and join `MTR_AXI_Switch/S05_AXIS`; do not merge them
+  into `M_AXIS_PQ`. The production conditioner profile accepts only exact
+  6,400-frame 10/12-cycle blocks at measured 32 kSPS. Other geometries emit
+  no valid spectral window. Its read-only health window is `0xCC`--`0xE4` in
+  `S_AXI_PROCESSING`.
 - The conversion stage owns the 64-bit free-running sample index (low word in
   `TUSER[31:0]`, high word in `TUSER[105:74]`). It is the measurement
   timebase: never reset it on configuration apply and never step it for time
@@ -103,9 +114,9 @@
   instantiate the packaged definitions inside the MeterCore module
   reference (`SUPPORTS_MODREF=1`); only the `.xci` is tracked, its output
   products are not. The non-project check scripts compile the packaged RTL
-  directly from `ip_repo/<Name>/hdl/verilog` with the module-name binding
-  in `DesignFile/MeterProcessing/tb/hls_agg10_12_cycle_engine_ip.v`,
-  `hls_single_cycle_engine_ip.v`, and `hls_agg150_180_cycle_engine_ip.v`. A fresh
+  directly from `ip_repo/<Name>/hdl/verilog` with module-name bindings such as
+  `DesignFile/MeterProcessing/tb/hls_single_cycle_engine_ip.v` and
+  `hls_harmonic_engine_ip.v`. A fresh
   checkout must run `mnc HLS build` (or `HLS_DesignFile/run_hls.sh`) first;
   the check scripts fail with that instruction when the repository is
   absent. After any HLS source change: `run_hls.sh`, then

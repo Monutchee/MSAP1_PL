@@ -20,6 +20,9 @@ Raw ADC simulator --------+                       |
                |
                +-> nonblocking 256-frame XPM FIFO
                        -> WFM1 packetizer -> waveform DMA
+              +-> M16 16/25 polyphase conditioner -> 4K ping/pong frontend
+                       -> external XFFT -> embedded HarmonicEngine
+                       -> 4096-word record FIFO -> M_AXIS_HARMONIC
 ```
 
 The existing AXI4-Lite interfaces retain their software contracts and the
@@ -32,6 +35,51 @@ simulator adds one RPU-owned interface:
 | `S_AXI_PROCESSING` | `0xB0050000` |
 | `S_AXI_WAVEFORM` | `0xB0070000` |
 | `S_AXI_SIMULATOR` | `0xB0080000` |
+
+## Embedded M16 harmonic path
+
+All repository-owned harmonic logic is inside `MeterCore_Wrapper`. The
+conditioner observes preserved signed 24-bit raw lanes CH0--CH6 and accepts
+only the fixed production profile: measured 32 kSPS, grid lock, and an exact
+6,400-frame 10-cycle/50 Hz or 12-cycle/60 Hz block. It converts that interval
+to 4,096 samples with a 16-phase 16/25 polyphase filter. The characterized Q20
+ROM has 0.001701 dB ripple through 7.62 kHz, worst passband image
+-100.99 dBFS, and worst 10.24--16 kHz component -79.66 dBFS. A 32-frame group
+delay is reflected in the marker alignment, so record provenance remains the
+first source sample of the contiguous block. The first complete block after
+reset or APPLY primes the filter; unsupported or malformed geometry is
+invalidated rather than padded or silently resampled.
+
+The same hierarchy owns the two-bank 4K frontend, packaged
+`hls_harmonic_engine_ip`, forward-transform configuration, XFFT event
+accounting, and a 4,096-word packet FIFO. `M_AXIS_HARMONIC` is therefore a
+normal 32-bit, TKEEP/TLAST record producer containing 42 consecutive
+256-byte records per spectrum family.
+
+The block-design handoff is intentionally limited to one XFFT v9.1 instance
+and one record-switch connection:
+
+| MeterCore interface | XFFT / block-design destination |
+| --- | --- |
+| `M_AXIS_FFT_DATA` | XFFT `S_AXIS_DATA` |
+| `S_AXIS_FFT_DATA` | XFFT `M_AXIS_DATA` |
+| `M_AXIS_FFT_CONFIG` | XFFT `S_AXIS_CONFIG` |
+| `S_AXIS_FFT_STATUS` | XFFT `M_AXIS_STATUS` |
+| six `xfft_event_*` inputs | matching XFFT event outputs |
+| `M_AXIS_HARMONIC` | `MTR_AXI_Switch/S05_AXIS` after increasing `NUM_SI` to 6 |
+
+Use the exact XFFT property dictionary in
+`HLS_DesignFile/MeterProcessing/HarmonicEngine/README.md`. All interfaces use
+the MeterCore `aclk`/`aresetn`; the shim holds `8'h01` on config until XFFT
+accepts it and drains status continuously. The processing read-only registers
+`0xCC`--`0xE4` expose conditioner, frontend, and XFFT health for the routed
+soak gate.
+
+The final repository-side, pre-XFFT `MeterCore_Wrapper` synthesis on K26 at
+100 MHz passes with WNS +1.629 ns and uses 38,581 CLB LUTs (32.94%), 58,608
+registers (25.02%), 76 BRAM tiles (52.78%), six URAMs (9.38%), and 238 DSPs
+(19.07%). These are focused synthesis figures; repeat the full routed gate
+after adding XFFT and the S05 record-switch connection.
 
 `M_AXIS_METER` emits the existing 256-byte MTR1 records as 64 32-bit beats,
 with `TLAST` asserted on beat 63. The module-reference clock metadata is

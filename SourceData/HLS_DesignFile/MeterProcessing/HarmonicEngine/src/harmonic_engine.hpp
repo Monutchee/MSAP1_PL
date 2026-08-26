@@ -19,7 +19,8 @@
 //   TUSER fields           XK_INDEX then BLK_EXP, byte padded
 //   TLAST                  asserted on bin 4095 of every channel frame
 // The FFT TDATA layout is {imag[23:0], real[23:0]}.  TUSER[11:0] is XK_INDEX,
-// TUSER[15:12] is padding, TUSER[20:16] is the five-bit BLK_EXP, and
+// TUSER[12] is MeterCore's structural-fault marker, TUSER[15:13] is padding,
+// TUSER[20:16] is the five-bit BLK_EXP, and
 // TUSER[23:21] is padding.  hls::axis_data keeps the HLS port free of
 // TKEEP/TSTRB, matching the FFT's native AXIS interface.
 typedef hls::axis_data<ap_uint<48>, AXIS_ENABLE_LAST | AXIS_ENABLE_USER, 24>
@@ -28,6 +29,7 @@ typedef hls::stream<harmonic_fft_axis_t> harmonic_fft_axis_stream_t;
 
 static const int HARMONIC_FFT_LENGTH = 4096;
 static const int HARMONIC_FFT_INDEX_LSB = 0;
+static const int HARMONIC_FFT_FAULT_BIT = 12;
 static const int HARMONIC_FFT_EXPONENT_LSB = 16;
 static const int HARMONIC_FFT_EXPONENT_BITS = 5;
 

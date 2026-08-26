@@ -139,6 +139,15 @@ entity meter_core is
     m_axis_pq_tready : in  std_logic;
     m_axis_pq_tlast  : out std_logic;
 
+    -- Dedicated HARMONIC-v1 record stream. The internal packet FIFO holds a
+    -- complete 42-record family; connect this master to its own meter-switch
+    -- input and retain TLAST-based arbitration in the block design.
+    m_axis_harmonic_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_harmonic_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_harmonic_tvalid : out std_logic;
+    m_axis_harmonic_tready : in  std_logic;
+    m_axis_harmonic_tlast  : out std_logic;
+
     -- Single-cycle diagnostic record stream (SCYC-v1, one per grid cycle
     -- while cycle timing is locked; metrology roadmap M2).
     m_axis_scyc_tdata  : out std_logic_vector(31 downto 0);
@@ -161,6 +170,34 @@ entity meter_core is
     m_axis_waveform_tvalid : out std_logic;
     m_axis_waveform_tready : in  std_logic;
     m_axis_waveform_tlast  : out std_logic;
+
+    -- The only M16 block-design dependency: one AMD/Xilinx XFFT v9.1.
+    -- MeterCore owns conditioning, window storage, HLS classification,
+    -- record buffering, and record-stream arbitration around this boundary.
+    m_axis_fft_data_tdata  : out std_logic_vector(47 downto 0);
+    m_axis_fft_data_tvalid : out std_logic;
+    m_axis_fft_data_tready : in  std_logic;
+    m_axis_fft_data_tlast  : out std_logic;
+
+    s_axis_fft_data_tdata  : in  std_logic_vector(47 downto 0);
+    s_axis_fft_data_tuser  : in  std_logic_vector(23 downto 0);
+    s_axis_fft_data_tvalid : in  std_logic;
+    s_axis_fft_data_tready : out std_logic;
+    s_axis_fft_data_tlast  : in  std_logic;
+
+    m_axis_fft_config_tdata  : out std_logic_vector(7 downto 0);
+    m_axis_fft_config_tvalid : out std_logic;
+    m_axis_fft_config_tready : in  std_logic;
+    s_axis_fft_status_tdata  : in  std_logic_vector(7 downto 0);
+    s_axis_fft_status_tvalid : in  std_logic;
+    s_axis_fft_status_tready : out std_logic;
+
+    xfft_event_frame_started        : in std_logic;
+    xfft_event_tlast_unexpected     : in std_logic;
+    xfft_event_tlast_missing        : in std_logic;
+    xfft_event_status_channel_halt  : in std_logic;
+    xfft_event_data_in_channel_halt : in std_logic;
+    xfft_event_data_out_channel_halt: in std_logic;
 
     adc_dclk       : in  std_logic;
     adc_drdy_n     : in  std_logic;
@@ -196,6 +233,7 @@ architecture structural of meter_core is
   signal converted_fifo   : converted_stream_t;
   signal engine_valid     : std_logic;
   signal engine_ready     : std_logic;
+  signal conversion_active_scale : std_logic_vector(255 downto 0);
 
   signal capture_frame_count : std_logic_vector(31 downto 0);
   signal capture_overflows   : std_logic_vector(31 downto 0);
@@ -330,6 +368,66 @@ architecture structural of meter_core is
   signal block_cycle_count        : std_logic_vector(7 downto 0);
   signal block_nominal_hz         : std_logic_vector(7 downto 0);
   signal block_flags              : std_logic_vector(2 downto 0);
+
+  -- M16 harmonic path.  The SystemVerilog conditioner is instantiated as a
+  -- mixed-language component; every other block remains in this maintained
+  -- VHDL module-reference hierarchy.
+  component meter_spectral_conditioner is
+    generic (
+      CHANNELS               : integer := 7;
+      SAMPLE_WIDTH           : integer := 24;
+      CONTEXT_BITS           : integer := 576;
+      EXPECTED_SOURCE_FRAMES : integer := 6400;
+      OUTPUT_FRAMES          : integer := 4096;
+      SOURCE_RATE_HZ         : integer := 32000
+    );
+    port (
+      aclk    : in std_logic;
+      aresetn : in std_logic;
+      frame_accept_i        : in std_logic;
+      raw_frame_i           : in std_logic_vector(255 downto 0);
+      frame_user_i          : in std_logic_vector(383 downto 0);
+      frame_closes_block_i  : in std_logic;
+      grid_locked_i         : in std_logic;
+      grid_nominal_hz_i     : in std_logic_vector(7 downto 0);
+      grid_cycle_count_i    : in std_logic_vector(7 downto 0);
+      config_enable_i       : in std_logic;
+      config_apply_toggle_i : in std_logic;
+      source_frame_rate_i       : in std_logic_vector(31 downto 0);
+      source_frame_rate_valid_i : in std_logic;
+      frequency_millihz_i       : in std_logic_vector(31 downto 0);
+      frequency_valid_i         : in std_logic;
+      active_scale_q16_i        : in std_logic_vector(255 downto 0);
+      emit_drops_i              : in std_logic_vector(31 downto 0);
+      m_axis_context_tdata  : out std_logic_vector(575 downto 0);
+      m_axis_context_tvalid : out std_logic;
+      m_axis_context_tready : in  std_logic;
+      m_axis_frame_tdata  : out std_logic_vector(167 downto 0);
+      m_axis_frame_tvalid : out std_logic;
+      m_axis_frame_tready : in  std_logic;
+      m_axis_frame_tlast  : out std_logic;
+      m_axis_frame_fault  : out std_logic;
+      completed_blocks_o  : out std_logic_vector(31 downto 0);
+      invalid_blocks_o    : out std_logic_vector(31 downto 0);
+      service_overruns_o  : out std_logic_vector(31 downto 0)
+    );
+  end component;
+
+  signal harmonic_context_tdata  : std_logic_vector(575 downto 0);
+  signal harmonic_context_tvalid : std_logic;
+  signal harmonic_context_tready : std_logic;
+  signal harmonic_frame_tdata    : std_logic_vector(167 downto 0);
+  signal harmonic_frame_tvalid   : std_logic;
+  signal harmonic_frame_tready   : std_logic;
+  signal harmonic_frame_tlast    : std_logic;
+  signal harmonic_frame_fault    : std_logic;
+  signal harmonic_conditioned_blocks : std_logic_vector(31 downto 0);
+  signal harmonic_invalid_blocks     : std_logic_vector(31 downto 0);
+  signal harmonic_service_overruns   : std_logic_vector(31 downto 0);
+  signal harmonic_frontend_completed : std_logic_vector(31 downto 0);
+  signal harmonic_frontend_dropped   : std_logic_vector(31 downto 0);
+  signal harmonic_frontend_malformed : std_logic_vector(31 downto 0);
+  signal harmonic_xfft_faults        : std_logic_vector(31 downto 0);
 begin
   capture_frame_count <= simulator_frame_count when simulator_selected = '1' else physical_frame_count;
   capture_overflows <= (others => '0') when simulator_selected = '1' else physical_overflows;
@@ -524,6 +622,7 @@ begin
       m_axis_tvalid => converted_source.valid,
       m_axis_tready => converted_source.ready,
       m_axis_tlast => converted_source.last,
+      active_scale_q16_o => conversion_active_scale,
       s_axi_awaddr => s_axi_conversion_awaddr,
       s_axi_awvalid => s_axi_conversion_awvalid,
       s_axi_awready => s_axi_conversion_awready,
@@ -757,6 +856,13 @@ begin
       r5_agg_export_last_sequence_i => r5_agg_last_sequence,
       r5_agg_export_queue_level_i =>
         x"000000" & r5_agg_queue_level,
+      harmonic_conditioned_blocks_i => harmonic_conditioned_blocks,
+      harmonic_invalid_blocks_i => harmonic_invalid_blocks,
+      harmonic_service_overruns_i => harmonic_service_overruns,
+      harmonic_frontend_completed_i => harmonic_frontend_completed,
+      harmonic_frontend_dropped_i => harmonic_frontend_dropped,
+      harmonic_frontend_malformed_i => harmonic_frontend_malformed,
+      harmonic_xfft_fault_count_i => harmonic_xfft_faults,
       active_generation_i => active_generation,
       result_sequence_i => mtr1_tap_sequence,
       result_drop_count_i => mtr1_tap_result_drops,
@@ -831,6 +937,88 @@ begin
 
   -- Live fallback view: enabled but running on synthetic boundaries.
   grid_cycle_fallback <= grid_cycle_mode and not grid_cycle_locked;
+
+  -- M16 spectral observer.  The fixed profile is qualified only for an exact
+  -- 32 kSPS / 6,400-frame basic block; other geometries are explicitly
+  -- invalidated by the frontend instead of being dropped or zero padded.
+  harmonic_conditioner : meter_spectral_conditioner
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      frame_accept_i => engine_valid,
+      raw_frame_i => converted_fifo.user(383 downto 128),
+      frame_user_i => converted_fifo.user,
+      frame_closes_block_i => grid_frame_closes_block,
+      grid_locked_i => grid_cycle_locked,
+      grid_nominal_hz_i => grid_active_config(15 downto 8),
+      grid_cycle_count_i => grid_active_config(7 downto 0),
+      config_enable_i => shadow_enable,
+      config_apply_toggle_i => apply_toggle,
+      source_frame_rate_i => capture_frame_rate,
+      source_frame_rate_valid_i => capture_frame_rate_valid,
+      frequency_millihz_i => frequency_millihz,
+      frequency_valid_i => frequency_status(1),
+      active_scale_q16_i => conversion_active_scale,
+      emit_drops_i => (others => '0'),
+      m_axis_context_tdata => harmonic_context_tdata,
+      m_axis_context_tvalid => harmonic_context_tvalid,
+      m_axis_context_tready => harmonic_context_tready,
+      m_axis_frame_tdata => harmonic_frame_tdata,
+      m_axis_frame_tvalid => harmonic_frame_tvalid,
+      m_axis_frame_tready => harmonic_frame_tready,
+      m_axis_frame_tlast => harmonic_frame_tlast,
+      m_axis_frame_fault => harmonic_frame_fault,
+      completed_blocks_o => harmonic_conditioned_blocks,
+      invalid_blocks_o => harmonic_invalid_blocks,
+      service_overruns_o => harmonic_service_overruns
+    );
+
+  harmonic_engine : entity work.meter_harmonic_hls_shim
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      s_axis_context_tdata => harmonic_context_tdata,
+      s_axis_context_tvalid => harmonic_context_tvalid,
+      s_axis_context_tready => harmonic_context_tready,
+      s_axis_frame_tdata => harmonic_frame_tdata,
+      s_axis_frame_tvalid => harmonic_frame_tvalid,
+      s_axis_frame_tready => harmonic_frame_tready,
+      s_axis_frame_tlast => harmonic_frame_tlast,
+      s_axis_frame_fault => harmonic_frame_fault,
+      m_axis_fft_data_tdata => m_axis_fft_data_tdata,
+      m_axis_fft_data_tvalid => m_axis_fft_data_tvalid,
+      m_axis_fft_data_tready => m_axis_fft_data_tready,
+      m_axis_fft_data_tlast => m_axis_fft_data_tlast,
+      s_axis_fft_data_tdata => s_axis_fft_data_tdata,
+      s_axis_fft_data_tuser => s_axis_fft_data_tuser,
+      s_axis_fft_data_tvalid => s_axis_fft_data_tvalid,
+      s_axis_fft_data_tready => s_axis_fft_data_tready,
+      s_axis_fft_data_tlast => s_axis_fft_data_tlast,
+      m_axis_fft_config_tdata => m_axis_fft_config_tdata,
+      m_axis_fft_config_tvalid => m_axis_fft_config_tvalid,
+      m_axis_fft_config_tready => m_axis_fft_config_tready,
+      s_axis_fft_status_tdata => s_axis_fft_status_tdata,
+      s_axis_fft_status_tvalid => s_axis_fft_status_tvalid,
+      s_axis_fft_status_tready => s_axis_fft_status_tready,
+      xfft_event_frame_started_i => xfft_event_frame_started,
+      xfft_event_tlast_unexpected_i => xfft_event_tlast_unexpected,
+      xfft_event_tlast_missing_i => xfft_event_tlast_missing,
+      xfft_event_status_channel_halt_i =>
+        xfft_event_status_channel_halt,
+      xfft_event_data_in_channel_halt_i =>
+        xfft_event_data_in_channel_halt,
+      xfft_event_data_out_channel_halt_i =>
+        xfft_event_data_out_channel_halt,
+      m_axis_records_tdata => m_axis_harmonic_tdata,
+      m_axis_records_tkeep => m_axis_harmonic_tkeep,
+      m_axis_records_tvalid => m_axis_harmonic_tvalid,
+      m_axis_records_tready => m_axis_harmonic_tready,
+      m_axis_records_tlast => m_axis_harmonic_tlast,
+      frontend_completed_windows_o => harmonic_frontend_completed,
+      frontend_dropped_windows_o => harmonic_frontend_dropped,
+      frontend_malformed_windows_o => harmonic_frontend_malformed,
+      xfft_fault_count_o => harmonic_xfft_faults
+    );
 
   -- R5C1 is the only interval-aggregation owner. The exporter consumes the
   -- SingleCycle packet without backpressuring metrology and emits a complete,

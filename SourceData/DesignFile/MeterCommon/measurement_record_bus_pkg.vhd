@@ -58,4 +58,16 @@ package measurement_record_bus_pkg is
   constant R5_AGG_EXPORT_REG_FRAMING_ERRORS    : natural := 16#C0#;
   constant R5_AGG_EXPORT_REG_LAST_SEQUENCE     : natural := 16#C4#;
   constant R5_AGG_EXPORT_REG_QUEUE_LEVEL       : natural := 16#C8#;
+
+  -- M16 spectral-path diagnostics.  All counters are read-only, saturating,
+  -- and observational; they never backpressure capture or the other meter
+  -- producers.  A nonzero service/drop/malformed/XFFT-fault counter is a
+  -- failed integration or soak gate.
+  constant HARMONIC_REG_CONDITIONED_BLOCKS  : natural := 16#CC#;
+  constant HARMONIC_REG_INVALID_BLOCKS      : natural := 16#D0#;
+  constant HARMONIC_REG_SERVICE_OVERRUNS    : natural := 16#D4#;
+  constant HARMONIC_REG_FRONTEND_COMPLETED  : natural := 16#D8#;
+  constant HARMONIC_REG_FRONTEND_DROPPED    : natural := 16#DC#;
+  constant HARMONIC_REG_FRONTEND_MALFORMED  : natural := 16#E0#;
+  constant HARMONIC_REG_XFFT_FAULT_COUNT    : natural := 16#E4#;
 end package;

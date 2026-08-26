@@ -147,6 +147,8 @@ clear_channels:
 
 read_channels:
   for (int channel = 0; channel < HARMONIC_CHANNELS_V1; ++channel) {
+    ap_uint<5> channel_exponent = 0;
+    ap_uint<1> channel_error = 0;
   read_fft_frame:
     for (int beat_index = 0; beat_index < HARMONIC_FFT_LENGTH; ++beat_index) {
 #pragma HLS PIPELINE II = 1
@@ -159,15 +161,18 @@ read_channels:
       const ap_int<24> imag = ap_int<24>(beat.data.range(47, 24));
 
       if (beat_index == 0) {
-        block_exponent[channel] = exponent;
-      } else if (exponent != block_exponent[channel]) {
-        frame_error[channel] = 1;
+        channel_exponent = exponent;
+      } else if (exponent != channel_exponent) {
+        channel_error = 1;
       }
       if ((beat.last != 0) != (beat_index == HARMONIC_FFT_LENGTH - 1)) {
-        frame_error[channel] = 1;
+        channel_error = 1;
       }
       if (bin_index >= HARMONIC_FFT_LENGTH) {
-        frame_error[channel] = 1;
+        channel_error = 1;
+      }
+      if (beat.user[HARMONIC_FFT_FAULT_BIT]) {
+        channel_error = 1;
       }
 
       // The 4096-bin XFFT output may be bit-reversed, so XK_INDEX is the
@@ -184,7 +189,7 @@ read_channels:
         const ap_uint<7> order_index = order - 1;
         const ap_uint<2> member = ap_uint<2>(bin_index + 1 - center);
         if (group_bins[channel][order_index][member]) {
-          frame_error[channel] = 1;
+          channel_error = 1;
         } else {
           group_bins[channel][order_index][member] = 1;
           const ap_int<48> real_square = real * real;
@@ -198,6 +203,8 @@ read_channels:
         }
       }
     }
+    block_exponent[channel] = channel_exponent;
+    frame_error[channel] = channel_error;
   }
 
   const bool grid_locked = context.flags[HARMONIC_CTX_GRID_LOCKED_BIT] != 0;

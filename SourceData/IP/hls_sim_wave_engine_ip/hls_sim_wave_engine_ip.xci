@@ -3,7 +3,7 @@
   "ip_inst": {
     "xci_name": "hls_sim_wave_engine_ip",
     "component_reference": "monutchee:msap1:hls_sim_wave_engine:1.0",
-    "ip_revision": "2114757865",
+    "ip_revision": "2114758130",
     "gen_directory": ".",
     "parameters": {
       "component_parameters": {
@@ -12,7 +12,7 @@
         "machine": [ { "value": "64", "enabled": false, "usage": "all" } ],
         "combinational": [ { "value": "0", "enabled": false, "usage": "all" } ],
         "latency": [ { "value": "1", "enabled": false, "usage": "all" } ],
-        "II": [ { "value": "2 ~ 179", "enabled": false, "usage": "all" } ]
+        "II": [ { "value": "2 ~ 211", "enabled": false, "usage": "all" } ]
       },
       "project_parameters": {
         "ARCHITECTURE": [ { "value": "zynquplus", "resolve_type": "generated", "usage": "all" } ],
@@ -29,7 +29,7 @@
       },
       "runtime_parameters": {
         "IPCONTEXT": [ { "value": "IP_Flow" } ],
-        "IPREVISION": [ { "value": "2114757865" } ],
+        "IPREVISION": [ { "value": "2114758130" } ],
         "MANAGED": [ { "value": "TRUE" } ],
         "OUTPUTDIR": [ { "value": "." } ],
         "SELECTEDSIMMODEL": [ { "value": "" } ],
@@ -42,7 +42,7 @@
       "ports": {
         "ap_clk": [ { "direction": "in" } ],
         "ap_rst_n": [ { "direction": "in" } ],
-        "s_request_TDATA": [ { "direction": "in", "size_left": "1439", "size_right": "0" } ],
+        "s_request_TDATA": [ { "direction": "in", "size_left": "1567", "size_right": "0" } ],
         "s_request_TREADY": [ { "direction": "out" } ],
         "s_request_TVALID": [ { "direction": "in" } ],
         "m_frame_TDATA": [ { "direction": "out", "size_left": "263", "size_right": "0" } ],
@@ -86,7 +86,7 @@
           "mode": "slave",
           "parameters": {
             "TUSER_WIDTH": [ { "value": "0", "value_src": "constant", "usage": "all" } ],
-            "TDATA_NUM_BYTES": [ { "value": "180", "value_src": "constant", "usage": "all" } ],
+            "TDATA_NUM_BYTES": [ { "value": "196", "value_src": "constant", "usage": "all" } ],
             "TDEST_WIDTH": [ { "value": "0", "value_src": "constant", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
             "TID_WIDTH": [ { "value": "0", "value_src": "constant", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
             "HAS_TREADY": [ { "value": "1", "value_src": "constant", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
@@ -133,5 +133,5 @@
       }
     }
   },
-  "checksum": "dbbd3080"
+  "checksum": "b2a47392"
 }

@@ -6,8 +6,7 @@
       "name": "TopDesign",
       "rev_ctrl_bd_flag": "RevCtrlBdOff",
       "synth_flow_mode": "Hierarchical",
-      "tool_version": "2025.2",
-      "validated": "true"
+      "tool_version": "2025.2"
     },
     "design_tree": {
       "System_Native_Peripherals": {
@@ -40,7 +39,8 @@
           "R5_Aggregation_FIFO": ""
         },
         "MeterCore_Wrapper": "",
-        "Interrupt_Concat": ""
+        "Interrupt_Concat": "",
+        "xfft_0": ""
       },
       "ZYNQ_System": {
         "zynq_ultra_ps_e_0": "",
@@ -138,13 +138,7 @@
       "KR260_Fan_PWM": {
         "direction": "O",
         "left": "0",
-        "right": "0",
-        "parameters": {
-          "PortWidth": {
-            "value": "1",
-            "value_src": "user_prop"
-          }
-        }
+        "right": "0"
       },
       "UF1_LED": {
         "direction": "O"
@@ -153,24 +147,8 @@
         "type": "clk",
         "direction": "I",
         "parameters": {
-          "CLK_DOMAIN": {
-            "value": "TopDesign_ADC_DCLK",
-            "value_src": "default"
-          },
           "FREQ_HZ": {
             "value": "8192000"
-          },
-          "FREQ_TOLERANCE_HZ": {
-            "value": "0",
-            "value_src": "default"
-          },
-          "INSERT_VIP": {
-            "value": "0",
-            "value_src": "default"
-          },
-          "PHASE": {
-            "value": "0.0",
-            "value_src": "default"
           }
         }
       },
@@ -3581,6 +3559,14 @@
                 "value": "3"
               }
             }
+          },
+          "xfft_0": {
+            "vlnv": "xilinx.com:ip:xfft:9.1",
+            "ip_revision": "15",
+            "xci_name": "TopDesign_xfft_0_0",
+            "xci_path": "ip/TopDesign_xfft_0_0/TopDesign_xfft_0_0.xci",
+            "inst_hier_path": "MeterLogic/xfft_0",
+            "has_run_ip_tcl": "true"
           }
         },
         "interface_nets": {

@@ -104,6 +104,7 @@ begin
       m_axis_tvalid => m_axis_converted_tvalid,
       m_axis_tready => m_axis_converted_tready,
       m_axis_tlast => m_axis_converted_tlast,
+      active_scale_q16_o => open,
       s_axi_awaddr => s_axi_config_awaddr,
       s_axi_awvalid => s_axi_config_awvalid,
       s_axi_awready => s_axi_config_awready,

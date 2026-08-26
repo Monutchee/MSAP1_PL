@@ -47,7 +47,8 @@ harmonic_context_t make_context(unsigned qualified_max = 127) {
   return context;
 }
 
-void write_fft_frames(harmonic_fft_axis_stream_t &stream) {
+void write_fft_frames(harmonic_fft_axis_stream_t &stream,
+                      bool inject_structural_fault = false) {
   for (int channel = 0; channel < HARMONIC_CHANNELS_V1; ++channel) {
     for (int bin = 0; bin < HARMONIC_FFT_LENGTH; ++bin) {
       harmonic_fft_axis_t beat;
@@ -57,6 +58,9 @@ void write_fft_frames(harmonic_fft_axis_stream_t &stream) {
       beat.user.range(HARMONIC_FFT_EXPONENT_LSB +
                           HARMONIC_FFT_EXPONENT_BITS - 1,
                       HARMONIC_FFT_EXPONENT_LSB) = 0;
+      if (inject_structural_fault && channel == 0 && bin == 0) {
+        beat.user[HARMONIC_FFT_FAULT_BIT] = 1;
+      }
       beat.last = bin == HARMONIC_FFT_LENGTH - 1;
 
       // Every fundamental is +30 degrees; Va (CH6) is the global reference.
@@ -87,12 +91,13 @@ void write_fft_frames(harmonic_fft_axis_stream_t &stream) {
   }
 }
 
-std::vector<std::uint32_t> run_family(unsigned qualified_max = 127) {
+std::vector<std::uint32_t> run_family(unsigned qualified_max = 127,
+                                      bool inject_structural_fault = false) {
   harmonic_context_stream_t context_stream;
   harmonic_fft_axis_stream_t fft_stream;
   record_axis_stream_t record_stream;
   context_stream.write(make_context(qualified_max));
-  write_fft_frames(fft_stream);
+  write_fft_frames(fft_stream, inject_structural_fault);
   hls_harmonic_engine(context_stream, fft_stream, record_stream);
 
   std::vector<std::uint32_t> words;
@@ -167,6 +172,12 @@ int main() {
   require((limited[8] & (1u << HARMONIC_STATUS_RATE_LIMITED_BIT)) != 0u,
           "rate-limited family status");
   require(limited[3] == 1u, "sequence increments once per family");
+
+  const auto faulted = run_family(127, true);
+  require((faulted[8] & (1u << HARMONIC_STATUS_FFT_VALID_BIT)) == 0u,
+          "MeterCore/XFFT structural fault invalidates the family");
+  require(((entry_at(faulted, 0, 0) >> 60) & 1u) == 0u,
+          "faulted FFT cannot publish a magnitude");
 
   std::cout << "HarmonicEngine contract and subgroup golden PASS\n";
   return 0;

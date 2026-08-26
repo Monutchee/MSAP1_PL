@@ -17,6 +17,7 @@ module meter_spectral_frontend_tb;
     logic s_frame_valid;
     logic s_frame_ready;
     logic s_frame_last;
+    logic s_frame_fault;
     logic [CONTEXT_BITS-1:0] m_context_data;
     logic m_context_valid;
     logic m_context_ready;
@@ -47,6 +48,7 @@ module meter_spectral_frontend_tb;
         .s_axis_frame_tvalid(s_frame_valid),
         .s_axis_frame_tready(s_frame_ready),
         .s_axis_frame_tlast(s_frame_last),
+        .s_axis_frame_fault(s_frame_fault),
         .m_axis_context_tdata(m_context_data),
         .m_axis_context_tvalid(m_context_valid),
         .m_axis_context_tready(m_context_ready),
@@ -87,6 +89,7 @@ module meter_spectral_frontend_tb;
         @(negedge aclk);
         s_frame_valid = 1'b0;
         s_frame_last = 1'b0;
+        s_frame_fault = 1'b0;
     endtask
 
     always @(posedge aclk) begin
@@ -145,6 +148,24 @@ module meter_spectral_frontend_tb;
         if (malformed_windows != 1 || completed_windows != 1)
             fail("malformed input window was not isolated");
 
+        // Exact framing cannot make a conditioner/profile fault publishable.
+        send_context(7);
+        for (int sample = 0; sample < FFT_LENGTH; sample++) begin
+            @(negedge aclk);
+            s_frame_data = sample;
+            s_frame_last = sample == FFT_LENGTH - 1;
+            s_frame_fault = sample == FFT_LENGTH - 1;
+            s_frame_valid = 1'b1;
+            @(posedge aclk);
+        end
+        @(negedge aclk);
+        s_frame_valid = 1'b0;
+        s_frame_last = 1'b0;
+        s_frame_fault = 1'b0;
+        repeat (10) @(posedge aclk);
+        if (malformed_windows != 2 || completed_windows != 1)
+            fail("explicit conditioner fault was not isolated");
+
         // Hold the FFT, fill both banks, then prove that a third window is
         // consumed/dropped without backpressuring the input.
         m_fft_ready = 1'b0;
@@ -159,7 +180,7 @@ module meter_spectral_frontend_tb;
         // The next accepted context must include the prior drop snapshot.
         send_window(6, FFT_LENGTH - 1);
         wait (completed_windows == 4);
-        if (output_context != 4 || malformed_windows != 1 ||
+        if (output_context != 4 || malformed_windows != 2 ||
             dropped_windows != 1)
             fail("frontend counters or accepted-context count mismatch");
 
