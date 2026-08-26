@@ -52,7 +52,8 @@ static const int AGGB_FREQ_LSB         = 320;  // [351:320] frequency, millihert
 static const int AGGB_FREQ_VALID_BIT   = 352;  // block-close frequency valid
 static const int AGGB_APPLY_TOGGLE_BIT = 353;  // config APPLY toggle (level)
 static const int AGGB_DC_REMOVE_BIT    = 354;  // committed dc_remove
-                                               // [511:355] reserved zero
+static const int AGGB_UTC_RESYNCHRONIZED_BIT = 355; // first Basic on UTC cadence
+                                               // [511:356] reserved zero
 
 // --- Accumulator sections: bit-for-bit the single-cycle beat's offsets
 // --- (single_cycle_result.hpp is normative for the interior layouts). --
@@ -90,6 +91,7 @@ struct agg_block_result_t {
   ap_uint<1>         frequency_valid;
   ap_uint<1>         apply_toggle;
   ap_uint<1>         dc_remove;
+  ap_uint<1>         utc_resynchronized;
   ap_int<128>        sum[MET_ACTIVE_CHANNELS];
   ap_uint<128>       square[MET_ACTIVE_CHANNELS];
   ap_int<64>         raw_sum[MET_ACTIVE_CHANNELS];
@@ -120,6 +122,7 @@ inline agg_block_beat_t pack_agg_block_result(const agg_block_result_t &r) {
   beat[AGGB_FREQ_VALID_BIT]                                     = r.frequency_valid;
   beat[AGGB_APPLY_TOGGLE_BIT]                                   = r.apply_toggle;
   beat[AGGB_DC_REMOVE_BIT]                                      = r.dc_remove;
+  beat[AGGB_UTC_RESYNCHRONIZED_BIT]                             = r.utc_resynchronized;
   for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
 #pragma HLS UNROLL
     beat.range(AGGB_SUM_LSB + lane * 128 + 127, AGGB_SUM_LSB + lane * 128) =
@@ -170,6 +173,7 @@ inline agg_block_result_t unpack_agg_block_result(const agg_block_beat_t &beat) 
   r.frequency_valid = beat[AGGB_FREQ_VALID_BIT];
   r.apply_toggle   = beat[AGGB_APPLY_TOGGLE_BIT];
   r.dc_remove      = beat[AGGB_DC_REMOVE_BIT];
+  r.utc_resynchronized = beat[AGGB_UTC_RESYNCHRONIZED_BIT];
   for (int lane = 0; lane < MET_ACTIVE_CHANNELS; ++lane) {
 #pragma HLS UNROLL
     r.sum[lane] = beat.range(AGGB_SUM_LSB + lane * 128 + 127,
