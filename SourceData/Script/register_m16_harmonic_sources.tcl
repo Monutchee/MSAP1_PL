@@ -30,6 +30,9 @@ if {$open_now eq ""} {
 set sv_sources [list \
     [file join $processing_dir meter_spectral_frontend.sv]]
 set vhdl_sources [list \
+    [file join $processing_dir meter_r5_harmonic_pkg.vhd] \
+    [file join $processing_dir meter_r5_harmonic_export.vhd] \
+    [file join $processing_dir meter_axis_packet_arbiter_2to1.vhd] \
     [file join $processing_dir meter_spectral_conditioner.vhd] \
     [file join $processing_dir meter_harmonic_hls_shim.vhd]]
 set memory_sources [list \

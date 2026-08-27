@@ -59,10 +59,20 @@ entity meter_harmonic_hls_shim is
     m_axis_records_tready : in  std_logic;
     m_axis_records_tlast  : out std_logic;
 
+    -- Private CRC-protected complete-family packet to R5C1.
+    m_axis_r5_harmonic_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_r5_harmonic_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_r5_harmonic_tvalid : out std_logic;
+    m_axis_r5_harmonic_tready : in  std_logic;
+    m_axis_r5_harmonic_tlast  : out std_logic;
+
     frontend_completed_windows_o : out std_logic_vector(31 downto 0);
     frontend_dropped_windows_o   : out std_logic_vector(31 downto 0);
     frontend_malformed_windows_o : out std_logic_vector(31 downto 0);
-    xfft_fault_count_o           : out std_logic_vector(31 downto 0)
+    xfft_fault_count_o            : out std_logic_vector(31 downto 0);
+    xfft_data_in_halt_count_o     : out std_logic_vector(31 downto 0);
+    xfft_data_out_halt_count_o    : out std_logic_vector(31 downto 0);
+    xfft_status_halt_count_o      : out std_logic_vector(31 downto 0)
   );
 end entity;
 
@@ -141,13 +151,22 @@ architecture rtl of meter_harmonic_hls_shim is
   signal hls_record_tkeep   : std_logic_vector(3 downto 0);
   signal hls_record_tstrb   : std_logic_vector(3 downto 0);
   signal hls_record_tlast   : std_logic_vector(0 downto 0);
+  signal public_record_ready       : std_logic;
+  signal r5_harmonic_input_ready   : std_logic;
 
   signal config_valid      : std_logic := '1';
   signal fft_configured    : std_logic := '0';
-  signal family_fault      : std_logic := '0';
-  signal event_fault       : std_logic;
-  signal returned_channel  : unsigned(2 downto 0) := (others => '0');
-  signal xfft_fault_count  : unsigned(31 downto 0) := (others => '0');
+  signal family_fault       : std_logic := '0';
+  signal structural_fault   : std_logic;
+  signal returned_channel   : unsigned(2 downto 0) := (others => '0');
+  signal xfft_fault_count   : unsigned(31 downto 0) := (others => '0');
+  signal data_in_halt_count : unsigned(31 downto 0) := (others => '0');
+  signal data_out_halt_count: unsigned(31 downto 0) := (others => '0');
+  signal status_halt_count  : unsigned(31 downto 0) := (others => '0');
+  signal structural_fault_d : std_logic := '0';
+  signal data_in_halt_d     : std_logic := '0';
+  signal data_out_halt_d    : std_logic := '0';
+  signal status_halt_d      : std_logic := '0';
 begin
   frontend : meter_spectral_frontend
     port map (
@@ -189,13 +208,15 @@ begin
   -- M_AXIS_DATA.TUSER and checked by HarmonicEngine.
   s_axis_fft_status_tready <= '1';
 
-  event_fault <= xfft_event_tlast_unexpected_i or
-                 xfft_event_tlast_missing_i or
-                 xfft_event_status_channel_halt_i or
-                 xfft_event_data_in_channel_halt_i or
-                 xfft_event_data_out_channel_halt_i;
+  -- In the non-real-time XFFT configuration, channel-halt events are normal
+  -- backpressure observations: the core pauses without corrupting the frame.
+  -- Only the two TLAST events describe a structural frame failure and may
+  -- invalidate the harmonic family.
+  structural_fault <= xfft_event_tlast_unexpected_i or
+                      xfft_event_tlast_missing_i;
   hls_fft_tuser <= s_axis_fft_data_tuser(23 downto 13) &
-                   (s_axis_fft_data_tuser(12) or family_fault or event_fault) &
+                   (s_axis_fft_data_tuser(12) or family_fault or
+                    structural_fault) &
                    s_axis_fft_data_tuser(11 downto 0);
   hls_fft_tlast(0) <= s_axis_fft_data_tlast;
   s_axis_fft_data_tready <= hls_fft_tready when fft_configured = '1' else '0';
@@ -218,6 +239,31 @@ begin
       m_records_TKEEP => hls_record_tkeep,
       m_records_TSTRB => hls_record_tstrb,
       m_records_TLAST => hls_record_tlast
+    );
+
+  -- Lossless two-way fork: a HLS word transfers only when both the public
+  -- fallback FIFO and the private R5 family packetizer accept that same word.
+  -- The packetizer emits in ~27 us and the next 10/12-cycle family is about
+  -- 200 ms away, so it is back in capture state long before the next family.
+  hls_record_tready <= public_record_ready and r5_harmonic_input_ready;
+
+  r5_harmonic_export : entity work.meter_r5_harmonic_export
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      s_axis_tdata => hls_record_tdata,
+      s_axis_tkeep => hls_record_tkeep,
+      s_axis_tvalid => hls_record_tvalid and public_record_ready,
+      s_axis_tready => r5_harmonic_input_ready,
+      s_axis_tlast => hls_record_tlast(0),
+      m_axis_tdata => m_axis_r5_harmonic_tdata,
+      m_axis_tkeep => m_axis_r5_harmonic_tkeep,
+      m_axis_tvalid => m_axis_r5_harmonic_tvalid,
+      m_axis_tready => m_axis_r5_harmonic_tready,
+      m_axis_tlast => m_axis_r5_harmonic_tlast,
+      accepted_family_count_o => open,
+      transmitted_family_count_o => open,
+      framing_error_count_o => open
     );
 
   -- A complete-family packet FIFO (4096 words > 42 records x 64 words)
@@ -252,8 +298,8 @@ begin
       s_axis_tstrb => hls_record_tstrb,
       s_axis_tkeep => hls_record_tkeep,
       s_axis_tuser => (others => '0'),
-      s_axis_tvalid => hls_record_tvalid,
-      s_axis_tready => hls_record_tready,
+      s_axis_tvalid => hls_record_tvalid and r5_harmonic_input_ready,
+      s_axis_tready => public_record_ready,
       s_axis_tlast => hls_record_tlast(0),
       s_axis_tid => (others => '0'),
       s_axis_tdest => (others => '0'),
@@ -279,6 +325,9 @@ begin
     );
 
   xfft_fault_count_o <= std_logic_vector(xfft_fault_count);
+  xfft_data_in_halt_count_o <= std_logic_vector(data_in_halt_count);
+  xfft_data_out_halt_count_o <= std_logic_vector(data_out_halt_count);
+  xfft_status_halt_count_o <= std_logic_vector(status_halt_count);
 
   process (aclk)
   begin
@@ -289,25 +338,57 @@ begin
         family_fault <= '0';
         returned_channel <= (others => '0');
         xfft_fault_count <= (others => '0');
+        data_in_halt_count <= (others => '0');
+        data_out_halt_count <= (others => '0');
+        status_halt_count <= (others => '0');
+        structural_fault_d <= '0';
+        data_in_halt_d <= '0';
+        data_out_halt_d <= '0';
+        status_halt_d <= '0';
       else
         if config_valid = '1' and m_axis_fft_config_tready = '1' then
           config_valid <= '0';
           fft_configured <= '1';
         end if;
 
-        if event_fault = '1' then
+        if structural_fault = '1' then
           family_fault <= '1';
+        end if;
+
+        -- Event outputs may remain asserted for many cycles. Count entries
+        -- into each condition so diagnostics report incidents, not duration.
+        if structural_fault = '1' and structural_fault_d = '0' then
           if xfft_fault_count /= x"FFFFFFFF" then
             xfft_fault_count <= xfft_fault_count + 1;
           end if;
         end if;
+        if xfft_event_data_in_channel_halt_i = '1' and data_in_halt_d = '0' then
+          if data_in_halt_count /= x"FFFFFFFF" then
+            data_in_halt_count <= data_in_halt_count + 1;
+          end if;
+        end if;
+        if xfft_event_data_out_channel_halt_i = '1' and data_out_halt_d = '0' then
+          if data_out_halt_count /= x"FFFFFFFF" then
+            data_out_halt_count <= data_out_halt_count + 1;
+          end if;
+        end if;
+        if xfft_event_status_channel_halt_i = '1' and status_halt_d = '0' then
+          if status_halt_count /= x"FFFFFFFF" then
+            status_halt_count <= status_halt_count + 1;
+          end if;
+        end if;
+
+        structural_fault_d <= structural_fault;
+        data_in_halt_d <= xfft_event_data_in_channel_halt_i;
+        data_out_halt_d <= xfft_event_data_out_channel_halt_i;
+        status_halt_d <= xfft_event_status_channel_halt_i;
 
         if s_axis_fft_data_tvalid = '1' and hls_fft_tready = '1' and
            fft_configured = '1' and s_axis_fft_data_tlast = '1' then
           if returned_channel = 6 then
             returned_channel <= (others => '0');
             -- The current event is already injected into this final beat.
-            family_fault <= event_fault;
+            family_fault <= '0';
           else
             returned_channel <= returned_channel + 1;
           end if;

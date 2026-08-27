@@ -179,6 +179,8 @@ static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_UNBAL_V2  = 0x001E0002u;
 // producer emits six chunks for every active product lane (CH0..CH6), orders
 // 1..127; CH7 remains outside the product harmonic family.
 static const uint32_t MREC_FORMAT_HARMONIC_V1 = 0x00050001u;
+/* R5C1 magnitude-only harmonic family for 3 s, 10 min, and 2 h periods. */
+static const uint32_t MREC_FORMAT_HARMONIC_AGG_V1 = 0x001F0001u;
 // PQEVT v1 (M12): the sliding Urms(1/2) tier's record, emitted by
 // SlidingOneCycleRmsEngine on its OWN producer port (M_AXIS_PQ). Three
 // kinds share the format, distinguished by the format-header word 13:

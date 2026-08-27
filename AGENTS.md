@@ -30,15 +30,26 @@
   adaptive L/25 polyphase conditioner for every selectable 1--128 kSPS rate,
   URAM-backed 4,096-frame ping/pong frontend, packaged
   `hls_harmonic_engine_ip`, XFFT fault handling, and
-  4,096-word record FIFO are one hierarchy. The block design owns only one
+  4,096-word record FIFO are one hierarchy. Each exact 42-record base family
+  is losslessly forked into that public FIFO and a private
+  `meter_r5_harmonic_export` packetizer. The packetizer emits one 2,693-word
+  CRC32C-protected HRM1 packet; a whole-packet arbiter gives AGG1 priority and
+  multiplexes both private contracts onto `M_AXIS_R5_AGG_INPUT`. Never
+  interleave the two packet types or shrink the AXI FIFO below one complete
+  HRM1 packet. R5C1 produces magnitude-only 150/180-cycle, UTC 10-minute, and
+  2-hour HARMONIC_AGG-v1 (`0x001F0001`) families. The block design owns only one
   XFFT v9.1 customization connected through the wrapper's four `*_FFT_*` AXIS
   interfaces and six event scalars. Finished records leave on the dedicated
-  `M_AXIS_HARMONIC` port and join `MTR_AXI_Switch/S03_AXIS`; do not merge them
-  into `M_AXIS_PQ`. The conditioner selects `L = 512000/Fs` on APPLY, requires
+  `M_AXIS_HARMONIC` port and join `MTR_AXI_Switch/S03_AXIS`; this direct
+  10/12-cycle path is a temporary bring-up/fallback witness and must remain
+  until the R5 path has zero-drop target evidence. Do not merge it into
+  `M_AXIS_PQ`. The conditioner selects `L = 512000/Fs` on APPLY, requires
   the measured rate to match that selected profile, and converts each exact
   10/12-cycle source block to 4,096 frames at 20.48 kSPS. Unsupported rates or
   malformed block geometry emit no valid spectral window. Its read-only health
-  window is `0xCC`--`0xE4` in `S_AXI_PROCESSING`.
+  window is `0xCC`--`0xF0` in `S_AXI_PROCESSING`. XFFT TLAST errors invalidate
+  a family; channel-halt events are edge-counted diagnostics and do not by
+  themselves discard otherwise structurally complete results.
 - The conversion stage owns the 64-bit free-running sample index (low word in
   `TUSER[31:0]`, high word in `TUSER[105:74]`). It is the measurement
   timebase: never reset it on configuration apply and never step it for time

@@ -61,8 +61,9 @@ package measurement_record_bus_pkg is
 
   -- M16 spectral-path diagnostics.  All counters are read-only, saturating,
   -- and observational; they never backpressure capture or the other meter
-  -- producers.  A nonzero service/drop/malformed/XFFT-fault counter is a
-  -- failed integration or soak gate.
+  -- producers.  A nonzero service/drop/malformed/structural-fault counter is
+  -- a failed integration or soak gate.  Channel-halt counters are separate
+  -- edge-counted backpressure diagnostics and do not invalidate spectra.
   constant HARMONIC_REG_CONDITIONED_BLOCKS  : natural := 16#CC#;
   constant HARMONIC_REG_INVALID_BLOCKS      : natural := 16#D0#;
   constant HARMONIC_REG_SERVICE_OVERRUNS    : natural := 16#D4#;
@@ -70,4 +71,7 @@ package measurement_record_bus_pkg is
   constant HARMONIC_REG_FRONTEND_DROPPED    : natural := 16#DC#;
   constant HARMONIC_REG_FRONTEND_MALFORMED  : natural := 16#E0#;
   constant HARMONIC_REG_XFFT_FAULT_COUNT    : natural := 16#E4#;
+  constant HARMONIC_REG_XFFT_DATA_IN_HALTS  : natural := 16#E8#;
+  constant HARMONIC_REG_XFFT_DATA_OUT_HALTS : natural := 16#EC#;
+  constant HARMONIC_REG_XFFT_STATUS_HALTS   : natural := 16#F0#;
 end package;

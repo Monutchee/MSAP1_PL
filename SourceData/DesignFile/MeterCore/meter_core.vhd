@@ -290,6 +290,16 @@ architecture structural of meter_core is
   signal r5_agg_last_sequence     : std_logic_vector(31 downto 0);
   signal r5_agg_queue_level       : std_logic_vector(7 downto 0);
   signal r5_agg_status            : std_logic_vector(31 downto 0);
+  signal r5_agg_axis_tdata        : std_logic_vector(31 downto 0);
+  signal r5_agg_axis_tkeep        : std_logic_vector(3 downto 0);
+  signal r5_agg_axis_tvalid       : std_logic;
+  signal r5_agg_axis_tready       : std_logic;
+  signal r5_agg_axis_tlast        : std_logic;
+  signal r5_harmonic_axis_tdata   : std_logic_vector(31 downto 0);
+  signal r5_harmonic_axis_tkeep   : std_logic_vector(3 downto 0);
+  signal r5_harmonic_axis_tvalid  : std_logic;
+  signal r5_harmonic_axis_tready  : std_logic;
+  signal r5_harmonic_axis_tlast   : std_logic;
 
   -- Sliding Urms(1/2) / PQ event producer (M12). Its shim observes the
   -- same accepted-frame fan-out the single-cycle shim does.
@@ -350,6 +360,9 @@ architecture structural of meter_core is
   signal harmonic_frontend_dropped   : std_logic_vector(31 downto 0);
   signal harmonic_frontend_malformed : std_logic_vector(31 downto 0);
   signal harmonic_xfft_faults        : std_logic_vector(31 downto 0);
+  signal harmonic_xfft_data_in_halts : std_logic_vector(31 downto 0);
+  signal harmonic_xfft_data_out_halts: std_logic_vector(31 downto 0);
+  signal harmonic_xfft_status_halts  : std_logic_vector(31 downto 0);
 begin
   capture_frame_count <= simulator_frame_count when simulator_selected = '1' else physical_frame_count;
   capture_overflows <= (others => '0') when simulator_selected = '1' else physical_overflows;
@@ -783,6 +796,9 @@ begin
       harmonic_frontend_dropped_i => harmonic_frontend_dropped,
       harmonic_frontend_malformed_i => harmonic_frontend_malformed,
       harmonic_xfft_fault_count_i => harmonic_xfft_faults,
+      harmonic_xfft_data_in_halts_i => harmonic_xfft_data_in_halts,
+      harmonic_xfft_data_out_halts_i => harmonic_xfft_data_out_halts,
+      harmonic_xfft_status_halts_i => harmonic_xfft_status_halts,
       active_generation_i => active_generation,
       result_sequence_i => (others => '0'),
       result_drop_count_i => (others => '0'),
@@ -935,10 +951,18 @@ begin
       m_axis_records_tvalid => m_axis_harmonic_tvalid,
       m_axis_records_tready => m_axis_harmonic_tready,
       m_axis_records_tlast => m_axis_harmonic_tlast,
+      m_axis_r5_harmonic_tdata => r5_harmonic_axis_tdata,
+      m_axis_r5_harmonic_tkeep => r5_harmonic_axis_tkeep,
+      m_axis_r5_harmonic_tvalid => r5_harmonic_axis_tvalid,
+      m_axis_r5_harmonic_tready => r5_harmonic_axis_tready,
+      m_axis_r5_harmonic_tlast => r5_harmonic_axis_tlast,
       frontend_completed_windows_o => harmonic_frontend_completed,
       frontend_dropped_windows_o => harmonic_frontend_dropped,
       frontend_malformed_windows_o => harmonic_frontend_malformed,
-      xfft_fault_count_o => harmonic_xfft_faults
+      xfft_fault_count_o => harmonic_xfft_faults,
+      xfft_data_in_halt_count_o => harmonic_xfft_data_in_halts,
+      xfft_data_out_halt_count_o => harmonic_xfft_data_out_halts,
+      xfft_status_halt_count_o => harmonic_xfft_status_halts
     );
 
   -- R5C1 is the only interval-aggregation owner. The exporter consumes the
@@ -977,11 +1001,11 @@ begin
       ten_minute_target_sample_i => ten_minute_target_sample,
       ten_minute_target_valid_i => ten_minute_target_valid,
       ten_minute_target_update_i => ten_minute_target_update,
-      m_axis_tdata => m_axis_r5_agg_input_tdata,
-      m_axis_tkeep => m_axis_r5_agg_input_tkeep,
-      m_axis_tvalid => m_axis_r5_agg_input_tvalid,
-      m_axis_tready => m_axis_r5_agg_input_tready,
-      m_axis_tlast => m_axis_r5_agg_input_tlast,
+      m_axis_tdata => r5_agg_axis_tdata,
+      m_axis_tkeep => r5_agg_axis_tkeep,
+      m_axis_tvalid => r5_agg_axis_tvalid,
+      m_axis_tready => r5_agg_axis_tready,
+      m_axis_tlast => r5_agg_axis_tlast,
       accepted_packet_count_o => r5_agg_accepted_packets,
       dropped_packet_count_o => r5_agg_dropped_packets,
       transmitted_packet_count_o => r5_agg_transmitted_packets,
@@ -989,6 +1013,29 @@ begin
       last_sequence_o => r5_agg_last_sequence,
       queue_level_o => r5_agg_queue_level,
       status_o => r5_agg_status
+    );
+
+  -- AGG1 timing/statistic packets retain priority at every packet boundary;
+  -- HRM1 can never interleave with an AGG1 frame once either starts.
+  r5_input_arbiter : entity work.meter_axis_packet_arbiter_2to1
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      s0_axis_tdata => r5_agg_axis_tdata,
+      s0_axis_tkeep => r5_agg_axis_tkeep,
+      s0_axis_tvalid => r5_agg_axis_tvalid,
+      s0_axis_tready => r5_agg_axis_tready,
+      s0_axis_tlast => r5_agg_axis_tlast,
+      s1_axis_tdata => r5_harmonic_axis_tdata,
+      s1_axis_tkeep => r5_harmonic_axis_tkeep,
+      s1_axis_tvalid => r5_harmonic_axis_tvalid,
+      s1_axis_tready => r5_harmonic_axis_tready,
+      s1_axis_tlast => r5_harmonic_axis_tlast,
+      m_axis_tdata => m_axis_r5_agg_input_tdata,
+      m_axis_tkeep => m_axis_r5_agg_input_tkeep,
+      m_axis_tvalid => m_axis_r5_agg_input_tvalid,
+      m_axis_tready => m_axis_r5_agg_input_tready,
+      m_axis_tlast => m_axis_r5_agg_input_tlast
     );
 
   -- STATUS (0x0C): enabled, apply pending, calculation busy, overflow.

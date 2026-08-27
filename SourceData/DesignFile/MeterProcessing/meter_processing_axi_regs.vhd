@@ -102,6 +102,9 @@ entity meter_processing_axi_regs is
     harmonic_frontend_dropped_i        : in  word32_t;
     harmonic_frontend_malformed_i      : in  word32_t;
     harmonic_xfft_fault_count_i        : in  word32_t;
+    harmonic_xfft_data_in_halts_i      : in  word32_t;
+    harmonic_xfft_data_out_halts_i     : in  word32_t;
+    harmonic_xfft_status_halts_i       : in  word32_t;
 
     active_generation_i     : in  word32_t;
     result_sequence_i       : in  word32_t;
@@ -366,6 +369,12 @@ begin
               rdata <= harmonic_frontend_malformed_i;
             when HARMONIC_REG_XFFT_FAULT_COUNT / 4 =>
               rdata <= harmonic_xfft_fault_count_i;
+            when HARMONIC_REG_XFFT_DATA_IN_HALTS / 4 =>
+              rdata <= harmonic_xfft_data_in_halts_i;
+            when HARMONIC_REG_XFFT_DATA_OUT_HALTS / 4 =>
+              rdata <= harmonic_xfft_data_out_halts_i;
+            when HARMONIC_REG_XFFT_STATUS_HALTS / 4 =>
+              rdata <= harmonic_xfft_status_halts_i;
             when others => rdata <= (others => '0');
           end case;
           rvalid <= '1';

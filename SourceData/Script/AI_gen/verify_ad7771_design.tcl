@@ -48,6 +48,9 @@ set vhdl2008_sources [list \
     [file join $design_dir MeterProcessing grid_cycle_timing.vhd] \
     [file join $design_dir MeterProcessing record_word_tap.vhd] \
     [file join $design_dir MeterProcessing meter_r5_aggregation_pkg.vhd] \
+    [file join $design_dir MeterProcessing meter_r5_harmonic_pkg.vhd] \
+    [file join $design_dir MeterProcessing meter_r5_harmonic_export.vhd] \
+    [file join $design_dir MeterProcessing meter_axis_packet_arbiter_2to1.vhd] \
     [file join $design_dir MeterProcessing meter_r5_aggregation_export.vhd] \
     [file join $design_dir MeterCore adc_simulator_pkg.vhd] \
     [file join $design_dir MeterCore adc_simulator.vhd] \
