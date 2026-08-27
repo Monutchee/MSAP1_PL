@@ -27,27 +27,29 @@ if {$open_now eq ""} {
     }
 }
 
-set sv_sources [list \
-    [file join $processing_dir meter_spectral_frontend.sv]]
 set vhdl_sources [list \
     [file join $processing_dir meter_r5_harmonic_pkg.vhd] \
     [file join $processing_dir meter_r5_harmonic_export.vhd] \
     [file join $processing_dir meter_axis_packet_arbiter_2to1.vhd] \
     [file join $processing_dir meter_spectral_conditioner.vhd] \
+    [file join $processing_dir meter_spectral_frontend.vhd] \
     [file join $processing_dir meter_harmonic_hls_shim.vhd]]
 set memory_sources [list \
     [file join $processing_dir meter_spectral_conditioner_q20.mem]]
-set required_sources [concat $sv_sources $vhdl_sources $memory_sources]
+set required_sources [concat $vhdl_sources $memory_sources]
 
-# Migrate projects registered before the conditioner moved from
-# SystemVerilog to VHDL. Remove the stale source reference even though the
-# old file no longer exists on disk.
-set legacy_conditioner [file join $processing_dir meter_spectral_conditioner.sv]
-set legacy_refs [get_files -quiet -of_objects [get_filesets sources_1] \
-    $legacy_conditioner]
-if {[llength $legacy_refs] != 0} {
-    remove_files -fileset sources_1 $legacy_refs
-    puts "Removed legacy conditioner source: $legacy_conditioner"
+# Migrate projects registered before the conditioner and frontend moved from
+# SystemVerilog to VHDL. Remove stale references even though the old files no
+# longer exist on disk.
+foreach legacy_name [list meter_spectral_conditioner.sv \
+                          meter_spectral_frontend.sv] {
+    set legacy_source [file join $processing_dir $legacy_name]
+    set legacy_refs [get_files -quiet -of_objects [get_filesets sources_1] \
+        $legacy_source]
+    if {[llength $legacy_refs] != 0} {
+        remove_files -fileset sources_1 $legacy_refs
+        puts "Removed legacy M16 source: $legacy_source"
+    }
 }
 
 set missing_sources [list]
@@ -64,7 +66,6 @@ if {[llength $missing_sources] != 0} {
     add_files -fileset sources_1 -norecurse $missing_sources
 }
 
-set_property FILE_TYPE SystemVerilog [get_files $sv_sources]
 set_property FILE_TYPE {VHDL 2008} [get_files $vhdl_sources]
 set_property USED_IN {synthesis simulation} [get_files $required_sources]
 update_compile_order -fileset sources_1

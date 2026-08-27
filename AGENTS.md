@@ -27,8 +27,9 @@
   The compact record-switch order is S00 SingleCycle, S01 PQ, S02 R5C1
   return, and S03 harmonics.
 - M16 harmonic acquisition is also owned inside `MeterCore_Wrapper`: the
-  adaptive L/25 polyphase conditioner for every selectable 1--128 kSPS rate,
-  URAM-backed 4,096-frame ping/pong frontend, packaged
+  VHDL-2008 adaptive L/25 polyphase conditioner for every selectable
+  1--128 kSPS rate, VHDL-2008 URAM-backed 4,096-frame ping/pong frontend,
+  packaged
   `hls_harmonic_engine_ip`, XFFT fault handling, and
   4,096-word record FIFO are one hierarchy. Each exact 42-record base family
   is losslessly forked into that public FIFO and a private

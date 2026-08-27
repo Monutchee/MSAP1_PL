@@ -87,7 +87,7 @@ and does not claim an arbitrary off-nominal-rate resampler.
 
 ## Vendor-neutral frontend
 
-`SourceData/DesignFile/MeterProcessing/meter_spectral_frontend.sv` is the
+`SourceData/DesignFile/MeterProcessing/meter_spectral_frontend.vhd` is the
 embedded production ping/pong buffer and channel scheduler. Its default
 configuration uses two 4,096 x 168-bit XPM URAM banks (three K26 URAMs per
 bank). It accepts one context followed by

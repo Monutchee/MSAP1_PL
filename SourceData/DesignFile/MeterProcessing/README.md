@@ -114,8 +114,8 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
   ripple; high-rate stopbands are below -79.65 dBFS and low-rate image bounds
   are below -88.18 dBFS. Unsupported rates, measured/configured-rate mismatch,
   or malformed block geometry are explicitly invalid.
-- `meter_spectral_frontend`: M16's vendor-neutral two-bank 4,096-frame
-  spectral buffer and CH0-through-CH6 XFFT scheduler. It is instantiated
+- `meter_spectral_frontend`: M16's VHDL-2008 two-bank 4,096-frame spectral
+  buffer and CH0-through-CH6 XFFT scheduler. It is instantiated
   inside MeterCore, maps its two wide banks to six K26 URAMs to preserve BRAM
   for XFFT, aborts an incomplete capture on the same APPLY boundary as the
   conditioner, and preserves whole-window validity under malformed input or

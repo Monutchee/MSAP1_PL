@@ -142,6 +142,10 @@ module meter_spectral_frontend_tb;
         // One complete family checks exact channel-major scheduling.
         send_window(1, FFT_LENGTH - 1);
         wait (completed_windows == 1);
+        // The VHDL DUT's completed counter and this SystemVerilog
+        // scoreboard's nonblocking final-beat increment cross language
+        // scheduling regions. Sample them together on the following phase.
+        @(negedge aclk);
         if (output_beat != CHANNELS * FFT_LENGTH || output_context != 1)
             fail("complete family geometry mismatch");
 
