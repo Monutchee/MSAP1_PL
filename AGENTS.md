@@ -27,16 +27,18 @@
   The compact record-switch order is S00 SingleCycle, S01 PQ, S02 R5C1
   return, and S03 harmonics.
 - M16 harmonic acquisition is also owned inside `MeterCore_Wrapper`: the
-  fixed 32 kSPS 16/25 polyphase conditioner, URAM-backed 4,096-frame ping/pong
-  frontend, packaged `hls_harmonic_engine_ip`, XFFT fault handling, and
+  adaptive L/25 polyphase conditioner for every selectable 1--128 kSPS rate,
+  URAM-backed 4,096-frame ping/pong frontend, packaged
+  `hls_harmonic_engine_ip`, XFFT fault handling, and
   4,096-word record FIFO are one hierarchy. The block design owns only one
   XFFT v9.1 customization connected through the wrapper's four `*_FFT_*` AXIS
   interfaces and six event scalars. Finished records leave on the dedicated
   `M_AXIS_HARMONIC` port and join `MTR_AXI_Switch/S03_AXIS`; do not merge them
-  into `M_AXIS_PQ`. The production conditioner profile accepts only exact
-  6,400-frame 10/12-cycle blocks at measured 32 kSPS. Other geometries emit
-  no valid spectral window. Its read-only health window is `0xCC`--`0xE4` in
-  `S_AXI_PROCESSING`.
+  into `M_AXIS_PQ`. The conditioner selects `L = 512000/Fs` on APPLY, requires
+  the measured rate to match that selected profile, and converts each exact
+  10/12-cycle source block to 4,096 frames at 20.48 kSPS. Unsupported rates or
+  malformed block geometry emit no valid spectral window. Its read-only health
+  window is `0xCC`--`0xE4` in `S_AXI_PROCESSING`.
 - The conversion stage owns the 64-bit free-running sample index (low word in
   `TUSER[31:0]`, high word in `TUSER[105:74]`). It is the measurement
   timebase: never reset it on configuration apply and never step it for time

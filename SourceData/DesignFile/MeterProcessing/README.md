@@ -102,18 +102,23 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
 
 ## Modules
 
-- `meter_spectral_conditioner`: M16's nonbackpressuring fixed production
-  profile. It consumes exact 6,400-frame basic blocks at measured 32 kSPS and
-  performs a 16/25 rational conversion to 4,096 frames with a 1,025-tap,
-  16-phase Q20 Kaiser prototype. One 65-tap phase is time-shared over seven
-  lanes. The frozen ROM check measures 0.001701 dB ripple through 7.62 kHz,
-  passband images below -100.99 dBFS, and the 10.24--16 kHz alias band below
-  -79.66 dBFS. The first complete block after reset/APPLY primes its 32-frame
-  group delay; unsupported rate or block geometry is explicitly invalid.
+- `meter_spectral_conditioner`: M16's nonbackpressuring adaptive production
+  conditioner. On APPLY it selects the exact `L/25` profile where
+  `L = 512000/Fs` for 1, 2, 4, 8, 16, 32, 64, or 128 kSPS, and converts each
+  exact 200 ms source block to 4,096 frames at 20.48 kSPS. The 32/64/128 kSPS
+  profiles use a 1,025-tap Kaiser prototype; lower rates use a compact
+  endpoint-inclusive 129-row fractional-delay table with carried-remainder
+  interpolation and exact Q20 unity gain. A 512-frame BRAM history ring and
+  16-entry marker queue decouple source capture from the time-shared MAC, so
+  even 128 kSPS is lossless. The frozen ROM check measures at most 0.001688 dB
+  ripple; high-rate stopbands are below -79.65 dBFS and low-rate image bounds
+  are below -88.18 dBFS. Unsupported rates, measured/configured-rate mismatch,
+  or malformed block geometry are explicitly invalid.
 - `meter_spectral_frontend`: M16's vendor-neutral two-bank 4,096-frame
   spectral buffer and CH0-through-CH6 XFFT scheduler. It is instantiated
   inside MeterCore, maps its two wide banks to six K26 URAMs to preserve BRAM
-  for XFFT, and preserves whole-window validity under malformed input or
+  for XFFT, aborts an incomplete capture on the same APPLY boundary as the
+  conditioner, and preserves whole-window validity under malformed input or
   overload.
 - `meter_harmonic_hls_shim`: owns the frontend, packaged HarmonicEngine,
   forward-XFFT configuration handshake, sticky XFFT family-fault injection,

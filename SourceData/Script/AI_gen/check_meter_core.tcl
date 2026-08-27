@@ -93,6 +93,8 @@ set spectral_testbench [file join $design_root MeterProcessing tb \
   meter_spectral_frontend_tb.sv]
 set conditioner_testbench [file join $design_root MeterProcessing tb \
   meter_spectral_conditioner_tb.sv]
+set conditioner_profiles_testbench [file join $design_root MeterProcessing tb \
+  meter_spectral_profiles_tb.sv]
 set conditioner_coefficients [file join $design_root MeterProcessing \
   meter_spectral_conditioner_q20.mem]
 set conditioner_response_check [file join $design_root MeterProcessing tb \
@@ -126,7 +128,8 @@ puts [exec $xvhdl --2008 {*}$core_vhdl2008_sources 2>@1]
 puts [exec $xvhdl $boundary_wrapper 2>@1]
 puts [exec $xvlog [file join $vivado_root data verilog src glbl.v] 2>@1]
 puts [exec $xvlog --sv $simulator_testbench 2>@1]
-puts [exec $xvlog --sv $spectral_testbench $conditioner_testbench 2>@1]
+puts [exec $xvlog --sv $spectral_testbench $conditioner_testbench \
+  $conditioner_profiles_testbench 2>@1]
 puts [exec $xelab -a --mt off adc_simulator_tb \
   -s adc_simulator_tb_sim 2>@1]
 set simulator_axsim [file join $work_root xsim.dir adc_simulator_tb_sim axsim]
@@ -146,7 +149,8 @@ set spectral_axsim \
 set spectral_log \
   [exec env "LD_LIBRARY_PATH=$simulator_libraries" $spectral_axsim 2>@1]
 puts $spectral_log
-if {![string match "*meter_spectral_frontend PASS*" $spectral_log]} {
+if {[string match "*FAIL:*" $spectral_log] ||
+    ![string match "*meter_spectral_frontend PASS*" $spectral_log]} {
   error "M16 spectral frontend simulation did not report PASS"
 }
 
@@ -157,8 +161,23 @@ set conditioner_axsim \
 set conditioner_log \
   [exec env "LD_LIBRARY_PATH=$simulator_libraries" $conditioner_axsim 2>@1]
 puts $conditioner_log
-if {![string match "*meter_spectral_conditioner PASS*" $conditioner_log]} {
+if {[string match "*FAIL:*" $conditioner_log] ||
+    ![string match "*meter_spectral_conditioner PASS*" $conditioner_log]} {
   error "M16 spectral conditioner simulation did not report PASS"
+}
+
+puts [exec $xelab -a --mt off -L xpm meter_spectral_profiles_tb \
+  -s meter_spectral_profiles_tb_sim 2>@1]
+set conditioner_profiles_axsim \
+  [file join $work_root xsim.dir meter_spectral_profiles_tb_sim axsim]
+set conditioner_profiles_log \
+  [exec env "LD_LIBRARY_PATH=$simulator_libraries" \
+    $conditioner_profiles_axsim 2>@1]
+puts $conditioner_profiles_log
+if {[string match "*FAIL:*" $conditioner_profiles_log] ||
+    ![string match "*meter_spectral_profiles PASS*" \
+      $conditioner_profiles_log]} {
+  error "M16 adaptive spectral profile sweep did not report PASS"
 }
 
 # Elaborate the production configuration explicitly and prove that the

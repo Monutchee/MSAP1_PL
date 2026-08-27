@@ -34,6 +34,12 @@ This makes the effective analysis cadence 20.48 kframe/s for a nominal
 order `h` is therefore centered at bin `10*h` or `12*h`, which is the contract
 implemented by HarmonicEngine.
 
+Increasing XFFT length alone does not improve the measurement resolution. A
+4,096-point transform over the required 200 ms interval already has true 5 Hz
+bin spacing. Zero-padding to 8,192 only interpolates that spectrum, while
+collecting 8,192 real samples at 20.48 kSPS would double the interval to
+400 ms and violate the 10/12-cycle family contract.
+
 The A4 16 kSPS / 3,200-sample + zero-padding prototype remains a resource
 sizing experiment only. Do not use that zero-padded geometry in production:
 its 3.90625 Hz XFFT bins do not coincide with the 5 Hz bins of a 10/12-cycle
@@ -41,26 +47,43 @@ analysis interval. The production conditioner must perform a qualified
 rational resampling to 4,096 samples per block; it must not merely drop input
 frames.
 
-### Embedded conditioner profile 1
+### Embedded adaptive conditioner
 
 `meter_spectral_conditioner` implements the production conversion directly:
 
-- exact input geometry: 6,400 frames at a measured 32 kSPS;
-- rational rate: 16/25, producing exactly 4,096 frames;
-- 1,025-tap Kaiser prototype split into 16 Q20 phases, 65 MACs/phase;
-- one multiplier time-shared across 65 taps x seven lanes (455 clocks/output);
-- exact unity DC normalization for every phase; and
-- exact 32-source-frame group delay, compensated in the block markers.
+- every selectable source rate uses the exact rational ratio `L/25`, where
+  `L = 512000/Fs`;
+- every valid 200 ms source block becomes exactly 4,096 frames at 20.48 kSPS;
+- a 512-frame BRAM history ring and 16-entry marker queue accept source frames
+  independently of the seven-lane, time-shared MAC; and
+- each Q20 phase has exact unity DC gain.
 
-The maintained ROM reproducer/check reports 0.001701 dB composite ripple from
-DC through 7.62 kHz, a worst passband phase image of -100.99 dBFS, and a worst
-component of -79.66 dBFS from the conditioned Nyquist boundary (10.24 kHz) to
-the 16 kHz source Nyquist. Profile 1 therefore advertises qualified order 127.
+| ID | Fs (kSPS) | L | Source frames | Taps | Delay | Max order 50/60 Hz |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 32 | 16 | 6,400 | 65 | 32 | 127 / 127 |
+| 2 | 64 | 8 | 12,800 | 129 | 64 | 127 / 127 |
+| 3 | 128 | 4 | 25,600 | 257 | 128 | 127 / 127 |
+| 4 | 16 | 32 | 3,200 | 69 | 34 | 127 / 106 |
+| 5 | 8 | 64 | 1,600 | 69 | 34 | 64 / 53 |
+| 6 | 4 | 128 | 800 | 69 | 34 | 32 / 26 |
+| 7 | 2 | 256 | 400 | 69 | 34 | 16 / 13 |
+| 8 | 1 | 512 | 200 | 69 | 34 | 8 / 6 |
+
+The 32/64/128 kSPS profiles share a 1,025-tap Kaiser prototype on the 512 kHz
+interpolation grid. Lower rates use a compact 129-row endpoint-inclusive
+fractional-delay table; a tap-carried interpolation remainder preserves exact
+Q20 unity without a correction ROM. The maintained reproducer reports no more
+than 0.001688 dB passband ripple, high-rate stopbands below -79.65 dBFS, and
+low-rate image bounds below -88.18 dBFS.
+
 The first complete block after reset or APPLY primes history and marker
 alignment. `conditioner_valid` is set only for a locked 50 Hz/10-cycle or
-60 Hz/12-cycle block with valid measured frequency/rate and the exact 32 kSPS
-profile. A different rate or source-frame count is structurally invalidated;
-this fixed first profile does not claim a dynamic off-nominal-length resampler.
+60 Hz/12-cycle block with valid frequency, a measured rate equal to the
+selected profile, and that profile's exact source-frame count. APPLY flushes
+the conditioner token/history transaction and any incomplete frontend capture
+as one boundary. Unsupported rates or malformed geometry are structurally
+invalidated; the conditioner selects among the eight characterized profiles
+and does not claim an arbitrary off-nominal-rate resampler.
 
 ## Vendor-neutral frontend
 
@@ -88,13 +111,14 @@ Important behavior:
 The earlier BRAM sizing route used 38 RAMB36. The embedded production setting
 deliberately moves that storage to six URAMs so the external XFFT and the rest
 of TopDesign retain BRAM headroom. The final pre-XFFT `MeterCore_Wrapper`
-focused synthesis on K26 at 100 MHz passes with WNS +1.629 ns and uses 38,564
-CLB LUTs (32.93%), 58,639 registers (25.03%), 76 BRAM tiles (52.78%), six
-URAMs (9.38%), and 238 DSPs (19.07%). The integrated full-PL route passes at
-WNS +0.102 ns / TNS 0 with 11,339 / 14,640 physical CLBs (77.45%), 101.5
-BRAM tiles, six URAMs, and zero unsafe/unknown CDC endpoints or critical DRC
-warnings. Bitstream/XSA generation and target soak remain separate release
-gates.
+focused synthesis on K26 at 100 MHz passes with WNS +2.801 ns and uses 35,010
+CLB LUTs (29.89%), 47,950 registers (20.47%), 84 BRAM tiles (58.33%), six
+URAMs (9.38%), and 243 DSPs (19.47%). The integrated adaptive conditioner,
+XFFT, and compact switch route passes at WNS +0.322 ns / TNS 0, with 50,092
+LUTs (42.77%), 71,207 registers (30.40%), 10,424 physical CLBs (71.20%),
+109.5 BRAM tiles (76.04%), six URAMs (9.38%), and 247 DSPs (19.79%). It has
+zero DRC errors and zero critical warnings. Bitstream/XSA generation and the
+target soak remain separate release gates.
 
 ## XFFT v9.1 customization
 
@@ -194,7 +218,7 @@ The implemented boundary is:
 
 ```text
 MeterCore raw frame observer
-  -> embedded 16/25 conditioner -> embedded 4K frontend
+  -> embedded adaptive L/25 conditioner -> embedded 4K frontend
   -> M_AXIS_FFT_DATA ---------> XFFT S_AXIS_DATA
   <- S_AXIS_FFT_DATA <--------- XFFT M_AXIS_DATA
   -> M_AXIS_FFT_CONFIG -------> XFFT S_AXIS_CONFIG
@@ -235,5 +259,6 @@ The focused C simulation, synthesis, and C/RTL co-simulation pass with the
 6.653 ns, 0.718--2.560 ms family latency, 14 BRAM18K, 26 DSP, 5,702 FF, and
 8,466 LUT. `check_meter_core.tcl` also runs the coefficient-response check,
 conditioner geometry/DC test, frontend fault/framing test, and complete
-MeterCore elaboration. The final verdict remains the routed full-PL build
-after adding XFFT and the S05 connection.
+MeterCore elaboration. The final integrated full-PL route with XFFT and the
+compact switch passes timing; bitstream/XSA and target tests remain release
+gates.

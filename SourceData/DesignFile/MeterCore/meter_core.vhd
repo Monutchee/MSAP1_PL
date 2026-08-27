@@ -858,9 +858,8 @@ begin
   -- Live fallback view: enabled but running on synthetic boundaries.
   grid_cycle_fallback <= grid_cycle_mode and not grid_cycle_locked;
 
-  -- M16 spectral observer.  The fixed profile is qualified only for an exact
-  -- 32 kSPS / 6,400-frame basic block; other geometries are explicitly
-  -- invalidated by the frontend instead of being dropped or zero padded.
+  -- M16 spectral observer. The selected 1..128 kSPS profile is converted by
+  -- an exact L/25 rational path to one 4,096-frame, 200 ms XFFT window.
   harmonic_conditioner : entity work.meter_spectral_conditioner
     port map (
       aclk => aclk,
@@ -874,6 +873,7 @@ begin
       grid_cycle_count_i => grid_active_config(7 downto 0),
       config_enable_i => shadow_enable,
       config_apply_toggle_i => apply_toggle,
+      configured_frame_rate_i => shadow_sample_rate,
       source_frame_rate_i => capture_frame_rate,
       source_frame_rate_valid_i => capture_frame_rate_valid,
       frequency_millihz_i => frequency_millihz,
@@ -897,6 +897,7 @@ begin
     port map (
       aclk => aclk,
       aresetn => aresetn,
+      config_apply_toggle_i => apply_toggle,
       s_axis_context_tdata => harmonic_context_tdata,
       s_axis_context_tvalid => harmonic_context_tvalid,
       s_axis_context_tready => harmonic_context_tready,

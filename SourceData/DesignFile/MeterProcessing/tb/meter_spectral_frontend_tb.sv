@@ -8,6 +8,7 @@ module meter_spectral_frontend_tb;
 
     logic aclk = 1'b0;
     logic aresetn = 1'b0;
+    logic config_apply_toggle_i;
     always #5 aclk = ~aclk;
 
     logic [CONTEXT_BITS-1:0] s_context_data;
@@ -96,7 +97,7 @@ module meter_spectral_frontend_tb;
         if (aresetn && m_context_valid && m_context_ready) begin
             output_context <= output_context + 1;
             case (m_context_data[31:0])
-                1, 3, 4: if (m_context_data[319:288] != 0)
+                1, 3, 4, 9: if (m_context_data[319:288] != 0)
                     fail("pre-drop context carried the wrong snapshot");
                 6: if (m_context_data[319:288] != 1)
                     fail("post-drop context did not carry the drop snapshot");
@@ -127,9 +128,11 @@ module meter_spectral_frontend_tb;
     initial begin
         s_context_data = '0;
         s_context_valid = 1'b0;
+        config_apply_toggle_i = 1'b0;
         s_frame_data = '0;
         s_frame_valid = 1'b0;
         s_frame_last = 1'b0;
+        s_frame_fault = 1'b0;
         m_context_ready = 1'b1;
         m_fft_ready = 1'b1;
 
@@ -142,10 +145,31 @@ module meter_spectral_frontend_tb;
         if (output_beat != CHANNELS * FFT_LENGTH || output_context != 1)
             fail("complete family geometry mismatch");
 
+        // APPLY in the middle of a conditioner window must release capture
+        // immediately. The next context/window is accepted without waiting
+        // for a TLAST that belongs to the abandoned configuration.
+        send_context(8);
+        for (int sample = 0; sample < 3; sample++) begin
+            @(negedge aclk);
+            s_frame_data = sample;
+            s_frame_valid = 1'b1;
+            @(posedge aclk);
+        end
+        @(negedge aclk);
+        s_frame_valid = 1'b0;
+        config_apply_toggle_i = ~config_apply_toggle_i;
+        repeat (2) @(posedge aclk);
+        if (!s_context_ready)
+            fail("APPLY did not release incomplete frontend capture");
+        send_window(9, FFT_LENGTH - 1);
+        wait (completed_windows == 2);
+        if (malformed_windows != 0)
+            fail("APPLY abort was incorrectly counted as malformed");
+
         // Early TLAST invalidates the bank and cannot reach the FFT.
         send_window(2, 3);
         repeat (10) @(posedge aclk);
-        if (malformed_windows != 1 || completed_windows != 1)
+        if (malformed_windows != 1 || completed_windows != 2)
             fail("malformed input window was not isolated");
 
         // Exact framing cannot make a conditioner/profile fault publishable.
@@ -163,7 +187,7 @@ module meter_spectral_frontend_tb;
         s_frame_last = 1'b0;
         s_frame_fault = 1'b0;
         repeat (10) @(posedge aclk);
-        if (malformed_windows != 2 || completed_windows != 1)
+        if (malformed_windows != 2 || completed_windows != 2)
             fail("explicit conditioner fault was not isolated");
 
         // Hold the FFT, fill both banks, then prove that a third window is
@@ -175,12 +199,12 @@ module meter_spectral_frontend_tb;
         if (dropped_windows != 1)
             fail("full ping/pong pair did not count one dropped window");
         m_fft_ready = 1'b1;
-        wait (completed_windows == 3);
+        wait (completed_windows == 4);
 
         // The next accepted context must include the prior drop snapshot.
         send_window(6, FFT_LENGTH - 1);
-        wait (completed_windows == 4);
-        if (output_context != 4 || malformed_windows != 2 ||
+        wait (completed_windows == 5);
+        if (output_context != 5 || malformed_windows != 2 ||
             dropped_windows != 1)
             fail("frontend counters or accepted-context count mismatch");
 

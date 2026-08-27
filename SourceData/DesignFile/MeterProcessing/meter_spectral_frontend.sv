@@ -29,6 +29,7 @@ module meter_spectral_frontend #(
 ) (
     input  logic                                  aclk,
     input  logic                                  aresetn,
+    input  logic                                  config_apply_toggle_i,
 
     input  logic [CONTEXT_BITS-1:0]               s_axis_context_tdata,
     input  logic                                  s_axis_context_tvalid,
@@ -83,6 +84,7 @@ module meter_spectral_frontend #(
     logic       capture_discard;
     logic       capture_framing_fault;
     logic [ADDR_WIDTH-1:0] capture_index;
+    logic       apply_seen;
 
     scheduler_state_t scheduler_state;
     logic       active_bank;
@@ -119,7 +121,8 @@ module meter_spectral_frontend #(
     // observer branch and is therefore always consumed, even if it must be
     // discarded; it can never stall ADC acquisition or the main metrology
     // path.
-    assign s_axis_context_tready = !capture_active;
+    assign s_axis_context_tready = !capture_active &&
+                                   config_apply_toggle_i == apply_seen;
     assign s_axis_frame_tready = 1'b1;
     assign context_fire = s_axis_context_tvalid && s_axis_context_tready;
     assign frame_fire = s_axis_frame_tvalid;
@@ -165,7 +168,9 @@ module meter_spectral_frontend #(
                           s_axis_frame_fault;
         effective_index = capture_active ? capture_index : '0;
         expected_last = effective_index == FFT_LENGTH - 1;
-        memory_write_enable = aresetn && frame_fire && window_active &&
+        memory_write_enable = aresetn &&
+                              config_apply_toggle_i == apply_seen &&
+                              frame_fire && window_active &&
                               !effective_discard && !effective_fault;
     end
 
@@ -249,6 +254,7 @@ module meter_spectral_frontend #(
             capture_discard        <= 1'b0;
             capture_framing_fault  <= 1'b0;
             capture_index          <= '0;
+            apply_seen             <= 1'b0;
             scheduler_state        <= S_IDLE;
             active_bank            <= 1'b0;
             channel_index          <= '0;
@@ -262,68 +268,79 @@ module meter_spectral_frontend #(
             dropped_windows        <= '0;
             malformed_windows      <= '0;
         end else begin
-            // Reserve a bank with the context.  If neither bank is free, the
-            // following frame window is consumed but deliberately discarded.
-            if (context_fire) begin
-                capture_active        <= 1'b1;
-                capture_bank          <= selected_bank;
-                capture_discard       <= !selected_bank_available;
+            if (config_apply_toggle_i != apply_seen) begin
+                // APPLY aborts only an incomplete capture transaction. Banks
+                // that already own a complete family continue through the
+                // scheduler/XFFT/HLS path under their original context.
+                apply_seen            <= config_apply_toggle_i;
+                capture_active        <= 1'b0;
+                capture_discard       <= 1'b0;
                 capture_framing_fault <= 1'b0;
                 capture_index         <= '0;
-                if (selected_bank_available) begin
-                    context_bank[selected_bank] <= context_with_drops;
-                    bank_preference <= !selected_bank;
-                end else if (dropped_windows != 32'hffffffff) begin
-                    dropped_windows <= dropped_windows + 1'b1;
+            end else begin
+                // Reserve a bank with the context. If neither bank is free,
+                // the following window is consumed but deliberately dropped.
+                if (context_fire) begin
+                    capture_active        <= 1'b1;
+                    capture_bank          <= selected_bank;
+                    capture_discard       <= !selected_bank_available;
+                    capture_framing_fault <= 1'b0;
+                    capture_index         <= '0;
+                    if (selected_bank_available) begin
+                        context_bank[selected_bank] <= context_with_drops;
+                        bank_preference <= !selected_bank;
+                    end else if (dropped_windows != 32'hffffffff) begin
+                        dropped_windows <= dropped_windows + 1'b1;
+                    end
                 end
-            end
 
-            if (frame_fire) begin
-                if (capture_active || context_fire) begin
-                    if (effective_discard) begin
-                        if (s_axis_frame_tlast)
-                            capture_active <= 1'b0;
-                    end else if (s_axis_frame_fault) begin
-                        // An explicit upstream fault has whole-window scope.
-                        // Count it once, suppress this beat's memory write,
-                        // and consume through TLAST to regain alignment.
-                        if (!capture_framing_fault &&
-                            malformed_windows != 32'hffffffff)
-                            malformed_windows <= malformed_windows + 1'b1;
-                        if (s_axis_frame_tlast) begin
+                if (frame_fire) begin
+                    if (capture_active || context_fire) begin
+                        if (effective_discard) begin
+                            if (s_axis_frame_tlast)
+                                capture_active <= 1'b0;
+                        end else if (s_axis_frame_fault) begin
+                            // An explicit upstream fault has whole-window scope.
+                            // Count it once, suppress this beat's memory write,
+                            // and consume through TLAST to regain alignment.
+                            if (!capture_framing_fault &&
+                                malformed_windows != 32'hffffffff)
+                                malformed_windows <= malformed_windows + 1'b1;
+                            if (s_axis_frame_tlast) begin
+                                capture_active <= 1'b0;
+                            end else begin
+                                capture_active        <= 1'b1;
+                                capture_framing_fault <= 1'b1;
+                            end
+                        end else if (effective_fault) begin
+                            // A missing expected TLAST already invalidated this
+                            // block. Consume through the eventual TLAST to regain
+                            // frame alignment without double-counting the fault.
+                            if (s_axis_frame_tlast)
+                                capture_active <= 1'b0;
+                        end else if (s_axis_frame_tlast != expected_last) begin
+                            if (malformed_windows != 32'hffffffff)
+                                malformed_windows <= malformed_windows + 1'b1;
+                            if (s_axis_frame_tlast) begin
+                                // Early TLAST: this bank was never published.
+                                capture_active <= 1'b0;
+                            end else begin
+                                // Missing TLAST at the exact endpoint: discard
+                                // trailing beats until the producer closes.
+                                capture_active        <= 1'b1;
+                                capture_framing_fault <= 1'b1;
+                            end
+                        end else if (expected_last) begin
+                            bank_ready[effective_bank] <= 1'b1;
                             capture_active <= 1'b0;
                         end else begin
-                            capture_active        <= 1'b1;
-                            capture_framing_fault <= 1'b1;
+                            capture_index <= effective_index + 1'b1;
                         end
-                    end else if (effective_fault) begin
-                        // A missing expected TLAST already invalidated this
-                        // block.  Consume through the eventual TLAST to regain
-                        // frame alignment without counting the same fault twice.
-                        if (s_axis_frame_tlast)
-                            capture_active <= 1'b0;
-                    end else if (s_axis_frame_tlast != expected_last) begin
+                    end else if (s_axis_frame_tlast) begin
+                        // A complete orphan frame arrived without its context.
                         if (malformed_windows != 32'hffffffff)
                             malformed_windows <= malformed_windows + 1'b1;
-                        if (s_axis_frame_tlast) begin
-                            // Early TLAST: this bank was never published.
-                            capture_active <= 1'b0;
-                        end else begin
-                            // Missing TLAST at the exact endpoint: discard any
-                            // trailing beats until the producer finally closes.
-                            capture_active        <= 1'b1;
-                            capture_framing_fault <= 1'b1;
-                        end
-                    end else if (expected_last) begin
-                        bank_ready[effective_bank] <= 1'b1;
-                        capture_active <= 1'b0;
-                    end else begin
-                        capture_index <= effective_index + 1'b1;
                     end
-                end else if (s_axis_frame_tlast) begin
-                    // A complete orphan frame arrived without its context.
-                    if (malformed_windows != 32'hffffffff)
-                        malformed_windows <= malformed_windows + 1'b1;
                 end
             end
 

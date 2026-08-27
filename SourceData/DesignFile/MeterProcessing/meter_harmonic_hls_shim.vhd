@@ -13,6 +13,7 @@ entity meter_harmonic_hls_shim is
   port (
     aclk    : in std_logic;
     aresetn : in std_logic;
+    config_apply_toggle_i : in std_logic;
 
     s_axis_context_tdata  : in  std_logic_vector(575 downto 0);
     s_axis_context_tvalid : in  std_logic;
@@ -77,6 +78,7 @@ architecture rtl of meter_harmonic_hls_shim is
     port (
       aclk    : in std_logic;
       aresetn : in std_logic;
+      config_apply_toggle_i : in std_logic;
       s_axis_context_tdata  : in  std_logic_vector(575 downto 0);
       s_axis_context_tvalid : in  std_logic;
       s_axis_context_tready : out std_logic;
@@ -151,6 +153,7 @@ begin
     port map (
       aclk => aclk,
       aresetn => aresetn,
+      config_apply_toggle_i => config_apply_toggle_i,
       s_axis_context_tdata => s_axis_context_tdata,
       s_axis_context_tvalid => s_axis_context_tvalid,
       s_axis_context_tready => s_axis_context_tready,

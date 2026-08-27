@@ -22,7 +22,7 @@ Raw ADC simulator --------+                       |
                |
                +-> nonblocking 256-frame XPM FIFO
                        -> WFM1 packetizer -> waveform DMA
-              +-> M16 16/25 polyphase conditioner -> 4K ping/pong frontend
+              +-> M16 adaptive L/25 conditioner -> 4K ping/pong frontend
                        -> external XFFT -> embedded HarmonicEngine
                        -> 4096-word record FIFO -> M_AXIS_HARMONIC
 ```
@@ -41,16 +41,21 @@ simulator adds one RPU-owned interface:
 ## Embedded M16 harmonic path
 
 All repository-owned harmonic logic is inside `MeterCore_Wrapper`. The
-conditioner observes preserved signed 24-bit raw lanes CH0--CH6 and accepts
-only the fixed production profile: measured 32 kSPS, grid lock, and an exact
-6,400-frame 10-cycle/50 Hz or 12-cycle/60 Hz block. It converts that interval
-to 4,096 samples with a 16-phase 16/25 polyphase filter. The characterized Q20
-ROM has 0.001701 dB ripple through 7.62 kHz, worst passband image
--100.99 dBFS, and worst 10.24--16 kHz component -79.66 dBFS. A 32-frame group
-delay is reflected in the marker alignment, so record provenance remains the
-first source sample of the contiguous block. The first complete block after
-reset or APPLY primes the filter; unsupported or malformed geometry is
-invalidated rather than padded or silently resampled.
+conditioner observes preserved signed 24-bit raw lanes CH0--CH6. On APPLY it
+selects one exact `L/25` conversion, where `L = 512000/Fs`, for every supported
+1, 2, 4, 8, 16, 32, 64, or 128 kSPS rate. The measured rate must agree with
+the selected rate and the source interval must be one exact 10-cycle/50 Hz or
+12-cycle/60 Hz basic block; every valid profile produces 4,096 samples at
+20.48 kSPS. The 32/64/128 kSPS profiles use a 1,025-tap Kaiser prototype;
+lower rates use a compact 129-row fractional-delay table with exact-unity
+carried-remainder interpolation. Characterized ripple is at most 0.001688 dB,
+with high-rate stopbands below -79.65 dBFS and low-rate image bounds below
+-88.18 dBFS. Profile-specific 32/64/128/34-frame group delays are reflected
+in marker alignment, so provenance remains the first source sample of the
+contiguous block. The first complete block after reset or APPLY primes the
+filter; unsupported or malformed geometry is invalidated rather than padded
+or silently resampled. APPLY also flushes any incomplete conditioner/frontend
+transaction so a retired window cannot strand the next profile.
 
 The same hierarchy owns the two-bank 4K frontend, packaged
 `hls_harmonic_engine_ip`, forward-transform configuration, XFFT event
@@ -77,14 +82,14 @@ accepts it and drains status continuously. The processing read-only registers
 `0xCC`--`0xE4` expose conditioner, frontend, and XFFT health for the routed
 soak gate.
 
-The repository-side, pre-XFFT `MeterCore_Wrapper` synthesis on K26 at
-100 MHz passes with WNS +1.629 ns and uses 38,564 CLB LUTs (32.93%), 58,639
-registers (25.03%), 76 BRAM tiles (52.78%), six URAMs (9.38%), and 238 DSPs
-(19.07%). The integrated XFFT and compact four-input record switch also pass
-the full K26 route at WNS +0.102 ns / TNS 0, using 54,178 LUTs (46.26%),
-81,930 registers (34.98%), 11,339 physical CLBs (77.45%), 101.5 BRAM tiles
-(70.49%), six URAMs (9.38%), and 242 DSPs (19.39%). Routed CDC has zero
-unsafe/unknown endpoints and DRC has zero critical warnings.
+The repository-side adaptive, pre-XFFT `MeterCore_Wrapper` synthesis on K26 at
+100 MHz passes with WNS +2.801 ns and uses 35,010 CLB LUTs (29.89%), 47,950
+registers (20.47%), 84 BRAM tiles (58.33%), six URAMs (9.38%), and 243 DSPs
+(19.47%). The integrated adaptive conditioner, XFFT, and compact four-input
+record-switch route passes at WNS +0.322 ns / TNS 0, using 50,092 LUTs
+(42.77%), 71,207 registers (30.40%), 10,424 physical CLBs (71.20%), 109.5
+BRAM tiles (76.04%), six URAMs (9.38%), and 247 DSPs (19.79%). The routed
+design has zero DRC errors and zero critical warnings.
 
 All meter-record producers emit 256-byte records as 64 32-bit beats with
 `TLAST` asserted on beat 63. `MTR_AXI_Switch` has exactly four inputs:

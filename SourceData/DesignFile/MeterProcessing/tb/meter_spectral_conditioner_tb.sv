@@ -18,6 +18,7 @@ module meter_spectral_conditioner_tb;
     logic [7:0] grid_cycle_count_i;
     logic config_enable_i;
     logic config_apply_toggle_i;
+    logic [31:0] configured_frame_rate_i;
     logic [31:0] source_frame_rate_i;
     logic source_frame_rate_valid_i;
     logic [31:0] frequency_millihz_i;
@@ -39,6 +40,7 @@ module meter_spectral_conditioner_tb;
     int source_index = 0;
     int context_count = 0;
     int output_count = 0;
+    int expected_first_sample = 101;
 
     meter_spectral_conditioner #(
         .EXPECTED_SOURCE_FRAMES(SOURCE_FRAMES),
@@ -66,9 +68,10 @@ module meter_spectral_conditioner_tb;
         @(negedge aclk);
         frame_accept_i = 1'b0;
         frame_closes_block_i = 1'b0;
-        // Production has >3,100 clocks/frame.  The focused TB retains a
-        // smaller but still contract-compliant service interval.
-        repeat (520) @(posedge aclk);
+        // Production has >3,100 clocks/frame at 32 kSPS. The adaptive
+        // two-stage RAM/MAC pipeline needs about 930 clocks per output; this
+        // focused cadence retains margin without simulating wall-clock time.
+        repeat (1000) @(posedge aclk);
     endtask
 
     always @(posedge aclk) begin
@@ -82,8 +85,19 @@ module meter_spectral_conditioner_tb;
                 m_axis_context_tdata[135:128] != 127 ||
                 m_axis_context_tdata[143:136] != 1 ||
                 m_axis_context_tdata[191:160] != 50000 ||
-                m_axis_context_tdata[255:192] != 101)
+                m_axis_context_tdata[255:192] != expected_first_sample) begin
+                $display("CTX gen=%h count=%0d mask=%h nominal=%0d cycles=%0d max=%0d profile=%0d frequency=%0d first=%0d",
+                    m_axis_context_tdata[31:0],
+                    m_axis_context_tdata[95:64],
+                    m_axis_context_tdata[103:96],
+                    m_axis_context_tdata[119:112],
+                    m_axis_context_tdata[127:120],
+                    m_axis_context_tdata[135:128],
+                    m_axis_context_tdata[143:136],
+                    m_axis_context_tdata[191:160],
+                    m_axis_context_tdata[255:192]);
                 fail("conditioner context/provenance mismatch");
+            end
             if (!m_axis_context_tdata[104] ||
                 !m_axis_context_tdata[105] ||
                 !m_axis_context_tdata[106])
@@ -113,6 +127,7 @@ module meter_spectral_conditioner_tb;
         grid_cycle_count_i = 8'd10;
         config_enable_i = 1'b1;
         config_apply_toggle_i = 1'b0;
+        configured_frame_rate_i = 32'd32000;
         source_frame_rate_i = 32'd32000;
         source_frame_rate_valid_i = 1'b1;
         frequency_millihz_i = 32'd50000;
@@ -127,10 +142,25 @@ module meter_spectral_conditioner_tb;
         repeat (5) @(posedge aclk);
         aresetn = 1'b1;
 
-        // Block 0 primes the centered polyphase prototype. Block 1 is the
-        // first publishable family. Thirty-two following frames flush its
-        // exact integer source-frame group delay.
+        // Block 0 primes the centered polyphase prototype. Begin the first
+        // publishable family, then APPLY while its context/window is live.
+        // Conditioner-owned AXIS state must be abandoned atomically.
         for (int sample = 0; sample < SOURCE_FRAMES; sample++)
+            send_source_frame(sample == SOURCE_FRAMES - 1);
+        for (int sample = 0; sample < SOURCE_FRAMES / 2; sample++)
+            send_source_frame(1'b0);
+        @(negedge aclk);
+        config_apply_toggle_i = ~config_apply_toggle_i;
+        repeat (3) @(posedge aclk);
+        context_count = 0;
+        output_count = 0;
+        expected_first_sample = 201;
+
+        // The remainder of the interrupted source block becomes a discarded
+        // priming block. The next complete block is publishable, and 32 more
+        // source frames flush profile 1's exact group delay.
+        for (int sample = SOURCE_FRAMES / 2;
+             sample < SOURCE_FRAMES; sample++)
             send_source_frame(sample == SOURCE_FRAMES - 1);
         for (int sample = 0; sample < SOURCE_FRAMES; sample++)
             send_source_frame(sample == SOURCE_FRAMES - 1);
@@ -152,7 +182,7 @@ module meter_spectral_conditioner_tb;
     end
 
     initial begin
-        repeat (200000) @(posedge aclk);
+        repeat (400000) @(posedge aclk);
         fail("timeout");
     end
 endmodule
