@@ -28,6 +28,14 @@ source [file join [file dirname [file normalize [info script]]] build_common.tcl
 
 pl_build_open_project
 
+# Ordinary maintained RTL does not have an IP-catalog refresh hook.  Register
+# it before refreshing module references so a clean checkout and an existing
+# pre-M16 project both build the complete MeterCore hierarchy.  Keeping this
+# in the normal stage is essential: relying on a one-time manual Tcl-console
+# invocation leaves module-reference OOC synthesis with an incomplete source
+# closure.
+source [file join $pl_build_script_dir register_m16_harmonic_sources.tcl]
+
 set bd [pl_build_block_design]
 puts "PL_BUILD_STAGE=bd"
 puts "PL_BUILD_BD=$bd"
