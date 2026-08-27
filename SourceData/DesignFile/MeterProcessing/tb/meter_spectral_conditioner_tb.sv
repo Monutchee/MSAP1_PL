@@ -112,10 +112,48 @@ module meter_spectral_conditioner_tb;
             end
             if (m_axis_frame_fault)
                 fail("qualified block carried a frame fault");
-            if (m_axis_frame_tlast != (output_count == OUTPUT_FRAMES))
+            if (m_axis_frame_tlast !=
+                ((output_count % OUTPUT_FRAMES) == 0))
                 fail("conditioned TLAST position mismatch");
         end
     end
+
+    task automatic run_endpoint_quantized_block(input int frame_delta);
+        int context_before;
+        int output_before;
+        int completed_before;
+        int invalid_before;
+        int published_frames;
+        context_before = context_count;
+        output_before = output_count;
+        completed_before = completed_blocks_o;
+        invalid_before = invalid_blocks_o;
+        published_frames = SOURCE_FRAMES + frame_delta;
+
+        @(negedge aclk);
+        grid_locked_i = 1'b1;
+        config_apply_toggle_i = ~config_apply_toggle_i;
+        repeat (3) @(posedge aclk);
+
+        // The exact block after APPLY primes the centered filter. The next
+        // block represents the same continuous nominal interval with its
+        // crossing quantized to one adjacent ADC frame.
+        for (int sample = 0; sample < SOURCE_FRAMES; sample++)
+            send_source_frame(sample == SOURCE_FRAMES - 1);
+        expected_first_sample = source_index + 1;
+        for (int sample = 0; sample < published_frames; sample++)
+            send_source_frame(sample == published_frames - 1);
+        for (int sample = 0; sample < 32; sample++)
+            send_source_frame(1'b0);
+
+        wait (completed_blocks_o == completed_before + 1);
+        repeat (10) @(posedge aclk);
+        if (context_count != context_before + 1 ||
+            output_count != output_before + OUTPUT_FRAMES ||
+            invalid_blocks_o != invalid_before ||
+            service_overruns_o != 0)
+            fail("endpoint-quantized block was not normalized");
+    endtask
 
     initial begin
         frame_accept_i = 1'b0;
@@ -177,12 +215,18 @@ module meter_spectral_conditioner_tb;
             invalid_blocks_o != 0 || service_overruns_o != 0)
             fail("conditioner block/counter geometry mismatch");
 
+        run_endpoint_quantized_block(-1);
+        run_endpoint_quantized_block(1);
+        if (completed_blocks_o != 3 || context_count != 3 ||
+            output_count != 3 * OUTPUT_FRAMES || invalid_blocks_o != 0)
+            fail("endpoint-quantization regression counter mismatch");
+
         $display("meter_spectral_conditioner PASS");
         $finish;
     end
 
     initial begin
-        repeat (400000) @(posedge aclk);
+        repeat (1000000) @(posedge aclk);
         fail("timeout");
     end
 endmodule

@@ -109,6 +109,13 @@ architecture rtl of meter_spectral_conditioner is
 
   constant C_U32_MAX : unsigned(31 downto 0) := (others => '1');
 
+  -- A continuous crossing is represented by one accepted ADC frame.  At an
+  -- otherwise exact nominal 10/12-cycle boundary, interpolation and input
+  -- noise may therefore select either adjacent frame.  The resampling lattice
+  -- remains the exact profile L/25 lattice; this tolerance normalizes only
+  -- that discrete endpoint choice and is not a general geometry allowance.
+  constant C_ENDPOINT_QUANTIZATION_FRAMES : natural := 1;
+
   subtype u32_t is unsigned(31 downto 0);
   subtype history_pointer_t is unsigned(C_HISTORY_ADDR_BITS-1 downto 0);
 
@@ -259,6 +266,18 @@ architecture rtl of meter_spectral_conditioner is
       when 8 => return OUTPUT_FRAMES * C_RATE_DENOMINATOR / 512;
       when others => return EXPECTED_SOURCE_FRAMES;
     end case;
+  end function;
+
+  function endpoint_count_matches(
+    actual   : u32_t;
+    expected : positive)
+    return boolean is
+  begin
+    return
+      actual >= to_unsigned(
+        expected - C_ENDPOINT_QUANTIZATION_FRAMES, actual'length) and
+      actual <= to_unsigned(
+        expected + C_ENDPOINT_QUANTIZATION_FRAMES, actual'length);
   end function;
 
   function qualified_max_order(
@@ -789,10 +808,12 @@ begin
                 produced_count <= produced_count + 1;
               elsif current_delayed_close = '1' then
                 close_geometry_valid :=
-                  pending_close_count = to_unsigned(
-                    profile_expected_frames(active_profile), 32) and
-                  block_input_count = to_unsigned(
-                    profile_expected_frames(active_profile), 32) and
+                  endpoint_count_matches(
+                    pending_close_count,
+                    profile_expected_frames(active_profile)) and
+                  endpoint_count_matches(
+                    block_input_count,
+                    profile_expected_frames(active_profile)) and
                   produced_count = to_unsigned(OUTPUT_FRAMES, 32) and
                   pending_frame_valid = '1' and
                   pending_close_profile_valid = block_profile_valid and
