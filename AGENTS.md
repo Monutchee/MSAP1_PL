@@ -37,8 +37,9 @@
   CRC32C-protected HRM1 packet; a whole-packet arbiter gives AGG1 priority and
   multiplexes both private contracts onto `M_AXIS_R5_AGG_INPUT`. Never
   interleave the two packet types or shrink the AXI FIFO below one complete
-  HRM1 packet. R5C1 produces magnitude-only 150/180-cycle, UTC 10-minute, and
-  2-hour HARMONIC_AGG-v1 (`0x001F0001`) families. The block design owns only one
+  HRM1 packet. R5C1 produces RMS-magnitude plus magnitude-weighted circular-
+  phase 150/180-cycle, UTC 10-minute, and 2-hour HARMONIC_AGG-v1 (`0x001F0001`)
+  families. The block design owns only one
   XFFT v9.1 customization connected through the wrapper's four `*_FFT_*` AXIS
   interfaces and six event scalars. Finished records leave on the dedicated
   `M_AXIS_HARMONIC` port and join `MTR_AXI_Switch/S03_AXIS`; this direct
