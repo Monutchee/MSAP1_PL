@@ -27,6 +27,9 @@ module meter_frequency_tb;
   wire [31:0] period_q16;
   wire [31:0] measurement_sequence;
   wire [31:0] rejected_count;
+  wire rising_crossing_now;
+  wire falling_crossing_now;
+  int unsigned rising_crossing_count = 0;
 
   always #5 clock = ~clock;
 
@@ -55,8 +58,15 @@ module meter_frequency_tb;
     .frequency_millihz_o(frequency_millihz),
     .period_q16_samples_o(period_q16),
     .measurement_sequence_o(measurement_sequence),
-    .rejected_count_o(rejected_count)
+    .rejected_count_o(rejected_count),
+    .rising_crossing_now_o(rising_crossing_now),
+    .falling_crossing_now_o(falling_crossing_now),
+    .reference_valid_now_o()
   );
+
+  always @(posedge clock)
+    if (frame_accept && rising_crossing_now)
+      rising_crossing_count = rising_crossing_count + 1;
 
   task automatic apply_configuration(
     input logic [31:0] new_generation,
@@ -163,11 +173,57 @@ module meter_frequency_tb;
                        $signed(expected_millihz);
       if (error_millihz < 0)
         error_millihz = -error_millihz;
-      assert (status[1] && error_millihz <= 1)
+      assert (status[1] && error_millihz <= 1 && rejected_count == 0)
         else $fatal(1,
           "%0d Hz at %0d SPS measured %0d mHz (error %0d mHz)",
           expected_millihz / 1000, new_sample_rate,
           frequency_millihz, error_millihz);
+    end
+  endtask
+
+  task automatic verify_h127_distortion(
+    input int unsigned new_generation,
+    input int unsigned new_sample_rate,
+    input int unsigned expected_millihz,
+    input int unsigned maximum_error_millihz);
+    int unsigned sample_count;
+    longint signed microvolts;
+    real frequency_hz;
+    real angle;
+    int signed error_millihz;
+    int unsigned first_rising_count;
+    begin
+      measured_frame_rate = new_sample_rate;
+      apply_configuration(new_generation, 32'h0000_0a63,
+                          new_sample_rate);
+      frequency_hz = expected_millihz / 1000.0;
+      sample_count = $rtoi((new_sample_rate / frequency_hz) * 12.0) + 4;
+      first_rising_count = rising_crossing_count;
+      for (int unsigned sample_index = 0;
+           sample_index < sample_count; sample_index++) begin
+        angle = (6.283185307179586 * frequency_hz * sample_index /
+                 new_sample_rate) + 0.37;
+        // Sixty percent H127 creates a severe cluster of raw sign crossings
+        // around each fundamental zero.  The shared detector must collapse
+        // that cluster before either grid timing or the frequency estimator
+        // observes it.
+        microvolts = $rtoi(120_000_000.0 * $sin(angle) +
+                           72_000_000.0 * $sin((127.0 * angle) + 0.23));
+        send_sample(sample_index, microvolts);
+      end
+      repeat (260) @(posedge clock);
+      error_millihz = $signed(frequency_millihz) -
+                       $signed(expected_millihz);
+      if (error_millihz < 0)
+        error_millihz = -error_millihz;
+      assert (status[1] && error_millihz <= maximum_error_millihz &&
+              rejected_count == 0 &&
+              rising_crossing_count - first_rising_count >= 11 &&
+              rising_crossing_count - first_rising_count <= 13)
+        else $fatal(1,
+          "H127-distorted %0d Hz at %0d SPS measured %0d mHz (error %0d mHz), status=%h rejected=%0d",
+          expected_millihz / 1000, new_sample_rate,
+          frequency_millihz, error_millihz, status, rejected_count);
     end
   endtask
 
@@ -226,6 +282,14 @@ module meter_frequency_tb;
     // waveform sampled at 19.2 kframe/s must remain 60 Hz, not the erroneous
     // 100 Hz produced by scaling it with the requested 32 kSPS value.
     verify_sine(32'h1234_0301, 19_200, 60_000);
+
+    // High-order distortion must not manufacture extra grid cycles. This is
+    // the production 128 kSPS profile and the highest qualified order.
+    verify_h127_distortion(32'h1234_0302, 128_000, 50_000, 1);
+    // At 32 kSPS, a deliberately extreme 60% H127 makes linear crossing
+    // interpolation quantization visible. It must remain valid, rejection-
+    // free, and within 0.1 Hz instead of being miscounted as extra cycles.
+    verify_h127_distortion(32'h1234_0303, 32_000, 60_000, 100);
 
     // The PL simulator's sine table contains exact zero entries. Verify that
     // an aligned negative-to-zero transition is accepted as the following

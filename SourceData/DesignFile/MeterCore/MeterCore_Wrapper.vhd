@@ -105,23 +105,17 @@ entity MeterCore_Wrapper is
     s_axi_simulator_rvalid  : out std_logic;
     s_axi_simulator_rready  : in  std_logic;
 
-    m_axis_mtr1_tdata  : out std_logic_vector(31 downto 0);
-    m_axis_mtr1_tkeep  : out std_logic_vector(3 downto 0);
-    m_axis_mtr1_tvalid : out std_logic;
-    m_axis_mtr1_tready : in  std_logic;
-    m_axis_mtr1_tlast  : out std_logic;
-
-    m_axis_mtr2_tdata  : out std_logic_vector(31 downto 0);
-    m_axis_mtr2_tkeep  : out std_logic_vector(3 downto 0);
-    m_axis_mtr2_tvalid : out std_logic;
-    m_axis_mtr2_tready : in  std_logic;
-    m_axis_mtr2_tlast  : out std_logic;
-
     m_axis_pq_tdata  : out std_logic_vector(31 downto 0);
     m_axis_pq_tkeep  : out std_logic_vector(3 downto 0);
     m_axis_pq_tvalid : out std_logic;
     m_axis_pq_tready : in  std_logic;
     m_axis_pq_tlast  : out std_logic;
+
+    m_axis_harmonic_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_harmonic_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_harmonic_tvalid : out std_logic;
+    m_axis_harmonic_tready : in  std_logic;
+    m_axis_harmonic_tlast  : out std_logic;
 
     m_axis_scyc_tdata  : out std_logic_vector(31 downto 0);
     m_axis_scyc_tkeep  : out std_logic_vector(3 downto 0);
@@ -145,6 +139,33 @@ entity MeterCore_Wrapper is
     m_axis_waveform_tready : in  std_logic;
     m_axis_waveform_tlast  : out std_logic;
 
+    -- Connect these four AXIS interfaces and six event scalars to one
+    -- AMD/Xilinx FFT v9.1 customization; all other M16 logic is internal.
+    m_axis_fft_data_tdata  : out std_logic_vector(47 downto 0);
+    m_axis_fft_data_tvalid : out std_logic;
+    m_axis_fft_data_tready : in  std_logic;
+    m_axis_fft_data_tlast  : out std_logic;
+
+    s_axis_fft_data_tdata  : in  std_logic_vector(47 downto 0);
+    s_axis_fft_data_tuser  : in  std_logic_vector(23 downto 0);
+    s_axis_fft_data_tvalid : in  std_logic;
+    s_axis_fft_data_tready : out std_logic;
+    s_axis_fft_data_tlast  : in  std_logic;
+
+    m_axis_fft_config_tdata  : out std_logic_vector(7 downto 0);
+    m_axis_fft_config_tvalid : out std_logic;
+    m_axis_fft_config_tready : in  std_logic;
+    s_axis_fft_status_tdata  : in  std_logic_vector(7 downto 0);
+    s_axis_fft_status_tvalid : in  std_logic;
+    s_axis_fft_status_tready : out std_logic;
+
+    xfft_event_frame_started        : in std_logic;
+    xfft_event_tlast_unexpected     : in std_logic;
+    xfft_event_tlast_missing        : in std_logic;
+    xfft_event_status_channel_halt  : in std_logic;
+    xfft_event_data_in_channel_halt : in std_logic;
+    xfft_event_data_out_channel_halt: in std_logic;
+
     adc_dclk       : in  std_logic;
     adc_drdy_n     : in  std_logic;
     adc_dout       : in  std_logic_vector(3 downto 0);
@@ -161,7 +182,7 @@ architecture structural of MeterCore_Wrapper is
   attribute X_INTERFACE_INFO of aclk : signal is
     "xilinx.com:signal:clock:1.0 aclk CLK";
   attribute X_INTERFACE_PARAMETER of aclk : signal is
-    "XIL_INTERFACENAME aclk, FREQ_HZ 99999001, ASSOCIATED_RESET aresetn, ASSOCIATED_BUSIF S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:S_AXI_WAVEFORM:S_AXI_SIMULATOR:M_AXIS_MTR1:M_AXIS_MTR2:M_AXIS_PQ:M_AXIS_SCYC:M_AXIS_R5_AGG_INPUT:M_AXIS_WAVEFORM";
+    "XIL_INTERFACENAME aclk, FREQ_HZ 99999001, ASSOCIATED_RESET aresetn, ASSOCIATED_BUSIF S_AXI_CAPTURE:S_AXI_CONVERSION:S_AXI_PROCESSING:S_AXI_WAVEFORM:S_AXI_SIMULATOR:M_AXIS_PQ:M_AXIS_HARMONIC:M_AXIS_SCYC:M_AXIS_R5_AGG_INPUT:M_AXIS_WAVEFORM:M_AXIS_FFT_DATA:S_AXIS_FFT_DATA:M_AXIS_FFT_CONFIG:S_AXIS_FFT_STATUS";
   attribute X_INTERFACE_INFO of aresetn : signal is
     "xilinx.com:signal:reset:1.0 aresetn RST";
   attribute X_INTERFACE_PARAMETER of aresetn : signal is
@@ -272,26 +293,18 @@ architecture structural of MeterCore_Wrapper is
   attribute X_INTERFACE_INFO of s_axi_simulator_rvalid : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR RVALID";
   attribute X_INTERFACE_INFO of s_axi_simulator_rready : signal is "xilinx.com:interface:aximm:1.0 S_AXI_SIMULATOR RREADY";
 
-  attribute X_INTERFACE_INFO of m_axis_mtr1_tdata : signal is "xilinx.com:interface:axis:1.0 M_AXIS_MTR1 TDATA";
-  attribute X_INTERFACE_PARAMETER of m_axis_mtr1_tdata : signal is
-    "XIL_INTERFACENAME M_AXIS_MTR1, TDATA_NUM_BYTES 4, TUSER_WIDTH 0, HAS_TREADY 1, HAS_TKEEP 1, HAS_TLAST 1";
-  attribute X_INTERFACE_INFO of m_axis_mtr1_tkeep : signal is "xilinx.com:interface:axis:1.0 M_AXIS_MTR1 TKEEP";
-  attribute X_INTERFACE_INFO of m_axis_mtr1_tvalid : signal is "xilinx.com:interface:axis:1.0 M_AXIS_MTR1 TVALID";
-  attribute X_INTERFACE_INFO of m_axis_mtr1_tready : signal is "xilinx.com:interface:axis:1.0 M_AXIS_MTR1 TREADY";
-  attribute X_INTERFACE_INFO of m_axis_mtr1_tlast : signal is "xilinx.com:interface:axis:1.0 M_AXIS_MTR1 TLAST";
-
-  attribute X_INTERFACE_INFO of m_axis_mtr2_tdata : signal is "xilinx.com:interface:axis:1.0 M_AXIS_MTR2 TDATA";
-  attribute X_INTERFACE_PARAMETER of m_axis_mtr2_tdata : signal is
-    "XIL_INTERFACENAME M_AXIS_MTR2, TDATA_NUM_BYTES 4, TUSER_WIDTH 0, HAS_TREADY 1, HAS_TKEEP 1, HAS_TLAST 1";
-  attribute X_INTERFACE_INFO of m_axis_mtr2_tkeep : signal is "xilinx.com:interface:axis:1.0 M_AXIS_MTR2 TKEEP";
-  attribute X_INTERFACE_INFO of m_axis_mtr2_tvalid : signal is "xilinx.com:interface:axis:1.0 M_AXIS_MTR2 TVALID";
-  attribute X_INTERFACE_INFO of m_axis_mtr2_tready : signal is "xilinx.com:interface:axis:1.0 M_AXIS_MTR2 TREADY";
-  attribute X_INTERFACE_INFO of m_axis_mtr2_tlast : signal is "xilinx.com:interface:axis:1.0 M_AXIS_MTR2 TLAST";
   attribute X_INTERFACE_INFO of m_axis_pq_tdata : signal is "xilinx.com:interface:axis:1.0 M_AXIS_PQ TDATA";
   attribute X_INTERFACE_INFO of m_axis_pq_tkeep : signal is "xilinx.com:interface:axis:1.0 M_AXIS_PQ TKEEP";
   attribute X_INTERFACE_INFO of m_axis_pq_tvalid : signal is "xilinx.com:interface:axis:1.0 M_AXIS_PQ TVALID";
   attribute X_INTERFACE_INFO of m_axis_pq_tready : signal is "xilinx.com:interface:axis:1.0 M_AXIS_PQ TREADY";
   attribute X_INTERFACE_INFO of m_axis_pq_tlast : signal is "xilinx.com:interface:axis:1.0 M_AXIS_PQ TLAST";
+  attribute X_INTERFACE_INFO of m_axis_harmonic_tdata : signal is "xilinx.com:interface:axis:1.0 M_AXIS_HARMONIC TDATA";
+  attribute X_INTERFACE_PARAMETER of m_axis_harmonic_tdata : signal is
+    "XIL_INTERFACENAME M_AXIS_HARMONIC, TDATA_NUM_BYTES 4, TUSER_WIDTH 0, HAS_TREADY 1, HAS_TKEEP 1, HAS_TLAST 1";
+  attribute X_INTERFACE_INFO of m_axis_harmonic_tkeep : signal is "xilinx.com:interface:axis:1.0 M_AXIS_HARMONIC TKEEP";
+  attribute X_INTERFACE_INFO of m_axis_harmonic_tvalid : signal is "xilinx.com:interface:axis:1.0 M_AXIS_HARMONIC TVALID";
+  attribute X_INTERFACE_INFO of m_axis_harmonic_tready : signal is "xilinx.com:interface:axis:1.0 M_AXIS_HARMONIC TREADY";
+  attribute X_INTERFACE_INFO of m_axis_harmonic_tlast : signal is "xilinx.com:interface:axis:1.0 M_AXIS_HARMONIC TLAST";
   attribute X_INTERFACE_INFO of m_axis_scyc_tdata : signal is "xilinx.com:interface:axis:1.0 M_AXIS_SCYC TDATA";
   attribute X_INTERFACE_INFO of m_axis_scyc_tkeep : signal is "xilinx.com:interface:axis:1.0 M_AXIS_SCYC TKEEP";
   attribute X_INTERFACE_INFO of m_axis_scyc_tvalid : signal is "xilinx.com:interface:axis:1.0 M_AXIS_SCYC TVALID";
@@ -313,6 +326,33 @@ architecture structural of MeterCore_Wrapper is
   attribute X_INTERFACE_INFO of m_axis_waveform_tvalid : signal is "xilinx.com:interface:axis:1.0 M_AXIS_WAVEFORM TVALID";
   attribute X_INTERFACE_INFO of m_axis_waveform_tready : signal is "xilinx.com:interface:axis:1.0 M_AXIS_WAVEFORM TREADY";
   attribute X_INTERFACE_INFO of m_axis_waveform_tlast : signal is "xilinx.com:interface:axis:1.0 M_AXIS_WAVEFORM TLAST";
+
+  attribute X_INTERFACE_INFO of m_axis_fft_data_tdata : signal is "xilinx.com:interface:axis:1.0 M_AXIS_FFT_DATA TDATA";
+  attribute X_INTERFACE_PARAMETER of m_axis_fft_data_tdata : signal is
+    "XIL_INTERFACENAME M_AXIS_FFT_DATA, TDATA_NUM_BYTES 6, TUSER_WIDTH 0, HAS_TREADY 1, HAS_TKEEP 0, HAS_TLAST 1";
+  attribute X_INTERFACE_INFO of m_axis_fft_data_tvalid : signal is "xilinx.com:interface:axis:1.0 M_AXIS_FFT_DATA TVALID";
+  attribute X_INTERFACE_INFO of m_axis_fft_data_tready : signal is "xilinx.com:interface:axis:1.0 M_AXIS_FFT_DATA TREADY";
+  attribute X_INTERFACE_INFO of m_axis_fft_data_tlast : signal is "xilinx.com:interface:axis:1.0 M_AXIS_FFT_DATA TLAST";
+
+  attribute X_INTERFACE_INFO of s_axis_fft_data_tdata : signal is "xilinx.com:interface:axis:1.0 S_AXIS_FFT_DATA TDATA";
+  attribute X_INTERFACE_PARAMETER of s_axis_fft_data_tdata : signal is
+    "XIL_INTERFACENAME S_AXIS_FFT_DATA, TDATA_NUM_BYTES 6, TUSER_WIDTH 24, HAS_TREADY 1, HAS_TKEEP 0, HAS_TLAST 1";
+  attribute X_INTERFACE_INFO of s_axis_fft_data_tuser : signal is "xilinx.com:interface:axis:1.0 S_AXIS_FFT_DATA TUSER";
+  attribute X_INTERFACE_INFO of s_axis_fft_data_tvalid : signal is "xilinx.com:interface:axis:1.0 S_AXIS_FFT_DATA TVALID";
+  attribute X_INTERFACE_INFO of s_axis_fft_data_tready : signal is "xilinx.com:interface:axis:1.0 S_AXIS_FFT_DATA TREADY";
+  attribute X_INTERFACE_INFO of s_axis_fft_data_tlast : signal is "xilinx.com:interface:axis:1.0 S_AXIS_FFT_DATA TLAST";
+
+  attribute X_INTERFACE_INFO of m_axis_fft_config_tdata : signal is "xilinx.com:interface:axis:1.0 M_AXIS_FFT_CONFIG TDATA";
+  attribute X_INTERFACE_PARAMETER of m_axis_fft_config_tdata : signal is
+    "XIL_INTERFACENAME M_AXIS_FFT_CONFIG, TDATA_NUM_BYTES 1, TUSER_WIDTH 0, HAS_TREADY 1, HAS_TKEEP 0, HAS_TLAST 0";
+  attribute X_INTERFACE_INFO of m_axis_fft_config_tvalid : signal is "xilinx.com:interface:axis:1.0 M_AXIS_FFT_CONFIG TVALID";
+  attribute X_INTERFACE_INFO of m_axis_fft_config_tready : signal is "xilinx.com:interface:axis:1.0 M_AXIS_FFT_CONFIG TREADY";
+
+  attribute X_INTERFACE_INFO of s_axis_fft_status_tdata : signal is "xilinx.com:interface:axis:1.0 S_AXIS_FFT_STATUS TDATA";
+  attribute X_INTERFACE_PARAMETER of s_axis_fft_status_tdata : signal is
+    "XIL_INTERFACENAME S_AXIS_FFT_STATUS, TDATA_NUM_BYTES 1, TUSER_WIDTH 0, HAS_TREADY 1, HAS_TKEEP 0, HAS_TLAST 0";
+  attribute X_INTERFACE_INFO of s_axis_fft_status_tvalid : signal is "xilinx.com:interface:axis:1.0 S_AXIS_FFT_STATUS TVALID";
+  attribute X_INTERFACE_INFO of s_axis_fft_status_tready : signal is "xilinx.com:interface:axis:1.0 S_AXIS_FFT_STATUS TREADY";
 begin
   implementation : entity work.meter_core
     generic map (
@@ -406,21 +446,16 @@ begin
       s_axi_simulator_rresp => s_axi_simulator_rresp,
       s_axi_simulator_rvalid => s_axi_simulator_rvalid,
       s_axi_simulator_rready => s_axi_simulator_rready,
-      m_axis_mtr1_tdata => m_axis_mtr1_tdata,
-      m_axis_mtr1_tkeep => m_axis_mtr1_tkeep,
-      m_axis_mtr1_tvalid => m_axis_mtr1_tvalid,
-      m_axis_mtr1_tready => m_axis_mtr1_tready,
-      m_axis_mtr1_tlast => m_axis_mtr1_tlast,
-      m_axis_mtr2_tdata => m_axis_mtr2_tdata,
-      m_axis_mtr2_tkeep => m_axis_mtr2_tkeep,
-      m_axis_mtr2_tvalid => m_axis_mtr2_tvalid,
-      m_axis_mtr2_tready => m_axis_mtr2_tready,
-      m_axis_mtr2_tlast => m_axis_mtr2_tlast,
       m_axis_pq_tdata => m_axis_pq_tdata,
       m_axis_pq_tkeep => m_axis_pq_tkeep,
       m_axis_pq_tvalid => m_axis_pq_tvalid,
       m_axis_pq_tready => m_axis_pq_tready,
       m_axis_pq_tlast => m_axis_pq_tlast,
+      m_axis_harmonic_tdata => m_axis_harmonic_tdata,
+      m_axis_harmonic_tkeep => m_axis_harmonic_tkeep,
+      m_axis_harmonic_tvalid => m_axis_harmonic_tvalid,
+      m_axis_harmonic_tready => m_axis_harmonic_tready,
+      m_axis_harmonic_tlast => m_axis_harmonic_tlast,
       m_axis_scyc_tdata => m_axis_scyc_tdata,
       m_axis_scyc_tkeep => m_axis_scyc_tkeep,
       m_axis_scyc_tvalid => m_axis_scyc_tvalid,
@@ -436,6 +471,28 @@ begin
       m_axis_waveform_tvalid => m_axis_waveform_tvalid,
       m_axis_waveform_tready => m_axis_waveform_tready,
       m_axis_waveform_tlast => m_axis_waveform_tlast,
+      m_axis_fft_data_tdata => m_axis_fft_data_tdata,
+      m_axis_fft_data_tvalid => m_axis_fft_data_tvalid,
+      m_axis_fft_data_tready => m_axis_fft_data_tready,
+      m_axis_fft_data_tlast => m_axis_fft_data_tlast,
+      s_axis_fft_data_tdata => s_axis_fft_data_tdata,
+      s_axis_fft_data_tuser => s_axis_fft_data_tuser,
+      s_axis_fft_data_tvalid => s_axis_fft_data_tvalid,
+      s_axis_fft_data_tready => s_axis_fft_data_tready,
+      s_axis_fft_data_tlast => s_axis_fft_data_tlast,
+      m_axis_fft_config_tdata => m_axis_fft_config_tdata,
+      m_axis_fft_config_tvalid => m_axis_fft_config_tvalid,
+      m_axis_fft_config_tready => m_axis_fft_config_tready,
+      s_axis_fft_status_tdata => s_axis_fft_status_tdata,
+      s_axis_fft_status_tvalid => s_axis_fft_status_tvalid,
+      s_axis_fft_status_tready => s_axis_fft_status_tready,
+      xfft_event_frame_started => xfft_event_frame_started,
+      xfft_event_tlast_unexpected => xfft_event_tlast_unexpected,
+      xfft_event_tlast_missing => xfft_event_tlast_missing,
+      xfft_event_status_channel_halt => xfft_event_status_channel_halt,
+      xfft_event_data_in_channel_halt => xfft_event_data_in_channel_halt,
+      xfft_event_data_out_channel_halt =>
+        xfft_event_data_out_channel_halt,
       adc_dclk => adc_dclk,
       adc_drdy_n => adc_drdy_n,
       adc_dout => adc_dout,

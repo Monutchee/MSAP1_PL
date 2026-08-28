@@ -116,21 +116,6 @@ entity meter_core is
     s_axi_simulator_rvalid  : out std_logic;
     s_axi_simulator_rready  : in  std_logic;
 
-    -- One AXIS master per record producer (32-bit, 64-beat packets). The
-    -- block design gives each a packet-mode axis_data_fifo and one
-    -- axis_switch slave port; the switch output feeds the meter DMA.
-    m_axis_mtr1_tdata  : out std_logic_vector(31 downto 0);
-    m_axis_mtr1_tkeep  : out std_logic_vector(3 downto 0);
-    m_axis_mtr1_tvalid : out std_logic;
-    m_axis_mtr1_tready : in  std_logic;
-    m_axis_mtr1_tlast  : out std_logic;
-
-    m_axis_mtr2_tdata  : out std_logic_vector(31 downto 0);
-    m_axis_mtr2_tkeep  : out std_logic_vector(3 downto 0);
-    m_axis_mtr2_tvalid : out std_logic;
-    m_axis_mtr2_tready : in  std_logic;
-    m_axis_mtr2_tlast  : out std_logic;
-
     -- PQEVT-v1 record stream: the sliding Urms(1/2) / event tier's own
     -- producer port (metrology M12).
     m_axis_pq_tdata  : out std_logic_vector(31 downto 0);
@@ -138,6 +123,15 @@ entity meter_core is
     m_axis_pq_tvalid : out std_logic;
     m_axis_pq_tready : in  std_logic;
     m_axis_pq_tlast  : out std_logic;
+
+    -- Dedicated HARMONIC-v1 record stream. The internal packet FIFO holds a
+    -- complete 42-record family; connect this master to its own meter-switch
+    -- input and retain TLAST-based arbitration in the block design.
+    m_axis_harmonic_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_harmonic_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_harmonic_tvalid : out std_logic;
+    m_axis_harmonic_tready : in  std_logic;
+    m_axis_harmonic_tlast  : out std_logic;
 
     -- Single-cycle diagnostic record stream (SCYC-v1, one per grid cycle
     -- while cycle timing is locked; metrology roadmap M2).
@@ -161,6 +155,34 @@ entity meter_core is
     m_axis_waveform_tvalid : out std_logic;
     m_axis_waveform_tready : in  std_logic;
     m_axis_waveform_tlast  : out std_logic;
+
+    -- The only M16 block-design dependency: one AMD/Xilinx XFFT v9.1.
+    -- MeterCore owns conditioning, window storage, HLS classification,
+    -- record buffering, and record-stream arbitration around this boundary.
+    m_axis_fft_data_tdata  : out std_logic_vector(47 downto 0);
+    m_axis_fft_data_tvalid : out std_logic;
+    m_axis_fft_data_tready : in  std_logic;
+    m_axis_fft_data_tlast  : out std_logic;
+
+    s_axis_fft_data_tdata  : in  std_logic_vector(47 downto 0);
+    s_axis_fft_data_tuser  : in  std_logic_vector(23 downto 0);
+    s_axis_fft_data_tvalid : in  std_logic;
+    s_axis_fft_data_tready : out std_logic;
+    s_axis_fft_data_tlast  : in  std_logic;
+
+    m_axis_fft_config_tdata  : out std_logic_vector(7 downto 0);
+    m_axis_fft_config_tvalid : out std_logic;
+    m_axis_fft_config_tready : in  std_logic;
+    s_axis_fft_status_tdata  : in  std_logic_vector(7 downto 0);
+    s_axis_fft_status_tvalid : in  std_logic;
+    s_axis_fft_status_tready : out std_logic;
+
+    xfft_event_frame_started        : in std_logic;
+    xfft_event_tlast_unexpected     : in std_logic;
+    xfft_event_tlast_missing        : in std_logic;
+    xfft_event_status_channel_halt  : in std_logic;
+    xfft_event_data_in_channel_halt : in std_logic;
+    xfft_event_data_out_channel_halt: in std_logic;
 
     adc_dclk       : in  std_logic;
     adc_drdy_n     : in  std_logic;
@@ -196,6 +218,7 @@ architecture structural of meter_core is
   signal converted_fifo   : converted_stream_t;
   signal engine_valid     : std_logic;
   signal engine_ready     : std_logic;
+  signal conversion_active_scale : std_logic_vector(255 downto 0);
 
   signal capture_frame_count : std_logic_vector(31 downto 0);
   signal capture_overflows   : std_logic_vector(31 downto 0);
@@ -247,7 +270,7 @@ architecture structural of meter_core is
   -- ordered 221-word sufficient-statistics packet. The private exporter adds
   -- context and CRC32C for R5C1, which owns every interval record. Returned
   -- MTR1/MTR2 records bypass this module through the block-design AXIS switch;
-  -- the legacy wrapper outputs and their record taps remain idle.
+  -- MeterCore no longer exposes duplicate legacy record outputs or taps.
   signal scyc_shim_drop_count : std_logic_vector(31 downto 0);
   signal grid_cycle_locked    : std_logic;
   signal grid_cycle_fallback  : std_logic;
@@ -267,11 +290,17 @@ architecture structural of meter_core is
   signal r5_agg_last_sequence     : std_logic_vector(31 downto 0);
   signal r5_agg_queue_level       : std_logic_vector(7 downto 0);
   signal r5_agg_status            : std_logic_vector(31 downto 0);
+  signal r5_agg_axis_tdata        : std_logic_vector(31 downto 0);
+  signal r5_agg_axis_tkeep        : std_logic_vector(3 downto 0);
+  signal r5_agg_axis_tvalid       : std_logic;
+  signal r5_agg_axis_tready       : std_logic;
+  signal r5_agg_axis_tlast        : std_logic;
+  signal r5_harmonic_axis_tdata   : std_logic_vector(31 downto 0);
+  signal r5_harmonic_axis_tkeep   : std_logic_vector(3 downto 0);
+  signal r5_harmonic_axis_tvalid  : std_logic;
+  signal r5_harmonic_axis_tready  : std_logic;
+  signal r5_harmonic_axis_tlast   : std_logic;
 
-  signal mtr1_axis_tdata  : std_logic_vector(31 downto 0);
-  signal mtr1_axis_tkeep  : std_logic_vector(3 downto 0);
-  signal mtr1_axis_tvalid : std_logic;
-  signal mtr1_axis_tlast  : std_logic;
   -- Sliding Urms(1/2) / PQ event producer (M12). Its shim observes the
   -- same accepted-frame fan-out the single-cycle shim does.
   signal pq_axis_tdata      : std_logic_vector(31 downto 0);
@@ -287,21 +316,6 @@ architecture structural of meter_core is
   signal pq_tap_event_seq    : std_logic_vector(31 downto 0);
   signal pq_status           : std_logic_vector(31 downto 0);
   signal pq_event_active     : std_logic;
-
-  signal mtr2_axis_tdata  : std_logic_vector(31 downto 0);
-  signal mtr2_axis_tkeep  : std_logic_vector(3 downto 0);
-  signal mtr2_axis_tvalid : std_logic;
-  signal mtr2_axis_tlast  : std_logic;
-
-  signal mtr1_tap_sequence     : std_logic_vector(31 downto 0);
-  signal mtr1_tap_status       : std_logic_vector(31 downto 0);
-  signal mtr1_tap_emit_drops   : std_logic_vector(31 downto 0);
-  signal mtr1_tap_result_drops : std_logic_vector(31 downto 0);
-  signal mtr2_tap_sequence     : std_logic_vector(31 downto 0);
-  signal mtr2_tap_emit_drops   : std_logic_vector(31 downto 0);
-  signal mtr2_tap_reset        : std_logic_vector(31 downto 0);
-  signal mtr2_tap_ineligible   : std_logic_vector(31 downto 0);
-  signal mtr2_tap_continuity   : std_logic_vector(31 downto 0);
 
   signal waveform_enable      : std_logic;
   signal waveform_clear_stats : std_logic;
@@ -330,6 +344,25 @@ architecture structural of meter_core is
   signal block_cycle_count        : std_logic_vector(7 downto 0);
   signal block_nominal_hz         : std_logic_vector(7 downto 0);
   signal block_flags              : std_logic_vector(2 downto 0);
+
+  signal harmonic_context_tdata  : std_logic_vector(575 downto 0);
+  signal harmonic_context_tvalid : std_logic;
+  signal harmonic_context_tready : std_logic;
+  signal harmonic_frame_tdata    : std_logic_vector(167 downto 0);
+  signal harmonic_frame_tvalid   : std_logic;
+  signal harmonic_frame_tready   : std_logic;
+  signal harmonic_frame_tlast    : std_logic;
+  signal harmonic_frame_fault    : std_logic;
+  signal harmonic_conditioned_blocks : std_logic_vector(31 downto 0);
+  signal harmonic_invalid_blocks     : std_logic_vector(31 downto 0);
+  signal harmonic_service_overruns   : std_logic_vector(31 downto 0);
+  signal harmonic_frontend_completed : std_logic_vector(31 downto 0);
+  signal harmonic_frontend_dropped   : std_logic_vector(31 downto 0);
+  signal harmonic_frontend_malformed : std_logic_vector(31 downto 0);
+  signal harmonic_xfft_faults        : std_logic_vector(31 downto 0);
+  signal harmonic_xfft_data_in_halts : std_logic_vector(31 downto 0);
+  signal harmonic_xfft_data_out_halts: std_logic_vector(31 downto 0);
+  signal harmonic_xfft_status_halts  : std_logic_vector(31 downto 0);
 begin
   capture_frame_count <= simulator_frame_count when simulator_selected = '1' else physical_frame_count;
   capture_overflows <= (others => '0') when simulator_selected = '1' else physical_overflows;
@@ -524,6 +557,7 @@ begin
       m_axis_tvalid => converted_source.valid,
       m_axis_tready => converted_source.ready,
       m_axis_tlast => converted_source.last,
+      active_scale_q16_o => conversion_active_scale,
       s_axi_awaddr => s_axi_conversion_awaddr,
       s_axi_awvalid => s_axi_conversion_awvalid,
       s_axi_awready => s_axi_conversion_awready,
@@ -731,20 +765,18 @@ begin
       pq_status_i => pq_status,
       grid_active_config_i => grid_active_config,
       grid_status_i => grid_status,
-      -- Aggregation health from the MTR2 record tap ("as of the last
-      -- emitted aggregate"; the counters ride in record words 33..35 and
-      -- the record count is the record's own sequence word). AGG_STATUS
-      -- has no live equivalent since the RTL engine's retirement and
-      -- reads zero; HLS_AGG_MISMATCH_COUNT is reserved (the
-      -- compared-pair trial ended); HLS_AGG_DROP_COUNT now carries the
-      -- MTR1 sample-beat FIFO drop counter (any nonzero is a fault).
+      -- The retired PL interval/result diagnostics keep their AXI-Lite
+      -- offsets and read zero. AGG_STATUS has no live equivalent since the
+      -- RTL engine's retirement and HLS_AGG_MISMATCH_COUNT remains reserved.
+      -- HLS_AGG_DROP_COUNT is the exception: it remains the live
+      -- SingleCycle sample-beat FIFO drop counter (any nonzero is a fault).
       agg_status_i => (others => '0'),
-      agg_record_count_i => mtr2_tap_sequence,
-      agg_reset_count_i => mtr2_tap_reset,
-      agg_ineligible_count_i => mtr2_tap_ineligible,
-      agg_continuity_count_i => mtr2_tap_continuity,
-      agg_drop_count_i => mtr2_tap_emit_drops,
-      legacy_agg_record_count_i => mtr2_tap_sequence,
+      agg_record_count_i => (others => '0'),
+      agg_reset_count_i => (others => '0'),
+      agg_ineligible_count_i => (others => '0'),
+      agg_continuity_count_i => (others => '0'),
+      agg_drop_count_i => (others => '0'),
+      legacy_agg_record_count_i => (others => '0'),
       legacy_agg_mismatch_count_i => (others => '0'),
       -- The sample-domain loss point is now the single-cycle shim's FIFO
       -- (the retired Mtr1 shim's counter died with it).
@@ -757,10 +789,20 @@ begin
       r5_agg_export_last_sequence_i => r5_agg_last_sequence,
       r5_agg_export_queue_level_i =>
         x"000000" & r5_agg_queue_level,
+      harmonic_conditioned_blocks_i => harmonic_conditioned_blocks,
+      harmonic_invalid_blocks_i => harmonic_invalid_blocks,
+      harmonic_service_overruns_i => harmonic_service_overruns,
+      harmonic_frontend_completed_i => harmonic_frontend_completed,
+      harmonic_frontend_dropped_i => harmonic_frontend_dropped,
+      harmonic_frontend_malformed_i => harmonic_frontend_malformed,
+      harmonic_xfft_fault_count_i => harmonic_xfft_faults,
+      harmonic_xfft_data_in_halts_i => harmonic_xfft_data_in_halts,
+      harmonic_xfft_data_out_halts_i => harmonic_xfft_data_out_halts,
+      harmonic_xfft_status_halts_i => harmonic_xfft_status_halts,
       active_generation_i => active_generation,
-      result_sequence_i => mtr1_tap_sequence,
-      result_drop_count_i => mtr1_tap_result_drops,
-      packet_drop_count_i => mtr1_tap_emit_drops,
+      result_sequence_i => (others => '0'),
+      result_drop_count_i => (others => '0'),
+      packet_drop_count_i => (others => '0'),
       status_i => processing_status
     );
 
@@ -832,19 +874,102 @@ begin
   -- Live fallback view: enabled but running on synthetic boundaries.
   grid_cycle_fallback <= grid_cycle_mode and not grid_cycle_locked;
 
+  -- M16 spectral observer. The selected 1..128 kSPS profile is converted by
+  -- an exact L/25 rational path to one 4,096-frame, 200 ms XFFT window.
+  harmonic_conditioner : entity work.meter_spectral_conditioner
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      frame_accept_i => engine_valid,
+      raw_frame_i => converted_fifo.user(383 downto 128),
+      frame_user_i => converted_fifo.user,
+      frame_closes_block_i => grid_frame_closes_block,
+      grid_locked_i => grid_cycle_locked,
+      grid_nominal_hz_i => grid_active_config(15 downto 8),
+      grid_cycle_count_i => grid_active_config(7 downto 0),
+      config_enable_i => shadow_enable,
+      config_apply_toggle_i => apply_toggle,
+      configured_frame_rate_i => shadow_sample_rate,
+      source_frame_rate_i => capture_frame_rate,
+      source_frame_rate_valid_i => capture_frame_rate_valid,
+      frequency_millihz_i => frequency_millihz,
+      frequency_valid_i => frequency_status(1),
+      active_scale_q16_i => conversion_active_scale,
+      emit_drops_i => (others => '0'),
+      m_axis_context_tdata => harmonic_context_tdata,
+      m_axis_context_tvalid => harmonic_context_tvalid,
+      m_axis_context_tready => harmonic_context_tready,
+      m_axis_frame_tdata => harmonic_frame_tdata,
+      m_axis_frame_tvalid => harmonic_frame_tvalid,
+      m_axis_frame_tready => harmonic_frame_tready,
+      m_axis_frame_tlast => harmonic_frame_tlast,
+      m_axis_frame_fault => harmonic_frame_fault,
+      completed_blocks_o => harmonic_conditioned_blocks,
+      invalid_blocks_o => harmonic_invalid_blocks,
+      service_overruns_o => harmonic_service_overruns
+    );
+
+  harmonic_engine : entity work.meter_harmonic_hls_shim
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      config_apply_toggle_i => apply_toggle,
+      s_axis_context_tdata => harmonic_context_tdata,
+      s_axis_context_tvalid => harmonic_context_tvalid,
+      s_axis_context_tready => harmonic_context_tready,
+      s_axis_frame_tdata => harmonic_frame_tdata,
+      s_axis_frame_tvalid => harmonic_frame_tvalid,
+      s_axis_frame_tready => harmonic_frame_tready,
+      s_axis_frame_tlast => harmonic_frame_tlast,
+      s_axis_frame_fault => harmonic_frame_fault,
+      m_axis_fft_data_tdata => m_axis_fft_data_tdata,
+      m_axis_fft_data_tvalid => m_axis_fft_data_tvalid,
+      m_axis_fft_data_tready => m_axis_fft_data_tready,
+      m_axis_fft_data_tlast => m_axis_fft_data_tlast,
+      s_axis_fft_data_tdata => s_axis_fft_data_tdata,
+      s_axis_fft_data_tuser => s_axis_fft_data_tuser,
+      s_axis_fft_data_tvalid => s_axis_fft_data_tvalid,
+      s_axis_fft_data_tready => s_axis_fft_data_tready,
+      s_axis_fft_data_tlast => s_axis_fft_data_tlast,
+      m_axis_fft_config_tdata => m_axis_fft_config_tdata,
+      m_axis_fft_config_tvalid => m_axis_fft_config_tvalid,
+      m_axis_fft_config_tready => m_axis_fft_config_tready,
+      s_axis_fft_status_tdata => s_axis_fft_status_tdata,
+      s_axis_fft_status_tvalid => s_axis_fft_status_tvalid,
+      s_axis_fft_status_tready => s_axis_fft_status_tready,
+      xfft_event_frame_started_i => xfft_event_frame_started,
+      xfft_event_tlast_unexpected_i => xfft_event_tlast_unexpected,
+      xfft_event_tlast_missing_i => xfft_event_tlast_missing,
+      xfft_event_status_channel_halt_i =>
+        xfft_event_status_channel_halt,
+      xfft_event_data_in_channel_halt_i =>
+        xfft_event_data_in_channel_halt,
+      xfft_event_data_out_channel_halt_i =>
+        xfft_event_data_out_channel_halt,
+      m_axis_records_tdata => m_axis_harmonic_tdata,
+      m_axis_records_tkeep => m_axis_harmonic_tkeep,
+      m_axis_records_tvalid => m_axis_harmonic_tvalid,
+      m_axis_records_tready => m_axis_harmonic_tready,
+      m_axis_records_tlast => m_axis_harmonic_tlast,
+      m_axis_r5_harmonic_tdata => r5_harmonic_axis_tdata,
+      m_axis_r5_harmonic_tkeep => r5_harmonic_axis_tkeep,
+      m_axis_r5_harmonic_tvalid => r5_harmonic_axis_tvalid,
+      m_axis_r5_harmonic_tready => r5_harmonic_axis_tready,
+      m_axis_r5_harmonic_tlast => r5_harmonic_axis_tlast,
+      frontend_completed_windows_o => harmonic_frontend_completed,
+      frontend_dropped_windows_o => harmonic_frontend_dropped,
+      frontend_malformed_windows_o => harmonic_frontend_malformed,
+      xfft_fault_count_o => harmonic_xfft_faults,
+      xfft_data_in_halt_count_o => harmonic_xfft_data_in_halts,
+      xfft_data_out_halt_count_o => harmonic_xfft_data_out_halts,
+      xfft_status_halt_count_o => harmonic_xfft_status_halts
+    );
+
   -- R5C1 is the only interval-aggregation owner. The exporter consumes the
   -- SingleCycle packet without backpressuring metrology and emits a complete,
-  -- integrity-protected private-link frame. MTR1/MTR2 return through the
-  -- block-design meter switch, so these legacy PL outputs remain idle.
+  -- integrity-protected private-link frame. Finished MTR1/MTR2 records return
+  -- through the independent block-design R5 FIFO path.
   scyc_result_tready <= r5_export_input_ready;
-  mtr1_axis_tdata <= (others => '0');
-  mtr1_axis_tkeep <= (others => '1');
-  mtr1_axis_tvalid <= '0';
-  mtr1_axis_tlast <= '0';
-  mtr2_axis_tdata <= (others => '0');
-  mtr2_axis_tkeep <= (others => '1');
-  mtr2_axis_tvalid <= '0';
-  mtr2_axis_tlast <= '0';
 
   -- R5 receives this same configuration snapshot in every input packet.
   active_generation <= shadow_generation;
@@ -876,11 +1001,11 @@ begin
       ten_minute_target_sample_i => ten_minute_target_sample,
       ten_minute_target_valid_i => ten_minute_target_valid,
       ten_minute_target_update_i => ten_minute_target_update,
-      m_axis_tdata => m_axis_r5_agg_input_tdata,
-      m_axis_tkeep => m_axis_r5_agg_input_tkeep,
-      m_axis_tvalid => m_axis_r5_agg_input_tvalid,
-      m_axis_tready => m_axis_r5_agg_input_tready,
-      m_axis_tlast => m_axis_r5_agg_input_tlast,
+      m_axis_tdata => r5_agg_axis_tdata,
+      m_axis_tkeep => r5_agg_axis_tkeep,
+      m_axis_tvalid => r5_agg_axis_tvalid,
+      m_axis_tready => r5_agg_axis_tready,
+      m_axis_tlast => r5_agg_axis_tlast,
       accepted_packet_count_o => r5_agg_accepted_packets,
       dropped_packet_count_o => r5_agg_dropped_packets,
       transmitted_packet_count_o => r5_agg_transmitted_packets,
@@ -890,25 +1015,35 @@ begin
       status_o => r5_agg_status
     );
 
-  m_axis_mtr1_tdata <= mtr1_axis_tdata;
-  m_axis_mtr1_tkeep <= mtr1_axis_tkeep;
-  m_axis_mtr1_tvalid <= mtr1_axis_tvalid;
-  m_axis_mtr1_tlast <= mtr1_axis_tlast;
+  -- AGG1 timing/statistic packets retain priority at every packet boundary;
+  -- HRM1 can never interleave with an AGG1 frame once either starts.
+  r5_input_arbiter : entity work.meter_axis_packet_arbiter_2to1
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      s0_axis_tdata => r5_agg_axis_tdata,
+      s0_axis_tkeep => r5_agg_axis_tkeep,
+      s0_axis_tvalid => r5_agg_axis_tvalid,
+      s0_axis_tready => r5_agg_axis_tready,
+      s0_axis_tlast => r5_agg_axis_tlast,
+      s1_axis_tdata => r5_harmonic_axis_tdata,
+      s1_axis_tkeep => r5_harmonic_axis_tkeep,
+      s1_axis_tvalid => r5_harmonic_axis_tvalid,
+      s1_axis_tready => r5_harmonic_axis_tready,
+      s1_axis_tlast => r5_harmonic_axis_tlast,
+      m_axis_tdata => m_axis_r5_agg_input_tdata,
+      m_axis_tkeep => m_axis_r5_agg_input_tkeep,
+      m_axis_tvalid => m_axis_r5_agg_input_tvalid,
+      m_axis_tready => m_axis_r5_agg_input_tready,
+      m_axis_tlast => m_axis_r5_agg_input_tlast
+    );
 
   -- STATUS (0x0C): enabled, apply pending, calculation busy, overflow.
-  -- The PL interval fields are retained for register compatibility.
-  processing_status <= (31 downto 4 => '0') & mtr1_tap_status(0) & '0' &
+  -- Retired PL busy/overflow fields stay zero for register compatibility.
+  processing_status <= (31 downto 2 => '0') &
                        (apply_toggle xor apply_seen) & active_enable;
 
-  -- Legacy PL record outputs remain in the module-reference interface for
-  -- block-design compatibility. R5C1 records enter the switch independently.
-  m_axis_mtr2_tdata <= mtr2_axis_tdata;
-  m_axis_mtr2_tkeep <= mtr2_axis_tkeep;
-  m_axis_mtr2_tvalid <= mtr2_axis_tvalid;
-  m_axis_mtr2_tlast <= mtr2_axis_tlast;
-
-  -- Legacy record taps remain wired to the idle outputs and therefore read
-  -- zero. R5C1 reports aggregation health through its firmware contract.
+  -- R5C1 reports aggregation health through its firmware contract.
   -- Single-cycle producer: sample-beat shim + HLS engine (per-cycle
   -- provenance in M2; statistics/power/phasor accumulate here from M3).
   -- Its result stream feeds the private R5C1 exporter.
@@ -1026,50 +1161,4 @@ begin
                pq_tap_kind(10 downto 8) &       -- [3:1]   event type
                pq_event_active;                 -- [0]     event in progress
 
-  mtr1_tap : entity work.record_word_tap
-    port map (
-      aclk => aclk,
-      aresetn => aresetn,
-      tdata_i => mtr1_axis_tdata,
-      tvalid_i => mtr1_axis_tvalid,
-      tready_i => m_axis_mtr1_tready,
-      tlast_i => mtr1_axis_tlast,
-      sequence_o => mtr1_tap_sequence,
-      status_o => mtr1_tap_status,
-      emit_drops_o => mtr1_tap_emit_drops,
-      result_drops_o => mtr1_tap_result_drops,
-      reset_count_o => open,
-      ineligible_count_o => open,
-      continuity_count_o => open,
-      aux0_o => open,
-      aux1_o => open,
-      framing_error_o => open,
-      framing_error_count_o => open
-    );
-
-  mtr2_tap : entity work.record_word_tap
-    generic map (
-      -- Words 33..35 belong to AGG-v3; the sibling records reuse them
-      -- as payload/reserved space and must not reach the registers.
-      G_DIAG_FORMAT => x"00020003"
-    )
-    port map (
-      aclk => aclk,
-      aresetn => aresetn,
-      tdata_i => mtr2_axis_tdata,
-      tvalid_i => mtr2_axis_tvalid,
-      tready_i => m_axis_mtr2_tready,
-      tlast_i => mtr2_axis_tlast,
-      sequence_o => mtr2_tap_sequence,
-      status_o => open,
-      emit_drops_o => mtr2_tap_emit_drops,
-      result_drops_o => open,
-      reset_count_o => mtr2_tap_reset,
-      ineligible_count_o => mtr2_tap_ineligible,
-      continuity_count_o => mtr2_tap_continuity,
-      aux0_o => open,
-      aux1_o => open,
-      framing_error_o => open,
-      framing_error_count_o => open
-    );
 end architecture;

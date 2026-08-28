@@ -1,8 +1,8 @@
-# Add the single-cycle diagnostic record path to TopDesign (metrology
-# roadmap M2): MeterCore M_AXIS_SCYC -> packet-mode FIFO -> a new slave
-# port on the record AXIS switch, alongside MTR1 and MTR2. The FIFO is a
-# clone of the MTR2 record FIFO's customization, so every producer
-# presents the identical packet-mode boundary to the switch.
+# Historical one-time M2 migration, retained for provenance. Current
+# TopDesign already contains this path and the compact switch topology is owned
+# by AI_gen/remove_legacy_mtr_record_paths.tcl; do not use this script to grow
+# the current switch. At M2 it added MeterCore M_AXIS_SCYC -> packet-mode FIFO
+# -> a new slave port alongside the then-existing MTR1 and MTR2 paths.
 #
 # Idempotent: rerunning after the path exists changes nothing. Follows
 # the register_hls_components.tcl GUI rule: source it in the GUI's Tcl
@@ -36,9 +36,8 @@ if {[get_bd_cells -quiet ${meter_core}/../SCYC_record_fifo] ne "" ||
     [get_bd_cells -hierarchical -quiet -filter {NAME == "SCYC_record_fifo"}] ne ""} {
     puts "SCYC record path already present; nothing to do"
 } else {
-    # The record FIFOs and switch live inside the MTR_Buffer hierarchy
-    # group; M_AXIS_MTR2 reaches it through the group pin S_AXIS1. Clone
-    # a template FIFO inside the group and add a new group pin.
+    # Historical migration path: clone a template FIFO inside MTR_Buffer and
+    # add a new hierarchy pin. The current design must take the early exit.
     set buffer_group [get_bd_cells -quiet /MeterLogic/MTR_Buffer]
     if {$buffer_group eq ""} { error "MTR_Buffer hierarchy not found" }
     set template_fifo ""

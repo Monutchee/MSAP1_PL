@@ -28,6 +28,7 @@ entity meter_zero_crossing is
     sample_sequence_i     : in  std_logic_vector(31 downto 0);
     sample_q16_i          : in  std_logic_vector(63 downto 0);
     hysteresis_uv_i       : in  std_logic_vector(31 downto 0);
+    minimum_separation_samples_i : in std_logic_vector(31 downto 0);
     crossing_valid_o      : out std_logic;
     previous_sequence_o   : out std_logic_vector(31 downto 0);
     previous_sample_q16_o : out std_logic_vector(63 downto 0);
@@ -46,6 +47,10 @@ architecture rtl of meter_zero_crossing is
   signal armed           : std_logic := '0';
   signal falling_armed   : std_logic := '0';
   signal reference_valid : std_logic := '0';
+  signal have_rising     : std_logic := '0';
+  signal have_falling    : std_logic := '0';
+  signal last_rising_seq : unsigned(31 downto 0) := (others => '0');
+  signal last_falling_seq: unsigned(31 downto 0) := (others => '0');
   signal rising_now      : std_logic;
   signal falling_now     : std_logic;
 begin
@@ -59,17 +64,29 @@ begin
   -- outputs are only meaningful while frame_accept_i is high.
   crossing_view : process (all)
     variable current_sample : signed(63 downto 0);
+    variable current_seq    : unsigned(31 downto 0);
+    variable minimum_gap    : unsigned(31 downto 0);
   begin
     rising_now <= '0';
     falling_now <= '0';
     if frame_accept_i = '1' and sample_valid_i = '1' and
        previous_valid = '1' then
       current_sample := signed(sample_q16_i);
-      if armed = '1' and previous_sample < 0 and current_sample >= 0 then
+      current_seq := unsigned(sample_sequence_i);
+      minimum_gap := unsigned(minimum_separation_samples_i);
+      if armed = '1' and previous_sample < 0 and current_sample >= 0 and
+         (have_rising = '0' or
+          current_seq - last_rising_seq >= minimum_gap) and
+         (have_falling = '0' or
+          current_seq - last_falling_seq >= minimum_gap) then
         rising_now <= '1';
       end if;
       if falling_armed = '1' and previous_sample >= 0 and
-         current_sample < 0 then
+         current_sample < 0 and
+         (have_falling = '0' or
+          current_seq - last_falling_seq >= minimum_gap) and
+         (have_rising = '0' or
+          current_seq - last_rising_seq >= minimum_gap) then
         falling_now <= '1';
       end if;
     end if;
@@ -88,12 +105,18 @@ begin
         armed <= '0';
         falling_armed <= '0';
         reference_valid <= '0';
+        have_rising <= '0';
+        have_falling <= '0';
+        last_rising_seq <= (others => '0');
+        last_falling_seq <= (others => '0');
       elsif frame_accept_i = '1' then
         reference_valid <= sample_valid_i;
         if sample_valid_i = '0' then
           previous_valid <= '0';
           armed <= '0';
           falling_armed <= '0';
+          have_rising <= '0';
+          have_falling <= '0';
         else
           current_sample := signed(sample_q16_i);
           threshold_q16 := signed(resize(unsigned(hysteresis_uv_i), 64) sll 16);
@@ -111,9 +134,13 @@ begin
             current_sample_q16_o <= std_logic_vector(current_sample);
             crossing_valid_o <= '1';
             armed <= '0';
+            have_rising <= '1';
+            last_rising_seq <= unsigned(sample_sequence_i);
           end if;
           if falling_now = '1' then
             falling_armed <= '0';
+            have_falling <= '1';
+            last_falling_seq <= unsigned(sample_sequence_i);
           end if;
 
           previous_sample <= current_sample;

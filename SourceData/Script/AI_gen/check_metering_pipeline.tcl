@@ -58,6 +58,9 @@ set common_vhdl [list \
   [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_sliding_rms_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_r5_aggregation_pkg.vhd] \
+  [file join $design_root MeterProcessing meter_r5_harmonic_pkg.vhd] \
+  [file join $design_root MeterProcessing meter_r5_harmonic_export.vhd] \
+  [file join $design_root MeterProcessing meter_axis_packet_arbiter_2to1.vhd] \
   [file join $design_root MeterProcessing meter_r5_aggregation_export.vhd]]
 
 set wrapper_vhdl [list \

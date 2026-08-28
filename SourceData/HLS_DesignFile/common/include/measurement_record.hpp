@@ -173,6 +173,15 @@ static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_V1        = 0x000F0001u;
 static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_POWER_V1  = 0x001C0001u;
 static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_PHASOR_V2 = 0x001D0002u;
 static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_UNBAL_V2  = 0x001E0002u;
+// HARMONIC v1 (M16): one complete 10/12-cycle spectrum is a family of
+// channel/chunk records with one shared sequence and common envelope.  Each
+// record carries up to 24 consecutive orders as packed 64-bit entries.  The
+// producer emits six chunks for every active product lane (CH0..CH6), orders
+// 1..127; CH7 remains outside the product harmonic family.
+static const uint32_t MREC_FORMAT_HARMONIC_V1 = 0x00050001u;
+/* R5C1 RMS-magnitude and magnitude-weighted circular-phase harmonic family
+ * for 3 s, 10 min, and 2 h periods. */
+static const uint32_t MREC_FORMAT_HARMONIC_AGG_V1 = 0x001F0001u;
 // PQEVT v1 (M12): the sliding Urms(1/2) tier's record, emitted by
 // SlidingOneCycleRmsEngine on its OWN producer port (M_AXIS_PQ). Three
 // kinds share the format, distinguished by the format-header word 13:
@@ -210,6 +219,59 @@ static const int MREC_PAYLOAD_WORD       = 16;
 
 // Common status bit (both formats today).
 static const int MREC_STATUS_ARITHMETIC_BIT = 0;  // any arithmetic overflow
+
+// HARMONIC-v1 interior.  Word 13 is intentionally range-shaped rather than
+// hard-coded to six chunks so a later record producer may extend max_order
+// without changing the record format:
+//   [2:0]   channel (0..6)
+//   [6:3]   zero-based chunk index
+//   [14:7]  first order in this chunk
+//   [19:15] number of entries (1..24)
+//   [23:20] chunks in this channel family
+//   [31:24] maximum order produced by this family
+// Word 14 is the mean measured fundamental frequency in millihertz.
+// Word 15 packs qualified_max_order, nominal_frequency_hz, cycle_count, and
+// filter_profile_id in successive bytes.
+// Words 16..63 contain 24 little-endian 64-bit entries:
+//   [39:0]  subgroup RMS magnitude, channel micro-units
+//   [59:40] central-line angle, millidegrees in [0, 360000)
+//   [60]    magnitude valid
+//   [61]    angle valid
+//   [63:62] reserved zero
+static const int HARMONIC_HEADER_WORD = 13;
+static const int HARMONIC_FREQUENCY_WORD = 14;
+static const int HARMONIC_METADATA_WORD = 15;
+static const int HARMONIC_ENTRY_BASE_WORD = 16;
+static const int HARMONIC_ORDERS_PER_RECORD = 24;
+static const int HARMONIC_MAX_ORDER_V1 = 127;
+static const int HARMONIC_CHUNKS_PER_CHANNEL_V1 = 6;
+static const int HARMONIC_CHANNELS_V1 = 7;
+
+static const int HARMONIC_HEADER_CHANNEL_LSB = 0;
+static const int HARMONIC_HEADER_CHUNK_LSB = 3;
+static const int HARMONIC_HEADER_FIRST_ORDER_LSB = 7;
+static const int HARMONIC_HEADER_ORDER_COUNT_LSB = 15;
+static const int HARMONIC_HEADER_CHUNK_COUNT_LSB = 20;
+static const int HARMONIC_HEADER_MAX_ORDER_LSB = 24;
+
+static const int HARMONIC_META_QUALIFIED_MAX_LSB = 0;
+static const int HARMONIC_META_NOMINAL_HZ_LSB = 8;
+static const int HARMONIC_META_CYCLE_COUNT_LSB = 16;
+static const int HARMONIC_META_FILTER_PROFILE_LSB = 24;
+
+static const int HARMONIC_ENTRY_MAGNITUDE_BITS = 40;
+static const int HARMONIC_ENTRY_ANGLE_LSB = 40;
+static const int HARMONIC_ENTRY_ANGLE_BITS = 20;
+static const int HARMONIC_ENTRY_MAGNITUDE_VALID_BIT = 60;
+static const int HARMONIC_ENTRY_ANGLE_VALID_BIT = 61;
+
+static const int HARMONIC_STATUS_COMPLETE_BIT = 1;
+static const int HARMONIC_STATUS_GRID_LOCKED_BIT = 2;
+static const int HARMONIC_STATUS_CONDITIONER_VALID_BIT = 3;
+static const int HARMONIC_STATUS_FFT_VALID_BIT = 4;
+static const int HARMONIC_STATUS_FULL_RANGE_BIT = 5;
+static const int HARMONIC_STATUS_FIRST_AFTER_DISCONTINUITY_BIT = 6;
+static const int HARMONIC_STATUS_RATE_LIMITED_BIT = 7;
 
 // ---------------------------------------------------------------------------
 // MTR1-v3 interior: per-channel basic measurements, frequency block,

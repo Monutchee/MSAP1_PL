@@ -81,6 +81,7 @@ architecture rtl of meter_frequency is
   signal sample_valid     : std_logic;
   signal sample_sequence  : word32_t;
   signal estimator_enabled: std_logic;
+  signal crossing_minimum_separation : word32_t;
 begin
   -- The crossing engine keeps its established 64-bit interface.  Extend the
   -- compact signed Q16 lane here; no precision is added or removed.
@@ -102,6 +103,14 @@ begin
   active_hysteresis_uv_o <= active_hysteresis_uv;
   status_o <= frequency_status;
   estimator_enabled <= active_control(0) and measured_frame_rate_valid_i;
+  -- Adjacent genuine crossings are at least half a 70 Hz cycle apart
+  -- (7.14 ms). A 3/512-second (5.86 ms) alternating-polarity holdoff rejects
+  -- the tight crossing clusters created by high-order distortion (notably
+  -- H127), while retaining margin for every supported grid frequency. Power-
+  -- of-two shifts keep this out of dividers and DSPs.
+  crossing_minimum_separation <= std_logic_vector(
+    shift_right(unsigned(measured_frame_rate_hz_i), 8) +
+    shift_right(unsigned(measured_frame_rate_hz_i), 9));
   reference_valid_now_o <= sample_valid;
 
   process (all)
@@ -172,6 +181,7 @@ begin
       sample_sequence_i => sample_sequence,
       sample_q16_i => reference_sample,
       hysteresis_uv_i => active_hysteresis_uv,
+      minimum_separation_samples_i => crossing_minimum_separation,
       crossing_valid_o => crossing_valid,
       previous_sequence_o => crossing_prev_seq,
       previous_sample_q16_o => crossing_prev_sample,

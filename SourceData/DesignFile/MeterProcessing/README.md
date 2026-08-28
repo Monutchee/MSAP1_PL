@@ -102,6 +102,32 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
 
 ## Modules
 
+- `meter_spectral_conditioner`: M16's nonbackpressuring adaptive production
+  conditioner. On APPLY it selects the exact `L/25` profile where
+  `L = 512000/Fs` for 1, 2, 4, 8, 16, 32, 64, or 128 kSPS, and converts each
+  exact 200 ms source block to 4,096 frames at 20.48 kSPS. The 32/64/128 kSPS
+  profiles use a 1,025-tap Kaiser prototype; lower rates use a compact
+  endpoint-inclusive 129-row fractional-delay table with carried-remainder
+  interpolation and exact Q20 unity gain. A 512-frame BRAM history ring and
+  16-entry marker queue decouple source capture from the time-shared MAC, so
+  even 128 kSPS is lossless. A qualified boundary may select either adjacent
+  ADC frame because a continuous crossing is discretized at the accepted-frame
+  interface; the conditioner normalizes that bounded +/-1 endpoint choice
+  while retaining the exact nominal `L/25` lattice, and rejects every larger
+  geometry error. The frozen ROM check measures at most 0.001688 dB
+  ripple; high-rate stopbands are below -79.65 dBFS and low-rate image bounds
+  are below -88.18 dBFS. Unsupported rates, measured/configured-rate mismatch,
+  or malformed block geometry are explicitly invalid.
+- `meter_spectral_frontend`: M16's VHDL-2008 two-bank 4,096-frame spectral
+  buffer and CH0-through-CH6 XFFT scheduler. It is instantiated
+  inside MeterCore, maps its two wide banks to six K26 URAMs to preserve BRAM
+  for XFFT, aborts an incomplete capture on the same APPLY boundary as the
+  conditioner, and preserves whole-window validity under malformed input or
+  overload.
+- `meter_harmonic_hls_shim`: owns the frontend, packaged HarmonicEngine,
+  forward-XFFT configuration handshake, sticky XFFT family-fault injection,
+  and a 4,096-word packet-mode record FIFO. Only the XFFT itself crosses the
+  MeterCore boundary; records leave on `M_AXIS_HARMONIC`.
 - `meter_mtr1_hls_shim`: packs one 1264-bit sample beat per accepted
   converted frame (layout mirrors `mtr1_engine.hpp` MTR1_IN_*, kept in
   lock step), buffers up to eight beats, hosts the packaged
@@ -160,6 +186,13 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
 | `0xc0` | `R5_AGG_EXPORT_FRAMING_ERRORS` | malformed SingleCycle result packets observed by the exporter |
 | `0xc4` | `R5_AGG_EXPORT_LAST_SEQUENCE` | sequence of the most recently admitted result packet |
 | `0xc8` | `R5_AGG_EXPORT_QUEUE_LEVEL` | complete packets awaiting private-link transmission |
+| `0xcc` | `HARMONIC_CONDITIONED_BLOCKS` | exact conditioner blocks completed without a structural/service fault |
+| `0xd0` | `HARMONIC_INVALID_BLOCKS` | conditioner blocks rejected for geometry, discontinuity, or service failure |
+| `0xd4` | `HARMONIC_SERVICE_OVERRUNS` | accepted source frames that arrived while the time-shared conditioner was busy; must remain zero |
+| `0xd8` | `HARMONIC_FRONTEND_COMPLETED` | complete 4,096-frame windows serialized to XFFT |
+| `0xdc` | `HARMONIC_FRONTEND_DROPPED` | whole windows discarded because both ping/pong banks were occupied; must remain zero |
+| `0xe0` | `HARMONIC_FRONTEND_MALFORMED` | whole windows rejected for explicit fault or TLAST geometry; must remain zero |
+| `0xe4` | `HARMONIC_XFFT_FAULT_COUNT` | cycles carrying an XFFT TLAST/channel-halt event; must remain zero |
 
 The `R5_AGG_EXPORT_*` registers describe a private exact co-release link to
 R5C1.  Its fixed contract guard and CRC are image-integrity checks, not a
@@ -188,10 +221,11 @@ is pinned by `meter_r5_aggregation_pkg.vhd` and
 
 R5C1 owns Basic, 150/180-cycle, UTC 10-minute, and 2-hour aggregation and
 record serialization. It returns one complete 256-byte record through the
-AXI FIFO TX channel into `MTR_AXI_Switch/S04_AXIS`; the wrapper's legacy
-`M_AXIS_MTR1` and `M_AXIS_MTR2` outputs remain idle. Every returned record is
-64 x 32-bit beats with TLAST on beat 63 before it joins the Linux meter-DMA
-path. RPMsg remains control-plane only.
+AXI FIFO TX channel into `MTR_AXI_Switch/S02_AXIS`. The retired duplicate
+`M_AXIS_MTR1` and `M_AXIS_MTR2` wrapper interfaces are removed. Every returned
+record is 64 x 32-bit beats with TLAST on beat 63 before it joins the Linux
+meter-DMA path. The other compact switch inputs are S00 SingleCycle, S01 PQ,
+and S03 harmonics. RPMsg remains control-plane only.
 
 The fixed-point interval algorithm and its host tests are owned under
 `MSAP1_RPU/R5c1/src/MainApp/aggregation/`. Shared record maps, sufficient

@@ -14,6 +14,8 @@ if {[lsearch -exact $allowed_tops $top_name] < 0} {
 set script_dir [file dirname [file normalize [info script]]]
 set project_root [file normalize [file join $script_dir ../../..]]
 set design_root [file join $project_root SourceData DesignFile]
+set conditioner_coefficients [file join $design_root MeterProcessing \
+  meter_spectral_conditioner_q20.mem]
 
 # Packaged HLS RTL (IP repository entry); refreshed by 'mnc HLS build' or
 # SourceData/HLS_DesignFile/run_hls.sh <component>.
@@ -32,10 +34,17 @@ set hls_sim_wave_hdl [file join $project_root SourceData HLS_DesignFile \
 if {![file isdirectory $hls_sim_wave_hdl]} {
   error "missing $hls_sim_wave_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
 }
+set hls_harmonic_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo HarmonicEngine hdl verilog]
+if {![file isdirectory $hls_harmonic_hdl]} {
+  error "missing $hls_harmonic_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+}
 
 # Keep focused checks predictable on developer workstations where the GUI or
 # other Vivado jobs may already be consuming memory.
 set_param general.maxThreads 2
+
+read_mem $conditioner_coefficients
 
 read_vhdl -vhdl2008 [file join $design_root MeterCommon metering_pkg.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCommon grid_timing_pkg.vhd]
@@ -56,17 +65,25 @@ read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_frequency.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing grid_cycle_timing.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing record_word_tap.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_r5_aggregation_pkg.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_r5_harmonic_pkg.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_r5_harmonic_export.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_axis_packet_arbiter_2to1.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_r5_aggregation_export.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_sliding_rms_hls_shim.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_spectral_conditioner.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_spectral_frontend.vhd]
 read_verilog [lsort [glob -directory $hls_scyc_hdl *.v]]
 read_verilog [lsort [glob -directory $hls_pq_hdl *.v]]
 read_verilog [lsort [glob -directory $hls_sim_wave_hdl *.v]]
+read_verilog [lsort [glob -directory $hls_harmonic_hdl *.v]]
 # Bind the IP-customization module names over the packaged RTL for this
 # non-project flow (the project gets the same modules from the XCIs).
 read_verilog [file join $design_root MeterProcessing tb hls_sliding_one_cycle_rms_engine_ip.v]
 read_verilog [file join $design_root MeterProcessing tb hls_single_cycle_engine_ip.v]
+read_verilog [file join $design_root MeterProcessing tb hls_harmonic_engine_ip.v]
 read_verilog [file join $design_root MeterCore tb hls_sim_wave_engine_ip.v]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_harmonic_hls_shim.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore adc_simulator_pkg.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore adc_simulator.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCore adc_source_mux.vhd]

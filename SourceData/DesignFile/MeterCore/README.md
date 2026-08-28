@@ -16,10 +16,15 @@ Raw ADC simulator --------+                       |
                +-> VLA positive zero-cross frequency --+
                |                                      |
                |         result hub <- coherent results+
-               |              -> MTR1 packetizer -> meter DMA
+               |              -> SCYC/PQ packet FIFOs -> meter DMA
+               |              -> private R5C1 export -> returned records
+               |                                      -> meter DMA
                |
                +-> nonblocking 256-frame XPM FIFO
                        -> WFM1 packetizer -> waveform DMA
+              +-> M16 adaptive L/25 conditioner -> 4K ping/pong frontend
+                       -> external XFFT -> embedded HarmonicEngine
+                       -> 4096-word record FIFO -> M_AXIS_HARMONIC
 ```
 
 The existing AXI4-Lite interfaces retain their software contracts and the
@@ -33,10 +38,66 @@ simulator adds one RPU-owned interface:
 | `S_AXI_WAVEFORM` | `0xB0070000` |
 | `S_AXI_SIMULATOR` | `0xB0080000` |
 
-`M_AXIS_METER` emits the existing 256-byte MTR1 records as 64 32-bit beats,
-with `TLAST` asserted on beat 63. The module-reference clock metadata is
-99,999,001 Hz. `adc_dclk` remains an independent ADC-source clock and the
-capture entity retains the established CDC implementation.
+## Embedded M16 harmonic path
+
+All repository-owned harmonic logic is inside `MeterCore_Wrapper`. The
+conditioner observes preserved signed 24-bit raw lanes CH0--CH6. On APPLY it
+selects one exact `L/25` conversion, where `L = 512000/Fs`, for every supported
+1, 2, 4, 8, 16, 32, 64, or 128 kSPS rate. The measured rate must agree with
+the selected rate and the source interval must be one exact 10-cycle/50 Hz or
+12-cycle/60 Hz basic block; every valid profile produces 4,096 samples at
+20.48 kSPS. The 32/64/128 kSPS profiles use a 1,025-tap Kaiser prototype;
+lower rates use a compact 129-row fractional-delay table with exact-unity
+carried-remainder interpolation. Characterized ripple is at most 0.001688 dB,
+with high-rate stopbands below -79.65 dBFS and low-rate image bounds below
+-88.18 dBFS. Profile-specific 32/64/128/34-frame group delays are reflected
+in marker alignment, so provenance remains the first source sample of the
+contiguous block. The first complete block after reset or APPLY primes the
+filter; unsupported or malformed geometry is invalidated rather than padded
+or silently resampled. APPLY also flushes any incomplete conditioner/frontend
+transaction so a retired window cannot strand the next profile.
+
+The same hierarchy owns the two-bank 4K frontend, packaged
+`hls_harmonic_engine_ip`, forward-transform configuration, XFFT event
+accounting, and a 4,096-word packet FIFO. `M_AXIS_HARMONIC` is therefore a
+normal 32-bit, TKEEP/TLAST record producer containing 42 consecutive
+256-byte records per spectrum family.
+
+The block-design handoff is intentionally limited to one XFFT v9.1 instance
+and one record-switch connection:
+
+| MeterCore interface | XFFT / block-design destination |
+| --- | --- |
+| `M_AXIS_FFT_DATA` | XFFT `S_AXIS_DATA` |
+| `S_AXIS_FFT_DATA` | XFFT `M_AXIS_DATA` |
+| `M_AXIS_FFT_CONFIG` | XFFT `S_AXIS_CONFIG` |
+| `S_AXIS_FFT_STATUS` | XFFT `M_AXIS_STATUS` |
+| six `xfft_event_*` inputs | matching XFFT event outputs |
+| `M_AXIS_HARMONIC` | `MTR_AXI_Switch/S03_AXIS` |
+
+Use the exact XFFT property dictionary in
+`HLS_DesignFile/MeterProcessing/HarmonicEngine/README.md`. All interfaces use
+the MeterCore `aclk`/`aresetn`; the shim holds `8'h01` on config until XFFT
+accepts it and drains status continuously. The processing read-only registers
+`0xCC`--`0xE4` expose conditioner, frontend, and XFFT health for the routed
+soak gate.
+
+The repository-side adaptive, pre-XFFT `MeterCore_Wrapper` synthesis on K26 at
+100 MHz passes with WNS +2.801 ns and uses 35,010 CLB LUTs (29.89%), 47,950
+registers (20.47%), 84 BRAM tiles (58.33%), six URAMs (9.38%), and 243 DSPs
+(19.47%). The integrated adaptive conditioner, XFFT, and compact four-input
+record-switch route passes at WNS +0.322 ns / TNS 0, using 50,092 LUTs
+(42.77%), 71,207 registers (30.40%), 10,424 physical CLBs (71.20%), 109.5
+BRAM tiles (76.04%), six URAMs (9.38%), and 247 DSPs (19.79%). The routed
+design has zero DRC errors and zero critical warnings.
+
+All meter-record producers emit 256-byte records as 64 32-bit beats with
+`TLAST` asserted on beat 63. `MTR_AXI_Switch` has exactly four inputs:
+S00 SingleCycle, S01 PQ, S02 R5C1-returned MTR1/MTR2, and S03 harmonics. The
+retired duplicate `M_AXIS_MTR1` and `M_AXIS_MTR2` MeterCore interfaces are
+absent. The module-reference clock metadata is 99,999,001 Hz. `adc_dclk`
+remains an independent ADC-source clock and the capture entity retains the
+established CDC implementation.
 
 ## Raw ADC simulator
 
@@ -81,7 +142,7 @@ decode is 12 bits wide (4 KB window). The current register contract is:
 | Offset | Register |
 | ---: | --- |
 | `0x00` | Identifier (`SIM1`) |
-| `0x04` | Version (`0x00010003`) |
+| `0x04` | Version (`0x00010004`) |
 | `0x08` | Shadow control |
 | `0x0C` | Shadow sample rate, frame/s |
 | `0x10` | Shadow signal frequency, mHz |
@@ -106,8 +167,8 @@ decode is 12 bits wide (4 KB window). The current register contract is:
 | `0xB0`-`0xCC` | Eight active DC-offset readbacks |
 | `0xD0`-`0xEC` | Eight unsigned noise-amplitude shadow registers, counts |
 | `0x100`-`0x11C` | Eight active noise-amplitude readbacks |
-| `0x200`-`0x21C` | Four harmonic slots, two words each (shadow) |
-| `0x220`-`0x23C` | Four harmonic slots, two words each (active readback) |
+| `0x200`-`0x22C` | Four harmonic/interharmonic slots, three words each (shadow) |
+| `0x240`-`0x26C` | Four harmonic/interharmonic slots, three words each (active readback) |
 | `0x300` | Shadow event control: channel mask `[7:0]`, repeat `[8]` |
 | `0x304` | Shadow event scale, unsigned Q16 (`0x10000` unity, cap 4.0) |
 | `0x308` | Shadow event timing: duration `[15:0]`, period `[31:16]`, half cycles |
@@ -118,6 +179,10 @@ decode is 12 bits wide (4 KB window). The current register contract is:
 
 Peak counts outside the signed 24-bit range saturate and increment the
 saturation counter, as does any sine + DC + noise sum that crosses a rail.
+Each spectral-tone slot is `{frequency ratio Q16.16, channel mask plus Q16
+fraction, phase Q0.32}`. Integer ratios inject harmonics through order 127;
+fractional ratios inject interharmonics while preserving the frequency-scaled
+three-phase lane relationship.
 The noise amplitude is the half-width of a uniform distribution (RMS =
 amplitude / sqrt(3)); zero disables the path. If downstream backpressure consumes the single pending
 sample slot before another scheduled frame can be emitted, the simulator

@@ -16,6 +16,12 @@ source [file join [file dirname [file normalize [info script]]] build_common.tcl
 
 pl_build_open_project
 
+# Keep this stage independently runnable.  The block-design stage performs
+# the same idempotent registration before updating module references, but a
+# focused synthesis rerun must not depend on that earlier stage having been
+# run in the same workspace.
+source [file join $pl_build_script_dir register_m16_harmonic_sources.tcl]
+
 set jobs [pl_build_jobs]
 puts "PL_BUILD_STAGE=synth"
 puts "PL_BUILD_JOBS=$jobs"

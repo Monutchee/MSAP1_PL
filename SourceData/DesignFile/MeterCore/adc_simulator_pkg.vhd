@@ -23,9 +23,12 @@ use ieee.numeric_std.all;
 --               started/stopped on the generator's own half-cycle
 --               boundaries, so sag/swell/interruption scenarios are
 --               phase-continuous by construction (metrology M12)
+--   0x00010004  harmonic slots use a Q16.16 frequency ratio, allowing
+--               integer harmonics through order 127 and fractional
+--               interharmonic tones without changing the four-slot model
 package adc_simulator_pkg is
   constant ADC_SIMULATOR_ID      : std_logic_vector(31 downto 0) := x"53494D31"; -- SIM1
-  constant ADC_SIMULATOR_VERSION : std_logic_vector(31 downto 0) := x"00010003";
+  constant ADC_SIMULATOR_VERSION : std_logic_vector(31 downto 0) := x"00010004";
 
   constant ADC_SIM_REG_ID                 : natural := 16#00#;
   constant ADC_SIM_REG_VERSION            : natural := 16#04#;
@@ -53,11 +56,12 @@ package adc_simulator_pkg is
   constant ADC_SIM_REG_ACTIVE_DC_BASE     : natural := 16#B0#;
   constant ADC_SIM_REG_SHADOW_NOISE_BASE  : natural := 16#D0#;
   constant ADC_SIM_REG_ACTIVE_NOISE_BASE  : natural := 16#100#;
-  -- Four harmonic slots, two words each (mirrors sim_wave_engine.hpp):
-  -- word0 = order[7:0] | channel mask[15:8] | Q16 fraction[31:16];
-  -- word1 = phase, Q0.32 turns.
+  -- Four spectral-tone slots, three words each (mirrors
+  -- sim_wave_engine.hpp): word0 = frequency/order ratio Q16.16; word1 =
+  -- channel mask[7:0] | reserved[15:8] | Q16 fraction[31:16]; word2 =
+  -- phase, Q0.32 turns. A zero ratio disables the slot.
   constant ADC_SIM_REG_SHADOW_HARMONIC_BASE : natural := 16#200#;
-  constant ADC_SIM_REG_ACTIVE_HARMONIC_BASE : natural := 16#220#;
+  constant ADC_SIM_REG_ACTIVE_HARMONIC_BASE : natural := 16#240#;
 
   -- Event sequencer (M12). Its own shadow bank and its own trigger, held
   -- apart from the waveform APPLY on purpose: an event must be launchable
@@ -144,12 +148,12 @@ package adc_simulator_pkg is
   constant SIM_WAVE_REQ_DC_LSB          : natural := 640;
   constant SIM_WAVE_REQ_NOISE_LSB       : natural := 896;
   constant SIM_WAVE_REQ_HARMONIC_LSB    : natural := 1152;
-  constant SIM_WAVE_HARMONIC_WORDS      : natural := 8;
+  constant SIM_WAVE_HARMONIC_WORDS      : natural := 12;
   -- Event envelope word: [18:0] Q16 scale, [31:24] channel mask.
-  constant SIM_WAVE_REQ_EVENT_LSB       : natural := 1408;
-  constant SIM_WAVE_REQ_EVENT_SCALE_LSB : natural := 1408;
-  constant SIM_WAVE_REQ_EVENT_MASK_LSB  : natural := 1432;
-  constant SIM_WAVE_REQ_BITS            : natural := 1440;
+  constant SIM_WAVE_REQ_EVENT_LSB       : natural := 1536;
+  constant SIM_WAVE_REQ_EVENT_SCALE_LSB : natural := 1536;
+  constant SIM_WAVE_REQ_EVENT_MASK_LSB  : natural := 1560;
+  constant SIM_WAVE_REQ_BITS            : natural := 1568;
   constant SIM_WAVE_RSP_SAMPLE_LSB      : natural := 0;
   constant SIM_WAVE_RSP_SATURATED_LSB   : natural := 256;
   constant SIM_WAVE_RSP_BITS            : natural := 264;
