@@ -215,6 +215,7 @@ module adc_simulator_tb;
   integer noise_min;
   integer noise_max;
   integer sample_a;
+  integer harmonic_word;
   bit packet_last_phase;
 
   initial begin : watchdog
@@ -338,6 +339,27 @@ module adc_simulator_tb;
     write_reg(12'h01c, 32'h0000_0001);
     consume_frame(0, 0, 1'b0);
     consume_frame(expected_sine(2000, 0.125), 1, 1'b1);
+
+    // --- Harmonic slots: all four banks survive the RPU write pattern. ---
+    // The RPU writes all 12 words on every configuration, including zero
+    // words for disabled slots.  Exercise the complete address range so a
+    // decoder that truncates word indices 8..11 cannot silently overwrite
+    // slot 0 while clearing the later slots.
+    stop_and_apply_idle;
+    for (harmonic_word = 0; harmonic_word < 12; harmonic_word++)
+      write_reg(12'h200 + harmonic_word * 4,
+                32'h5100_0000 + harmonic_word);
+    write_reg(12'h01c, 32'h0000_0001);
+    for (harmonic_word = 0; harmonic_word < 12; harmonic_word++) begin
+      read_reg(12'h200 + harmonic_word * 4, value);
+      assert (value == 32'h5100_0000 + harmonic_word)
+        else $fatal(1, "shadow harmonic word %0d mismatch", harmonic_word);
+      read_reg(12'h240 + harmonic_word * 4, value);
+      assert (value == 32'h5100_0000 + harmonic_word)
+        else $fatal(1, "active harmonic word %0d mismatch", harmonic_word);
+      write_reg(12'h200 + harmonic_word * 4, 32'd0);
+    end
+    write_reg(12'h01c, 32'h0000_0001);
 
     // --- Harmonic slot: shadow/APPLY banking and the sample changes. -----
     // Exact harmonic arithmetic is pinned by the HLS golden bench; this

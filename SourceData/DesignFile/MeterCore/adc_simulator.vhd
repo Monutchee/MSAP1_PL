@@ -289,7 +289,8 @@ begin
   process (aclk)
     variable write_address : natural range 0 to 4095;
     variable read_address  : natural range 0 to 4095;
-    variable array_index   : natural range 0 to 7;
+    variable channel_index_v  : natural range 0 to SIM_WAVE_CHANNELS - 1;
+    variable harmonic_index_v : natural range 0 to SIM_WAVE_HARMONIC_WORDS - 1;
     variable next_accumulator : unsigned(32 downto 0);
     variable start_frame      : boolean;
     variable next_phase       : unsigned(31 downto 0);
@@ -633,29 +634,30 @@ begin
               if write_address >= ADC_SIM_REG_SHADOW_PEAK_BASE and
                  write_address < ADC_SIM_REG_SHADOW_PEAK_BASE + 32 and
                  (write_address mod 4) = 0 then
-                array_index := (write_address - ADC_SIM_REG_SHADOW_PEAK_BASE) / 4;
-                shadow_peak(array_index) <= merge_strobes(shadow_peak(array_index), wdata, wstrb);
+                channel_index_v := (write_address - ADC_SIM_REG_SHADOW_PEAK_BASE) / 4;
+                shadow_peak(channel_index_v) <= merge_strobes(shadow_peak(channel_index_v), wdata, wstrb);
               elsif write_address >= ADC_SIM_REG_SHADOW_PHASE_BASE and
                     write_address < ADC_SIM_REG_SHADOW_PHASE_BASE + 32 and
                     (write_address mod 4) = 0 then
-                array_index := (write_address - ADC_SIM_REG_SHADOW_PHASE_BASE) / 4;
-                shadow_phase(array_index) <= merge_strobes(shadow_phase(array_index), wdata, wstrb);
+                channel_index_v := (write_address - ADC_SIM_REG_SHADOW_PHASE_BASE) / 4;
+                shadow_phase(channel_index_v) <= merge_strobes(shadow_phase(channel_index_v), wdata, wstrb);
               elsif write_address >= ADC_SIM_REG_SHADOW_DC_BASE and
                     write_address < ADC_SIM_REG_SHADOW_DC_BASE + 32 and
                     (write_address mod 4) = 0 then
-                array_index := (write_address - ADC_SIM_REG_SHADOW_DC_BASE) / 4;
-                shadow_dc(array_index) <= merge_strobes(shadow_dc(array_index), wdata, wstrb);
+                channel_index_v := (write_address - ADC_SIM_REG_SHADOW_DC_BASE) / 4;
+                shadow_dc(channel_index_v) <= merge_strobes(shadow_dc(channel_index_v), wdata, wstrb);
               elsif write_address >= ADC_SIM_REG_SHADOW_NOISE_BASE and
                     write_address < ADC_SIM_REG_SHADOW_NOISE_BASE + 32 and
                     (write_address mod 4) = 0 then
-                array_index := (write_address - ADC_SIM_REG_SHADOW_NOISE_BASE) / 4;
-                shadow_noise(array_index) <= merge_strobes(shadow_noise(array_index), wdata, wstrb);
+                channel_index_v := (write_address - ADC_SIM_REG_SHADOW_NOISE_BASE) / 4;
+                shadow_noise(channel_index_v) <= merge_strobes(shadow_noise(channel_index_v), wdata, wstrb);
               elsif write_address >= ADC_SIM_REG_SHADOW_HARMONIC_BASE and
                     write_address < ADC_SIM_REG_SHADOW_HARMONIC_BASE +
                                       SIM_WAVE_HARMONIC_WORDS * 4 and
                     (write_address mod 4) = 0 then
-                array_index := (write_address - ADC_SIM_REG_SHADOW_HARMONIC_BASE) / 4;
-                shadow_harmonic(array_index) <= merge_strobes(shadow_harmonic(array_index), wdata, wstrb);
+                harmonic_index_v := (write_address - ADC_SIM_REG_SHADOW_HARMONIC_BASE) / 4;
+                shadow_harmonic(harmonic_index_v) <=
+                  merge_strobes(shadow_harmonic(harmonic_index_v), wdata, wstrb);
               end if;
           end case;
           aw_stored <= '0';
@@ -730,45 +732,45 @@ begin
               if read_address >= ADC_SIM_REG_SHADOW_PEAK_BASE and
                  read_address < ADC_SIM_REG_SHADOW_PEAK_BASE + 32 and
                  (read_address mod 4) = 0 then
-                array_index := (read_address - ADC_SIM_REG_SHADOW_PEAK_BASE) / 4;
-                rdata <= shadow_peak(array_index);
+                channel_index_v := (read_address - ADC_SIM_REG_SHADOW_PEAK_BASE) / 4;
+                rdata <= shadow_peak(channel_index_v);
               elsif read_address >= ADC_SIM_REG_SHADOW_PHASE_BASE and
                     read_address < ADC_SIM_REG_SHADOW_PHASE_BASE + 32 and
                     (read_address mod 4) = 0 then
-                array_index := (read_address - ADC_SIM_REG_SHADOW_PHASE_BASE) / 4;
-                rdata <= shadow_phase(array_index);
+                channel_index_v := (read_address - ADC_SIM_REG_SHADOW_PHASE_BASE) / 4;
+                rdata <= shadow_phase(channel_index_v);
               elsif read_address >= ADC_SIM_REG_SHADOW_DC_BASE and
                     read_address < ADC_SIM_REG_SHADOW_DC_BASE + 32 and
                     (read_address mod 4) = 0 then
-                array_index := (read_address - ADC_SIM_REG_SHADOW_DC_BASE) / 4;
-                rdata <= shadow_dc(array_index);
+                channel_index_v := (read_address - ADC_SIM_REG_SHADOW_DC_BASE) / 4;
+                rdata <= shadow_dc(channel_index_v);
               elsif read_address >= ADC_SIM_REG_ACTIVE_DC_BASE and
                     read_address < ADC_SIM_REG_ACTIVE_DC_BASE + 32 and
                     (read_address mod 4) = 0 then
-                array_index := (read_address - ADC_SIM_REG_ACTIVE_DC_BASE) / 4;
-                rdata <= active_dc(array_index);
+                channel_index_v := (read_address - ADC_SIM_REG_ACTIVE_DC_BASE) / 4;
+                rdata <= active_dc(channel_index_v);
               elsif read_address >= ADC_SIM_REG_SHADOW_NOISE_BASE and
                     read_address < ADC_SIM_REG_SHADOW_NOISE_BASE + 32 and
                     (read_address mod 4) = 0 then
-                array_index := (read_address - ADC_SIM_REG_SHADOW_NOISE_BASE) / 4;
-                rdata <= shadow_noise(array_index);
+                channel_index_v := (read_address - ADC_SIM_REG_SHADOW_NOISE_BASE) / 4;
+                rdata <= shadow_noise(channel_index_v);
               elsif read_address >= ADC_SIM_REG_ACTIVE_NOISE_BASE and
                     read_address < ADC_SIM_REG_ACTIVE_NOISE_BASE + 32 and
                     (read_address mod 4) = 0 then
-                array_index := (read_address - ADC_SIM_REG_ACTIVE_NOISE_BASE) / 4;
-                rdata <= active_noise(array_index);
+                channel_index_v := (read_address - ADC_SIM_REG_ACTIVE_NOISE_BASE) / 4;
+                rdata <= active_noise(channel_index_v);
               elsif read_address >= ADC_SIM_REG_SHADOW_HARMONIC_BASE and
                     read_address < ADC_SIM_REG_SHADOW_HARMONIC_BASE +
                                      SIM_WAVE_HARMONIC_WORDS * 4 and
                     (read_address mod 4) = 0 then
-                array_index := (read_address - ADC_SIM_REG_SHADOW_HARMONIC_BASE) / 4;
-                rdata <= shadow_harmonic(array_index);
+                harmonic_index_v := (read_address - ADC_SIM_REG_SHADOW_HARMONIC_BASE) / 4;
+                rdata <= shadow_harmonic(harmonic_index_v);
               elsif read_address >= ADC_SIM_REG_ACTIVE_HARMONIC_BASE and
                     read_address < ADC_SIM_REG_ACTIVE_HARMONIC_BASE +
                                      SIM_WAVE_HARMONIC_WORDS * 4 and
                     (read_address mod 4) = 0 then
-                array_index := (read_address - ADC_SIM_REG_ACTIVE_HARMONIC_BASE) / 4;
-                rdata <= active_harmonic(array_index);
+                harmonic_index_v := (read_address - ADC_SIM_REG_ACTIVE_HARMONIC_BASE) / 4;
+                rdata <= active_harmonic(harmonic_index_v);
               end if;
           end case;
           rvalid <= '1';
