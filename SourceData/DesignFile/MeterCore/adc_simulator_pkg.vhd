@@ -26,9 +26,11 @@ use ieee.numeric_std.all;
 --   0x00010004  harmonic slots use a Q16.16 frequency ratio, allowing
 --               integer harmonics through order 127 and fractional
 --               interharmonic tones without changing the four-slot model
+--   0x00010005  deterministic amplitude modulation plus independent
+--               absolute-frequency carrier and adjacent-tone generators
 package adc_simulator_pkg is
   constant ADC_SIMULATOR_ID      : std_logic_vector(31 downto 0) := x"53494D31"; -- SIM1
-  constant ADC_SIMULATOR_VERSION : std_logic_vector(31 downto 0) := x"00010004";
+  constant ADC_SIMULATOR_VERSION : std_logic_vector(31 downto 0) := x"00010005";
 
   constant ADC_SIM_REG_ID                 : natural := 16#00#;
   constant ADC_SIM_REG_VERSION            : natural := 16#04#;
@@ -62,6 +64,31 @@ package adc_simulator_pkg is
   -- phase, Q0.32 turns. A zero ratio disables the slot.
   constant ADC_SIM_REG_SHADOW_HARMONIC_BASE : natural := 16#200#;
   constant ADC_SIM_REG_ACTIVE_HARMONIC_BASE : natural := 16#240#;
+
+  -- Simulator v1.5 M18 controls, ten words per shadow/active bank:
+  --   0 AM phase step Q0.32/sample
+  --   1 AM depth Q16 (0..1.0)
+  --   2 AM channel mask [6:0]
+  --   3 carrier phase step Q0.32/sample
+  --   4 carrier fraction of lane fundamental Q16
+  --   5 carrier voltage-lane mask [6:4]
+  --   6 carrier phase offset Q0.32
+  --   7 adjacent-tone phase step Q0.32/sample
+  --   8 adjacent-tone fraction Q16
+  --   9 adjacent-tone phase offset Q0.32
+  constant ADC_SIM_REG_SHADOW_M18_BASE : natural := 16#280#;
+  constant ADC_SIM_REG_ACTIVE_M18_BASE : natural := 16#2C0#;
+  constant ADC_SIM_M18_WORDS           : natural := 10;
+  constant ADC_SIM_M18_AM_STEP         : natural := 0;
+  constant ADC_SIM_M18_AM_DEPTH        : natural := 1;
+  constant ADC_SIM_M18_AM_MASK         : natural := 2;
+  constant ADC_SIM_M18_CARRIER_STEP    : natural := 3;
+  constant ADC_SIM_M18_CARRIER_FRACTION : natural := 4;
+  constant ADC_SIM_M18_CARRIER_MASK    : natural := 5;
+  constant ADC_SIM_M18_CARRIER_PHASE   : natural := 6;
+  constant ADC_SIM_M18_ADJACENT_STEP   : natural := 7;
+  constant ADC_SIM_M18_ADJACENT_FRACTION : natural := 8;
+  constant ADC_SIM_M18_ADJACENT_PHASE  : natural := 9;
 
   -- Event sequencer (M12). Its own shadow bank and its own trigger, held
   -- apart from the waveform APPLY on purpose: an event must be launchable
@@ -153,7 +180,19 @@ package adc_simulator_pkg is
   constant SIM_WAVE_REQ_EVENT_LSB       : natural := 1536;
   constant SIM_WAVE_REQ_EVENT_SCALE_LSB : natural := 1536;
   constant SIM_WAVE_REQ_EVENT_MASK_LSB  : natural := 1560;
-  constant SIM_WAVE_REQ_BITS            : natural := 1568;
+  constant SIM_WAVE_REQ_AM_PHASE_LSB          : natural := 1568;
+  constant SIM_WAVE_REQ_AM_CONTROL_LSB        : natural := 1600;
+  constant SIM_WAVE_REQ_AM_DEPTH_LSB          : natural := 1600;
+  constant SIM_WAVE_REQ_AM_MASK_LSB           : natural := 1624;
+  constant SIM_WAVE_REQ_CARRIER_PHASE_LSB     : natural := 1632;
+  constant SIM_WAVE_REQ_CARRIER_CONTROL_LSB   : natural := 1664;
+  constant SIM_WAVE_REQ_CARRIER_FRACTION_LSB  : natural := 1664;
+  constant SIM_WAVE_REQ_CARRIER_MASK_LSB      : natural := 1680;
+  constant SIM_WAVE_REQ_CARRIER_OFFSET_LSB    : natural := 1696;
+  constant SIM_WAVE_REQ_ADJACENT_PHASE_LSB    : natural := 1728;
+  constant SIM_WAVE_REQ_ADJACENT_FRACTION_LSB : natural := 1760;
+  constant SIM_WAVE_REQ_ADJACENT_OFFSET_LSB   : natural := 1792;
+  constant SIM_WAVE_REQ_BITS                  : natural := 1824;
   constant SIM_WAVE_RSP_SAMPLE_LSB      : natural := 0;
   constant SIM_WAVE_RSP_SATURATED_LSB   : natural := 256;
   constant SIM_WAVE_RSP_BITS            : natural := 264;

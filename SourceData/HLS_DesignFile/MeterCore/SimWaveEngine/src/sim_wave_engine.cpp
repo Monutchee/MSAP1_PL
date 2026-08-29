@@ -40,6 +40,33 @@ void hls_sim_wave_engine(hls::stream<sim_wave_request_t> &s_request,
       SIM_WAVE_REQ_EVENT_SCALE_LSB + 18, SIM_WAVE_REQ_EVENT_SCALE_LSB);
   const ap_uint<8> event_mask = request.range(
       SIM_WAVE_REQ_EVENT_MASK_LSB + 7, SIM_WAVE_REQ_EVENT_MASK_LSB);
+  const ap_uint<32> am_phase = request.range(
+      SIM_WAVE_REQ_AM_PHASE_LSB + 31, SIM_WAVE_REQ_AM_PHASE_LSB);
+  const ap_uint<17> am_depth = request.range(
+      SIM_WAVE_REQ_AM_DEPTH_LSB + 16, SIM_WAVE_REQ_AM_DEPTH_LSB);
+  const ap_uint<8> am_mask = request.range(
+      SIM_WAVE_REQ_AM_MASK_LSB + 7, SIM_WAVE_REQ_AM_MASK_LSB);
+  const ap_uint<32> carrier_phase = request.range(
+      SIM_WAVE_REQ_CARRIER_PHASE_LSB + 31,
+      SIM_WAVE_REQ_CARRIER_PHASE_LSB);
+  const ap_uint<16> carrier_fraction = request.range(
+      SIM_WAVE_REQ_CARRIER_FRACTION_LSB + 15,
+      SIM_WAVE_REQ_CARRIER_FRACTION_LSB);
+  const ap_uint<8> carrier_mask = request.range(
+      SIM_WAVE_REQ_CARRIER_MASK_LSB + 7,
+      SIM_WAVE_REQ_CARRIER_MASK_LSB);
+  const ap_uint<32> carrier_offset = request.range(
+      SIM_WAVE_REQ_CARRIER_OFFSET_LSB + 31,
+      SIM_WAVE_REQ_CARRIER_OFFSET_LSB);
+  const ap_uint<32> adjacent_phase = request.range(
+      SIM_WAVE_REQ_ADJACENT_PHASE_LSB + 31,
+      SIM_WAVE_REQ_ADJACENT_PHASE_LSB);
+  const ap_uint<16> adjacent_fraction = request.range(
+      SIM_WAVE_REQ_ADJACENT_FRACTION_LSB + 15,
+      SIM_WAVE_REQ_ADJACENT_FRACTION_LSB);
+  const ap_uint<32> adjacent_offset = request.range(
+      SIM_WAVE_REQ_ADJACENT_OFFSET_LSB + 31,
+      SIM_WAVE_REQ_ADJACENT_OFFSET_LSB);
 
   sim_wave_response_t response = 0;
 
@@ -70,8 +97,16 @@ channel_lanes:
       // sized from it -- an out-of-range peak still saturates at the
       // sample rails instead of aliasing (legacy behaviour).
       ap_int<36> peak = peak_register;
+      if (am_mask[lane] && am_depth != 0) {
+        const ap_int<39> am_sine = met_sin_q32(am_phase);
+        const ap_int<57> depth_product = ap_int<18>(am_depth) * am_sine;
+        const ap_int<18> modulation_q16 = ap_int<18>(depth_product >> 37);
+        const ap_int<19> am_scale_q16 = ap_int<19>(0x10000) + modulation_q16;
+        const ap_int<55> modulated = peak_register * am_scale_q16;
+        peak = ap_int<36>(modulated >> 16);
+      }
       if (event_mask[lane] && event_scale != ap_uint<19>(SIM_WAVE_EVENT_SCALE_UNITY)) {
-        const ap_int<52> enveloped = peak_register * ap_int<20>(event_scale);
+        const ap_int<56> enveloped = peak * ap_int<20>(event_scale);
         peak = ap_int<36>(enveloped >> 16);
       }
 
@@ -109,6 +144,27 @@ harmonic_slots:
         harmonic_counts += ap_int<41>(harmonic_product >> 53);
       }
 
+      // Dedicated absolute-frequency tones for M18 mains-signalling tests.
+      // They are not folded through the general harmonic slots: their phase
+      // is independent of the fundamental and advances from an absolute
+      // frequency step in the VHDL wrapper. Both tones share the voltage-lane
+      // mask but keep independent phase and amplitude controls.
+      ap_int<35> carrier_counts = 0;
+      if (carrier_mask[lane] && carrier_fraction != 0) {
+        const ap_int<39> tone_sine = met_sin_q32(carrier_phase + carrier_offset);
+        const ap_int<49> tone_peak =
+            peak_register * ap_int<17>(ap_uint<17>(carrier_fraction));
+        const ap_int<88> tone_product = tone_peak * tone_sine;
+        carrier_counts += ap_int<35>(tone_product >> 53);
+      }
+      if (carrier_mask[lane] && adjacent_fraction != 0) {
+        const ap_int<39> tone_sine = met_sin_q32(adjacent_phase + adjacent_offset);
+        const ap_int<49> tone_peak =
+            peak_register * ap_int<17>(ap_uint<17>(adjacent_fraction));
+        const ap_int<88> tone_product = tone_peak * tone_sine;
+        carrier_counts += ap_int<35>(tone_product >> 53);
+      }
+
       // Uniform fluctuation in +/- noise_level counts: the mixed word's
       // top 24 bits are a signed uniform in +/- 2^23, scaled by the level
       // and floored back to counts.
@@ -120,7 +176,8 @@ harmonic_slots:
 
       const ap_int<43> with_dc = ap_int<43>(scaled) + ap_int<43>(dc_offset) +
                                  ap_int<43>(noise_counts) +
-                                 ap_int<43>(harmonic_counts);
+                                 ap_int<43>(harmonic_counts) +
+                                 ap_int<43>(carrier_counts);
       if (with_dc > ap_int<43>(SIM_WAVE_SAMPLE_MAX)) {
         sample = SIM_WAVE_SAMPLE_MAX;
         saturated = 1;

@@ -222,6 +222,74 @@ static const uint32_t MREC_FORMAT_PQ_EVENT_V1    = 0x00060001u;
 static const uint32_t MREC_FORMAT_FLICKER_V1     = 0x000E0001u;
 static const uint32_t MREC_FORMAT_MAINS_SIGNAL_V1 = 0x000F0001u;
 
+// PQ-EVENT-v1 lifecycle record (R5C1 -> S02).
+static const int PQ_EVENT_LIFECYCLE_START = 0;
+static const int PQ_EVENT_LIFECYCLE_UPDATE = 1;
+static const int PQ_EVENT_LIFECYCLE_END = 2;
+static const int PQ_EVENT_LIFECYCLE_ABORT = 3;
+static const int PQ_EVENT_HEADER_LIFECYCLE_LSB = 0;
+static const int PQ_EVENT_HEADER_TYPE_LSB = 4;
+static const int PQ_EVENT_HEADER_PHASES_LSB = 8;
+static const int PQ_EVENT_HEADER_TRIGGER_LSB = 16;
+static const int PQ_EVENT_LAST_SAMPLE_LOW_WORD = 14;
+static const int PQ_EVENT_LAST_SAMPLE_HIGH_WORD = 15;
+static const int PQ_EVENT_ID_BASE_WORD = 16; // four words, stable UUID
+static const int PQ_EVENT_PROFILE_GENERATION_WORD = 20;
+static const int PQ_EVENT_THRESHOLD_E4_WORD = 21;
+static const int PQ_EVENT_HYSTERESIS_E4_WORD = 22;
+static const int PQ_EVENT_WAVEFORM_POLICY_WORD = 23;
+static const int PQ_EVENT_WAVEFORM_PRE_MS_WORD = 24;
+static const int PQ_EVENT_WAVEFORM_POST_MS_WORD = 25;
+static const int PQ_EVENT_REFERENCE_LOW_WORD = 26;
+static const int PQ_EVENT_REFERENCE_HIGH_WORD = 27;
+static const int PQ_EVENT_MINIMUM_BASE_WORD = 28; // A/B/C, micro-units
+static const int PQ_EVENT_MAXIMUM_BASE_WORD = 31; // A/B/C, micro-units
+static const int PQ_EVENT_CURRENT_BASE_WORD = 34; // A/B/C, micro-units
+static const int PQ_EVENT_DURATION_LOW_WORD = 37;
+static const int PQ_EVENT_DURATION_HIGH_WORD = 38;
+static const int PQ_EVENT_TRIGGER_SAMPLE_LOW_WORD = 39;
+static const int PQ_EVENT_TRIGGER_SAMPLE_HIGH_WORD = 40;
+static const int PQ_EVENT_START_UTC_NS_LOW_WORD = 41;
+static const int PQ_EVENT_START_UTC_NS_HIGH_WORD = 42;
+static const int PQ_EVENT_LAST_UTC_NS_LOW_WORD = 43;
+static const int PQ_EVENT_LAST_UTC_NS_HIGH_WORD = 44;
+static const int PQ_EVENT_TIME_QUALITY_WORD = 45;
+static const int PQ_EVENT_DISCONTINUITY_WORD = 46;
+static const int PQ_EVENT_SETTINGS_DIGEST_BASE_WORD = 48; // 128-bit prefix
+
+// FLICKER-v1 record kinds and fixed payload map.
+static const int FLICKER_KIND_LIVE = 0;
+static const int FLICKER_KIND_PST = 1;
+static const int FLICKER_KIND_PLT = 2;
+static const int FLICKER_HEADER_KIND_LSB = 0;
+static const int FLICKER_HEADER_PHASES_LSB = 8;
+static const int FLICKER_LAST_SAMPLE_LOW_WORD = 14;
+static const int FLICKER_LAST_SAMPLE_HIGH_WORD = 15;
+static const int FLICKER_PINST_BASE_WORD = 16; // three Q16 values
+static const int FLICKER_PST_BASE_WORD = 19;   // three Q16 values
+static const int FLICKER_PLT_BASE_WORD = 22;   // three Q16 values
+static const int FLICKER_VALID_COUNT_BASE_WORD = 25;
+static const int FLICKER_INTERVAL_SECONDS_WORD = 28;
+static const int FLICKER_PROFILE_GENERATION_WORD = 29;
+static const int FLICKER_MODEL_WORD = 30;
+static const int FLICKER_SOURCE_STATUS_WORD = 31;
+static const int FLICKER_INTERVAL_FIRST_LOW_WORD = 32;
+static const int FLICKER_INTERVAL_FIRST_HIGH_WORD = 33;
+
+// MAINS-SIGNAL-v1 fixed payload map.
+static const int MAINS_SIGNAL_HEADER_PHASES_LSB = 0;
+static const int MAINS_SIGNAL_HEADER_VALID_LSB = 8;
+static const int MAINS_SIGNAL_LAST_SAMPLE_LOW_WORD = 14;
+static const int MAINS_SIGNAL_LAST_SAMPLE_HIGH_WORD = 15;
+static const int MAINS_SIGNAL_CONFIGURED_MILLIHZ_WORD = 16;
+static const int MAINS_SIGNAL_MEASURED_MILLIHZ_WORD = 17;
+static const int MAINS_SIGNAL_MAGNITUDE_BASE_WORD = 18;
+static const int MAINS_SIGNAL_BACKGROUND_BASE_WORD = 21;
+static const int MAINS_SIGNAL_BANDWIDTH_MILLIHZ_WORD = 24;
+static const int MAINS_SIGNAL_OBSERVATION_MS_WORD = 25;
+static const int MAINS_SIGNAL_PROFILE_GENERATION_WORD = 26;
+static const int MAINS_SIGNAL_SOURCE_STATUS_WORD = 27;
+
 // ---------------------------------------------------------------------------
 // Common envelope — words 0..12 mean the same thing in EVERY format, so
 // the APU needs exactly one accessor set for provenance, continuity and

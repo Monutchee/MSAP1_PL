@@ -53,6 +53,24 @@ struct HarmonicSpec {
 };
 static HarmonicSpec g_harmonics[SIM_WAVE_HARMONIC_SLOTS];
 
+struct AmSpec {
+  unsigned long phase = 0;
+  unsigned depth_q16 = 0;
+  unsigned mask = 0;
+};
+static AmSpec g_am;
+
+struct CarrierSpec {
+  unsigned long phase = 0;
+  unsigned fraction_q16 = 0;
+  unsigned mask = 0;
+  unsigned long offset = 0;
+  unsigned long adjacent_phase = 0;
+  unsigned adjacent_fraction_q16 = 0;
+  unsigned long adjacent_offset = 0;
+};
+static CarrierSpec g_carrier;
+
 // Event envelope for the request under test. Unity scale with an empty
 // mask is the quiet default, and every pre-event scenario runs under it.
 static unsigned long g_event_scale = SIM_WAVE_EVENT_SCALE_UNITY;
@@ -61,6 +79,14 @@ static unsigned g_event_mask = 0;
 // The envelope the engine applies to a lane's peak: one floor after the
 // Q16 multiply, and an exact no-op off the mask or at unity.
 static long enveloped_peak(int lane, long peak) {
+  if (((g_am.mask >> lane) & 1u) != 0 && g_am.depth_q16 != 0) {
+    const double turns = (double)g_am.phase / 4294967296.0;
+    const double sine =
+        std::sin(2.0 * M_PI * turns) * (131071.0 / 131072.0);
+    const long modulation_q16 =
+        (long)std::floor((double)g_am.depth_q16 * sine);
+    peak = (long)(((long long)peak * (65536ll + modulation_q16)) >> 16);
+  }
   if (((g_event_mask >> lane) & 1u) == 0 ||
       g_event_scale == (unsigned long)SIM_WAVE_EVENT_SCALE_UNITY)
     return peak;
@@ -99,6 +125,30 @@ static sim_wave_request_t pack_request(unsigned long base_phase,
       ap_uint<19>(g_event_scale);
   request.range(SIM_WAVE_REQ_EVENT_MASK_LSB + 7, SIM_WAVE_REQ_EVENT_MASK_LSB) =
       ap_uint<8>(g_event_mask);
+  request.range(SIM_WAVE_REQ_AM_PHASE_LSB + 31, SIM_WAVE_REQ_AM_PHASE_LSB) =
+      ap_uint<32>(g_am.phase);
+  request.range(SIM_WAVE_REQ_AM_DEPTH_LSB + 16, SIM_WAVE_REQ_AM_DEPTH_LSB) =
+      ap_uint<17>(g_am.depth_q16);
+  request.range(SIM_WAVE_REQ_AM_MASK_LSB + 7, SIM_WAVE_REQ_AM_MASK_LSB) =
+      ap_uint<8>(g_am.mask);
+  request.range(SIM_WAVE_REQ_CARRIER_PHASE_LSB + 31,
+                SIM_WAVE_REQ_CARRIER_PHASE_LSB) = ap_uint<32>(g_carrier.phase);
+  request.range(SIM_WAVE_REQ_CARRIER_FRACTION_LSB + 15,
+                SIM_WAVE_REQ_CARRIER_FRACTION_LSB) =
+      ap_uint<16>(g_carrier.fraction_q16);
+  request.range(SIM_WAVE_REQ_CARRIER_MASK_LSB + 7,
+                SIM_WAVE_REQ_CARRIER_MASK_LSB) = ap_uint<8>(g_carrier.mask);
+  request.range(SIM_WAVE_REQ_CARRIER_OFFSET_LSB + 31,
+                SIM_WAVE_REQ_CARRIER_OFFSET_LSB) = ap_uint<32>(g_carrier.offset);
+  request.range(SIM_WAVE_REQ_ADJACENT_PHASE_LSB + 31,
+                SIM_WAVE_REQ_ADJACENT_PHASE_LSB) =
+      ap_uint<32>(g_carrier.adjacent_phase);
+  request.range(SIM_WAVE_REQ_ADJACENT_FRACTION_LSB + 15,
+                SIM_WAVE_REQ_ADJACENT_FRACTION_LSB) =
+      ap_uint<16>(g_carrier.adjacent_fraction_q16);
+  request.range(SIM_WAVE_REQ_ADJACENT_OFFSET_LSB + 31,
+                SIM_WAVE_REQ_ADJACENT_OFFSET_LSB) =
+      ap_uint<32>(g_carrier.adjacent_offset);
   return request;
 }
 
@@ -166,6 +216,25 @@ static double golden_unclamped(unsigned long base_phase, unsigned long frame_ind
     value += (double)peak * ((double)h.fraction_q16 / 65536.0) *
              std::sin(2.0 * M_PI * harmonic_turns) * (131071.0 / 131072.0);
   }
+  if (((g_carrier.mask >> lane) & 1u) != 0) {
+    if (g_carrier.fraction_q16 != 0) {
+      const unsigned long tone_angle =
+          (g_carrier.phase + g_carrier.offset) & 0xFFFFFFFFul;
+      value += (double)ch.peak *
+               ((double)g_carrier.fraction_q16 / 65536.0) *
+               std::sin(2.0 * M_PI * (double)tone_angle / 4294967296.0) *
+               (131071.0 / 131072.0);
+    }
+    if (g_carrier.adjacent_fraction_q16 != 0) {
+      const unsigned long tone_angle =
+          (g_carrier.adjacent_phase + g_carrier.adjacent_offset) &
+          0xFFFFFFFFul;
+      value += (double)ch.peak *
+               ((double)g_carrier.adjacent_fraction_q16 / 65536.0) *
+               std::sin(2.0 * M_PI * (double)tone_angle / 4294967296.0) *
+               (131071.0 / 131072.0);
+    }
+  }
   return value;
 }
 
@@ -181,6 +250,21 @@ static double harmonic_tolerance(int lane, long peak) {
     const double component =
         std::fabs((double)peak) * ((double)h.fraction_q16 / 65536.0);
     extra += component / 262144.0 + component * 2.9e-7 + 1.0;
+  }
+  return extra;
+}
+
+static double m18_tolerance(int lane, long peak) {
+  double extra = 0.0;
+  if (((g_am.mask >> lane) & 1u) != 0 && g_am.depth_q16 != 0)
+    extra += std::fabs((double)peak) / 65536.0 + 2.0;
+  if (((g_carrier.mask >> lane) & 1u) != 0) {
+    const double carrier_peak = std::fabs((double)peak) *
+        ((double)g_carrier.fraction_q16 / 65536.0);
+    const double adjacent_peak = std::fabs((double)peak) *
+        ((double)g_carrier.adjacent_fraction_q16 / 65536.0);
+    extra += carrier_peak / 262144.0 + carrier_peak * 2.9e-7 + 1.0;
+    extra += adjacent_peak / 262144.0 + adjacent_peak * 2.9e-7 + 1.0;
   }
   return extra;
 }
@@ -213,7 +297,8 @@ static void check_frame(const char *what, unsigned long base_phase,
     }
     const double ideal = golden_unclamped(base_phase, frame_index, lane, ch[lane]);
     const long peak = enveloped_peak(lane, ch[lane].peak);
-    const double tol = tolerance_counts(peak) + harmonic_tolerance(lane, peak);
+    const double tol = tolerance_counts(peak) + harmonic_tolerance(lane, peak) +
+                       m18_tolerance(lane, ch[lane].peak);
     if (ideal > (double)SIM_WAVE_SAMPLE_MAX + tol) {
       CHECK(got == SIM_WAVE_SAMPLE_MAX && saturated,
             "%s: lane %d should clamp high, got %ld (sat %d)", what, lane, got,
@@ -241,7 +326,7 @@ static void check_frame(const char *what, unsigned long base_phase,
 }
 
 int main() {
-  static_assert(SIM_WAVE_REQ_BITS == 1568, "request beat width is normative");
+  static_assert(SIM_WAVE_REQ_BITS == 1824, "request beat width is normative");
   static_assert(SIM_WAVE_RSP_BITS == 264, "response beat width is normative");
   static_assert(SIM_WAVE_REQ_FRAME_INDEX_LSB == 64 &&
                     SIM_WAVE_REQ_PEAK_LSB == 128 &&
@@ -252,6 +337,10 @@ int main() {
                     SIM_WAVE_REQ_EVENT_SCALE_LSB == 1536 &&
                     SIM_WAVE_REQ_EVENT_MASK_LSB == 1560,
                 "request harmonic and event bases are normative");
+  static_assert(SIM_WAVE_REQ_AM_PHASE_LSB == 1568 &&
+                    SIM_WAVE_REQ_CARRIER_PHASE_LSB == 1632 &&
+                    SIM_WAVE_REQ_ADJACENT_OFFSET_LSB == 1792,
+                "request M18 extension bases are normative");
 
   // --- Zero request: all lanes zero, no flags. --------------------------
   {
@@ -435,6 +524,43 @@ int main() {
     CHECK(std::fabs((double)delta - ideal_delta) <= tolerance_counts(8388607),
           "0.01-degree step off golden: delta %ld ideal %.3f", delta,
           ideal_delta);
+  }
+
+  // --- M18 deterministic amplitude modulation. -------------------------
+  // A 50% modulation peak raises only the selected fundamental to 1.5x;
+  // the adjacent lane proves the mask cannot leak between channels.
+  {
+    ChannelSpec ch[SIM_WAVE_CHANNELS] = {};
+    ch[0] = {2000000, 0x40000000ul, 0, 0, true};
+    ch[1] = {2000000, 0x40000000ul, 0, 0, true};
+    g_am = {0x40000000ul, 0x08000u, 0x01u};
+    check_frame("50 percent amplitude modulation", 0, 0, ch);
+    const sim_wave_response_t response = run_beat(pack_request(0, 0, ch));
+    CHECK(response_sample(response, 0) > response_sample(response, 1),
+          "AM-selected lane must exceed the unselected lane");
+    g_am = AmSpec();
+  }
+
+  // --- M18 carrier and adjacent-tone injection. ------------------------
+  // Absolute tone phases do not depend on the fundamental phase. At this
+  // instant the fundamental is zero and +10% carrier / -5% adjacent leave
+  // a deterministic +5% residual on voltage phase A only.
+  {
+    ChannelSpec ch[SIM_WAVE_CHANNELS] = {};
+    ch[4] = {2000000, 0, 0, 0, true};
+    ch[5] = {2000000, 0, 0, 0, true};
+    g_carrier = {0x40000000ul, 6554u, 0x10u, 0,
+                 0xC0000000ul, 3277u, 0};
+    check_frame("carrier plus adjacent rejection tone", 0, 0, ch);
+    const sim_wave_response_t response = run_beat(pack_request(0, 0, ch));
+    CHECK(response_sample(response, 4) > 90000 &&
+              response_sample(response, 4) < 110000,
+          "carrier residual expected near 100000 counts, got %ld",
+          response_sample(response, 4));
+    CHECK(response_sample(response, 5) == 0,
+          "carrier must not leak outside its phase mask, got %ld",
+          response_sample(response, 5));
+    g_carrier = CarrierSpec();
   }
 
   // --- Event envelope (M12). --------------------------------------------

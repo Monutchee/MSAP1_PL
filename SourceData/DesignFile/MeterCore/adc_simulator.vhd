@@ -97,6 +97,8 @@ architecture rtl of adc_simulator is
   type word_array_t is array (0 to 7) of std_logic_vector(31 downto 0);
   type harmonic_word_array_t is array (0 to SIM_WAVE_HARMONIC_WORDS - 1) of
     std_logic_vector(31 downto 0);
+  type m18_word_array_t is array (0 to ADC_SIM_M18_WORDS - 1) of
+    std_logic_vector(31 downto 0);
 
   signal shadow_control     : std_logic_vector(31 downto 0) := (others => '0');
   signal shadow_sample_rate : std_logic_vector(31 downto 0) := std_logic_vector(to_unsigned(32000, 32));
@@ -109,6 +111,7 @@ architecture rtl of adc_simulator is
   signal shadow_dc          : word_array_t := (others => (others => '0'));
   signal shadow_noise       : word_array_t := (others => (others => '0'));
   signal shadow_harmonic    : harmonic_word_array_t := (others => (others => '0'));
+  signal shadow_m18         : m18_word_array_t := (others => (others => '0'));
 
   signal active_control     : std_logic_vector(31 downto 0) := (others => '0');
   signal active_sample_rate : std_logic_vector(31 downto 0) := std_logic_vector(to_unsigned(32000, 32));
@@ -121,6 +124,7 @@ architecture rtl of adc_simulator is
   signal active_dc          : word_array_t := (others => (others => '0'));
   signal active_noise       : word_array_t := (others => (others => '0'));
   signal active_harmonic    : harmonic_word_array_t := (others => (others => '0'));
+  signal active_m18         : m18_word_array_t := (others => (others => '0'));
 
   -- Event sequencer bank and state.  ARMED waits for the next half-cycle
   -- boundary, RUNNING applies the envelope for the committed duration,
@@ -146,6 +150,9 @@ architecture rtl of adc_simulator is
   signal sample_accumulator : unsigned(32 downto 0) := (others => '0');
   signal sample_pending     : std_logic := '0';
   signal base_phase         : unsigned(31 downto 0) := (others => '0');
+  signal am_phase           : unsigned(31 downto 0) := (others => '0');
+  signal carrier_phase      : unsigned(31 downto 0) := (others => '0');
+  signal adjacent_phase     : unsigned(31 downto 0) := (others => '0');
   signal channel_index      : natural range 0 to 7 := 0;
   signal packet_frame_index : natural range 0 to G_PACKET_FRAMES - 1 := 0;
 
@@ -203,7 +210,11 @@ architecture rtl of adc_simulator is
     noise_v       : word_array_t;
     harmonic_v    : harmonic_word_array_t;
     event_scale_v : std_logic_vector(18 downto 0);
-    event_mask_v  : std_logic_vector(7 downto 0)) return std_logic_vector is
+    event_mask_v  : std_logic_vector(7 downto 0);
+    m18_v         : m18_word_array_t;
+    am_phase_v    : unsigned(31 downto 0);
+    carrier_phase_v : unsigned(31 downto 0);
+    adjacent_phase_v : unsigned(31 downto 0)) return std_logic_vector is
     variable beat : std_logic_vector(SIM_WAVE_REQ_BITS - 1 downto 0) := (others => '0');
   begin
     beat(SIM_WAVE_REQ_BASE_PHASE_LSB + 31 downto SIM_WAVE_REQ_BASE_PHASE_LSB) :=
@@ -229,6 +240,31 @@ architecture rtl of adc_simulator is
       event_scale_v;
     beat(SIM_WAVE_REQ_EVENT_MASK_LSB + 7 downto SIM_WAVE_REQ_EVENT_MASK_LSB) :=
       event_mask_v;
+    beat(SIM_WAVE_REQ_AM_PHASE_LSB + 31 downto SIM_WAVE_REQ_AM_PHASE_LSB) :=
+      std_logic_vector(am_phase_v);
+    beat(SIM_WAVE_REQ_AM_DEPTH_LSB + 16 downto SIM_WAVE_REQ_AM_DEPTH_LSB) :=
+      m18_v(ADC_SIM_M18_AM_DEPTH)(16 downto 0);
+    beat(SIM_WAVE_REQ_AM_MASK_LSB + 7 downto SIM_WAVE_REQ_AM_MASK_LSB) :=
+      m18_v(ADC_SIM_M18_AM_MASK)(7 downto 0);
+    beat(SIM_WAVE_REQ_CARRIER_PHASE_LSB + 31 downto
+         SIM_WAVE_REQ_CARRIER_PHASE_LSB) := std_logic_vector(carrier_phase_v);
+    beat(SIM_WAVE_REQ_CARRIER_FRACTION_LSB + 15 downto
+         SIM_WAVE_REQ_CARRIER_FRACTION_LSB) :=
+      m18_v(ADC_SIM_M18_CARRIER_FRACTION)(15 downto 0);
+    beat(SIM_WAVE_REQ_CARRIER_MASK_LSB + 7 downto
+         SIM_WAVE_REQ_CARRIER_MASK_LSB) :=
+      m18_v(ADC_SIM_M18_CARRIER_MASK)(7 downto 0);
+    beat(SIM_WAVE_REQ_CARRIER_OFFSET_LSB + 31 downto
+         SIM_WAVE_REQ_CARRIER_OFFSET_LSB) :=
+      m18_v(ADC_SIM_M18_CARRIER_PHASE);
+    beat(SIM_WAVE_REQ_ADJACENT_PHASE_LSB + 31 downto
+         SIM_WAVE_REQ_ADJACENT_PHASE_LSB) := std_logic_vector(adjacent_phase_v);
+    beat(SIM_WAVE_REQ_ADJACENT_FRACTION_LSB + 15 downto
+         SIM_WAVE_REQ_ADJACENT_FRACTION_LSB) :=
+      m18_v(ADC_SIM_M18_ADJACENT_FRACTION)(15 downto 0);
+    beat(SIM_WAVE_REQ_ADJACENT_OFFSET_LSB + 31 downto
+         SIM_WAVE_REQ_ADJACENT_OFFSET_LSB) :=
+      m18_v(ADC_SIM_M18_ADJACENT_PHASE);
     return beat;
   end function;
 
@@ -291,6 +327,7 @@ begin
     variable read_address  : natural range 0 to 4095;
     variable channel_index_v  : natural range 0 to SIM_WAVE_CHANNELS - 1;
     variable harmonic_index_v : natural range 0 to SIM_WAVE_HARMONIC_WORDS - 1;
+    variable m18_index_v     : natural range 0 to ADC_SIM_M18_WORDS - 1;
     variable next_accumulator : unsigned(32 downto 0);
     variable start_frame      : boolean;
     variable next_phase       : unsigned(31 downto 0);
@@ -312,6 +349,7 @@ begin
         shadow_dc <= (others => (others => '0'));
         shadow_noise <= (others => (others => '0'));
         shadow_harmonic <= (others => (others => '0'));
+        shadow_m18 <= (others => (others => '0'));
         active_control <= (others => '0');
         active_sample_rate <= std_logic_vector(to_unsigned(32000, 32));
         active_frequency <= std_logic_vector(to_unsigned(60000, 32));
@@ -323,6 +361,7 @@ begin
         active_dc <= (others => (others => '0'));
         active_noise <= (others => (others => '0'));
         active_harmonic <= (others => (others => '0'));
+        active_m18 <= (others => (others => '0'));
         shadow_event_control <= (others => '0');
         shadow_event_scale <=
           std_logic_vector(to_unsigned(ADC_SIM_EVENT_SCALE_UNITY, 32));
@@ -339,6 +378,9 @@ begin
         sample_accumulator <= (others => '0');
         sample_pending <= '0';
         base_phase <= (others => '0');
+        am_phase <= (others => '0');
+        carrier_phase <= (others => '0');
+        adjacent_phase <= (others => '0');
         channel_index <= 0;
         packet_frame_index <= 0;
         gen_state <= GEN_IDLE;
@@ -374,11 +416,15 @@ begin
           active_dc <= shadow_dc;
           active_noise <= shadow_noise;
           active_harmonic <= shadow_harmonic;
+          active_m18 <= shadow_m18;
           apply_pending <= '0';
           if shadow_control(ADC_SIM_CONTROL_PRESERVE_PHASE_BIT) = '0' then
             sample_accumulator <= (others => '0');
             sample_pending <= '0';
             base_phase <= (others => '0');
+            am_phase <= (others => '0');
+            carrier_phase <= (others => '0');
+            adjacent_phase <= (others => '0');
             channel_index <= 0;
             packet_frame_index <= 0;
             -- The phase restarts from zero, so a burst timed against the
@@ -422,7 +468,9 @@ begin
             req_data <= pack_request(base_phase, frame_count, active_valid_mask,
                                      active_peak, active_phase, active_dc,
                                      active_noise, active_harmonic,
-                                     event_scale_now, event_mask_now);
+                                     event_scale_now, event_mask_now,
+                                     active_m18, am_phase, carrier_phase,
+                                     adjacent_phase);
             req_valid <= '1';
             gen_state <= GEN_REQUEST;
           end if;
@@ -461,6 +509,12 @@ begin
                   frame_count <= frame_count + 1;
                   next_phase := base_phase + unsigned(active_phase_step);
                   base_phase <= next_phase;
+                  am_phase <= am_phase +
+                    unsigned(active_m18(ADC_SIM_M18_AM_STEP));
+                  carrier_phase <= carrier_phase +
+                    unsigned(active_m18(ADC_SIM_M18_CARRIER_STEP));
+                  adjacent_phase <= adjacent_phase +
+                    unsigned(active_m18(ADC_SIM_M18_ADJACENT_STEP));
 
                   -- Event sequencer.  A half-cycle boundary is the MSB of
                   -- the Q0.32 phase accumulator flipping -- the same
@@ -658,6 +712,13 @@ begin
                 harmonic_index_v := (write_address - ADC_SIM_REG_SHADOW_HARMONIC_BASE) / 4;
                 shadow_harmonic(harmonic_index_v) <=
                   merge_strobes(shadow_harmonic(harmonic_index_v), wdata, wstrb);
+              elsif write_address >= ADC_SIM_REG_SHADOW_M18_BASE and
+                    write_address < ADC_SIM_REG_SHADOW_M18_BASE +
+                                      ADC_SIM_M18_WORDS * 4 and
+                    (write_address mod 4) = 0 then
+                m18_index_v := (write_address - ADC_SIM_REG_SHADOW_M18_BASE) / 4;
+                shadow_m18(m18_index_v) <=
+                  merge_strobes(shadow_m18(m18_index_v), wdata, wstrb);
               end if;
           end case;
           aw_stored <= '0';
@@ -771,6 +832,18 @@ begin
                     (read_address mod 4) = 0 then
                 harmonic_index_v := (read_address - ADC_SIM_REG_ACTIVE_HARMONIC_BASE) / 4;
                 rdata <= active_harmonic(harmonic_index_v);
+              elsif read_address >= ADC_SIM_REG_SHADOW_M18_BASE and
+                    read_address < ADC_SIM_REG_SHADOW_M18_BASE +
+                                     ADC_SIM_M18_WORDS * 4 and
+                    (read_address mod 4) = 0 then
+                m18_index_v := (read_address - ADC_SIM_REG_SHADOW_M18_BASE) / 4;
+                rdata <= shadow_m18(m18_index_v);
+              elsif read_address >= ADC_SIM_REG_ACTIVE_M18_BASE and
+                    read_address < ADC_SIM_REG_ACTIVE_M18_BASE +
+                                     ADC_SIM_M18_WORDS * 4 and
+                    (read_address mod 4) = 0 then
+                m18_index_v := (read_address - ADC_SIM_REG_ACTIVE_M18_BASE) / 4;
+                rdata <= active_m18(m18_index_v);
               end if;
           end case;
           rvalid <= '1';

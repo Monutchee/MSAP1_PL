@@ -1,7 +1,7 @@
 #ifndef SIM_WAVE_ENGINE_HPP
 #define SIM_WAVE_ENGINE_HPP
 
-// The request beat is 1568 bits, past ap_int's 1024 default; raise the
+// The request beat is 1824 bits, past ap_int's 1024 default; raise the
 // ceiling before the first ap_int.h include in every translation unit
 // (the build also passes -DAP_INT_MAX_W as belt and braces).
 #ifndef AP_INT_MAX_W
@@ -59,6 +59,14 @@
 //             sequencing (arm, half-cycle alignment, duration, repeat)
 //             is deterministic infrastructure and stays in
 //             adc_simulator.vhd; only the multiply is here.
+//   AM      : deterministic sinusoidal amplitude modulation of the
+//             selected lane fundamentals. The modulation phase is owned
+//             by adc_simulator.vhd and the unsigned Q16 depth is capped at
+//             1.0, so the scale is 1 + depth*sin(phase).
+//   carrier : one absolute-frequency carrier plus one adjacent interferer,
+//             each expressed as a Q16 fraction of the receiving voltage
+//             lane's configured fundamental peak. Their independent phase
+//             accumulators are also owned by adc_simulator.vhd.
 //   noise   : uniform white fluctuation of +/- noise_level counts, so
 //             simulated readings jitter like a real grid input instead of
 //             sitting bit-flat. The noise word is a splitmix-style hash
@@ -118,7 +126,24 @@ static const int SIM_WAVE_REQ_EVENT_LSB       = 1536;
 static const int SIM_WAVE_REQ_EVENT_SCALE_LSB = 1536;
 static const int SIM_WAVE_REQ_EVENT_MASK_LSB  = 1560;
 static const int SIM_WAVE_EVENT_SCALE_UNITY   = 0x10000;
-static const int SIM_WAVE_REQ_BITS            = 1568; // 196 bytes on AXIS
+// M18 simulator extensions (eight words). The phase accumulators are Q0.32
+// turns. AM_CONTROL is depth[16:0] plus channel mask[31:24].
+// CARRIER_CONTROL is fraction[15:0] plus channel mask[23:16]. The adjacent
+// tone deliberately shares the carrier mask; its own fraction word keeps all
+// remaining bits reserved zero. OFFSET fields are Q0.32 turns.
+static const int SIM_WAVE_REQ_AM_PHASE_LSB          = 1568;
+static const int SIM_WAVE_REQ_AM_CONTROL_LSB        = 1600;
+static const int SIM_WAVE_REQ_AM_DEPTH_LSB          = 1600;
+static const int SIM_WAVE_REQ_AM_MASK_LSB           = 1624;
+static const int SIM_WAVE_REQ_CARRIER_PHASE_LSB     = 1632;
+static const int SIM_WAVE_REQ_CARRIER_CONTROL_LSB   = 1664;
+static const int SIM_WAVE_REQ_CARRIER_FRACTION_LSB  = 1664;
+static const int SIM_WAVE_REQ_CARRIER_MASK_LSB      = 1680;
+static const int SIM_WAVE_REQ_CARRIER_OFFSET_LSB    = 1696;
+static const int SIM_WAVE_REQ_ADJACENT_PHASE_LSB    = 1728;
+static const int SIM_WAVE_REQ_ADJACENT_FRACTION_LSB = 1760;
+static const int SIM_WAVE_REQ_ADJACENT_OFFSET_LSB   = 1792;
+static const int SIM_WAVE_REQ_BITS                  = 1824; // 228 bytes on AXIS
 
 // Response beat: one converted frame.
 static const int SIM_WAVE_RSP_SAMPLE_LSB     = 0;    // [255:0]   8 x s24 in s32
