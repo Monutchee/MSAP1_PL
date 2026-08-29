@@ -33,7 +33,7 @@ set vhdl2008_sources [list \
     [file join $design_dir MeterCommon metering_pkg.vhd] \
     [file join $design_dir MeterCommon grid_timing_pkg.vhd] \
     [file join $design_dir MeterCommon measurement_record_bus_pkg.vhd] \
-    [file join $design_dir MeterProcessing meter_r5_m18_pkg.vhd] \
+    [file join $design_dir MeterProcessing meter_r5_power_quality_protocol_pkg.vhd] \
     [file join $design_dir Ad7771Capture ad7771_receiver.vhd] \
     [file join $design_dir Ad7771Capture ad7771_axi_regs.vhd] \
     [file join $design_dir Ad7771Capture ad7771_dclk_meter.vhd] \
@@ -56,6 +56,7 @@ set vhdl2008_sources [list \
     [file join $design_dir MeterProcessing meter_axis_packet_arbiter_5to1.vhd] \
     [file join $design_dir MeterProcessing meter_r5_aggregation_export.vhd] \
     [file join $design_dir MeterProcessing meter_flicker_hls_shim.vhd] \
+    [file join $design_dir MeterProcessing meter_mains_signal_hls_shim.vhd] \
     [file join $design_dir MeterCore adc_simulator_pkg.vhd] \
     [file join $design_dir MeterCore adc_simulator.vhd] \
     [file join $design_dir MeterCore adc_source_mux.vhd] \

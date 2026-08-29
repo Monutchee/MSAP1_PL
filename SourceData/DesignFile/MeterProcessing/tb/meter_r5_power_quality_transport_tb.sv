@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 
-module meter_r5_m18_transport_tb;
+module meter_r5_power_quality_transport_tb;
   localparam int PAYLOAD_WORDS = 4;
   localparam int FRAME_WORDS = 4 + PAYLOAD_WORDS + 1;
   localparam logic [31:0] MAGIC = 32'h3145_5150;
@@ -240,7 +240,7 @@ module meter_r5_m18_transport_tb;
       end
       begin
         repeat (2000) @(posedge clock);
-        $fatal(1, "timed out waiting for M18 transport outputs");
+        $fatal(1, "timed out waiting for power-quality transport outputs");
       end
     join_any
     disable fork;
@@ -250,7 +250,7 @@ module meter_r5_m18_transport_tb;
     verify_packet(1, 1);
     if (packet_transmitted !== 2)
       $fatal(1, "packetizer transmitted counter mismatch");
-    $display("PASS: meter_r5_m18_transport_tb (CRC/drop/stall/fairness/no-interleave)");
+    $display("PASS: meter_r5_power_quality_transport_tb (CRC/drop/stall/fairness/no-interleave)");
     $finish;
   end
 endmodule

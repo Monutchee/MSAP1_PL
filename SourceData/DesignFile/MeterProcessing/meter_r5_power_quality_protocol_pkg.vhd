@@ -1,10 +1,11 @@
 library ieee;
 use ieee.std_logic_1164.all;
 
--- Exact co-release M18 private packets. All use the AGG1/HRM1 four-word
--- header and CRC32C convention and are arbitrated only at TLAST boundaries.
-package meter_r5_m18_pkg is
-  -- Fixed RPMsg-v9 PL-facing configuration image. R5C0 writes this image
+-- Exact co-release power-quality packets between MeterCore and R5C1. All use
+-- the AGG1/HRM1 four-word header and CRC32C convention and are arbitrated only
+-- at TLAST boundaries.
+package meter_r5_power_quality_protocol_pkg is
+  -- Fixed RPMsg-v9 PL-facing power-quality configuration image. R5C0 writes it
   -- through the processing block's indexed F4/F8 window before toggling the
   -- shared APPLY bit. Engines sample it only on APPLY, so no measurement can
   -- observe a partially staged profile.
@@ -102,7 +103,27 @@ package meter_r5_m18_pkg is
   constant R5_FLK_CLASSIFIER_CHUNKS      : positive := 35;
   constant R5_FLK_KIND_LIVE              : natural := 0;
   constant R5_FLK_KIND_HISTOGRAM         : natural := 1;
+
+  -- MCS1 payload words. Frequencies and bandwidth are integer millihertz;
+  -- per-phase carrier and adjacent-background magnitudes are integer
+  -- microvolts. Phase validity occupies bits 0..2 and detections bits 8..10.
+  constant R5_MCS_SEQUENCE_WORD          : natural := 0;
+  constant R5_MCS_GENERATION_WORD        : natural := 1;
+  constant R5_MCS_SAMPLE_RATE_WORD       : natural := 2;
+  constant R5_MCS_STATUS_WORD            : natural := 3;
+  constant R5_MCS_PHASES_WORD            : natural := 4;
+  constant R5_MCS_CONFIGURED_WORD        : natural := 5;
+  constant R5_MCS_MEASURED_WORD          : natural := 6;
+  constant R5_MCS_BANDWIDTH_WORD         : natural := 7;
+  constant R5_MCS_OBSERVATION_WORD       : natural := 8;
+  constant R5_MCS_FIRST_SAMPLE_LOW_WORD  : natural := 9;
+  constant R5_MCS_FIRST_SAMPLE_HIGH_WORD : natural := 10;
+  constant R5_MCS_LAST_SAMPLE_LOW_WORD   : natural := 11;
+  constant R5_MCS_LAST_SAMPLE_HIGH_WORD  : natural := 12;
+  constant R5_MCS_MAGNITUDE_BASE_WORD    : natural := 13;
+  constant R5_MCS_BACKGROUND_BASE_WORD   : natural := 16;
+  constant R5_MCS_THRESHOLD_WORD         : natural := 19;
 end package;
 
-package body meter_r5_m18_pkg is
+package body meter_r5_power_quality_protocol_pkg is
 end package body;

@@ -29,6 +29,11 @@ set hls_flicker_hdl [file join $project_root SourceData HLS_DesignFile \
 if {![file isdirectory $hls_flicker_hdl]} {
   error "missing $hls_flicker_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
 }
+set hls_mains_signal_hdl [file join $project_root SourceData HLS_DesignFile \
+  ip_repo MainsSignalEngine hdl verilog]
+if {![file isdirectory $hls_mains_signal_hdl]} {
+  error "missing $hls_mains_signal_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
+}
 set hls_scyc_hdl [file join $project_root SourceData HLS_DesignFile \
   ip_repo SingleCycleEngine hdl verilog]
 if {![file isdirectory $hls_scyc_hdl]} {
@@ -55,7 +60,7 @@ read_vhdl -vhdl2008 [file join $design_root MeterCommon metering_pkg.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCommon grid_timing_pkg.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCommon pq_event_pkg.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterCommon measurement_record_bus_pkg.vhd]
-read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_r5_m18_pkg.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_r5_power_quality_protocol_pkg.vhd]
 read_vhdl -vhdl2008 [file join $design_root Ad7771Capture ad7771_receiver.vhd]
 read_vhdl -vhdl2008 [file join $design_root Ad7771Capture ad7771_axi_regs.vhd]
 read_vhdl -vhdl2008 [file join $design_root Ad7771Capture ad7771_dclk_meter.vhd]
@@ -80,17 +85,20 @@ read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_r5_aggregation
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_sliding_rms_hls_shim.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_flicker_hls_shim.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_mains_signal_hls_shim.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_spectral_conditioner.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_spectral_frontend.vhd]
 read_verilog [lsort [glob -directory $hls_scyc_hdl *.v]]
 read_verilog [lsort [glob -directory $hls_pq_hdl *.v]]
 read_verilog [lsort [glob -directory $hls_flicker_hdl *.v]]
+read_verilog [lsort [glob -directory $hls_mains_signal_hdl *.v]]
 read_verilog [lsort [glob -directory $hls_sim_wave_hdl *.v]]
 read_verilog [lsort [glob -directory $hls_harmonic_hdl *.v]]
 # Bind the IP-customization module names over the packaged RTL for this
 # non-project flow (the project gets the same modules from the XCIs).
 read_verilog [file join $design_root MeterProcessing tb hls_sliding_one_cycle_rms_engine_ip.v]
 read_verilog [file join $design_root MeterProcessing tb hls_flicker_engine_ip.v]
+read_verilog [file join $design_root MeterProcessing tb hls_mains_signal_engine_ip.v]
 read_verilog [file join $design_root MeterProcessing tb hls_single_cycle_engine_ip.v]
 read_verilog [file join $design_root MeterProcessing tb hls_harmonic_engine_ip.v]
 read_verilog [file join $design_root MeterCore tb hls_sim_wave_engine_ip.v]

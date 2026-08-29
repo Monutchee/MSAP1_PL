@@ -6,11 +6,11 @@ library work;
 use work.metering_pkg.all;
 use work.meter_r5_power_quality_protocol_pkg.all;
 
--- Nonblocking converted-frame observer for the M18 IEC flickermeter. The HLS
--- engine has no ownership of the acquisition ready path. A small elastic FIFO
--- absorbs its 2 kSPS filter work and every overflow is retained as a fault
--- counter; the next surviving sample-index gap invalidates the interval.
-entity meter_flicker_hls_shim is
+-- Nonblocking converted-frame observer for the M18 mains-signalling engine.
+-- The estimator never owns the acquisition ready path. Its elastic FIFO
+-- records any local overload as a sample-index gap in the next surviving
+-- frame, which invalidates that 200 ms observation in the HLS core.
+entity meter_mains_signal_hls_shim is
   port (
     aclk    : in std_logic;
     aresetn : in std_logic;
@@ -22,54 +22,53 @@ entity meter_flicker_hls_shim is
 
     cycle_locked_i        : in std_logic;
     cycle_fallback_i      : in std_logic;
-    nominal_hz_i          : in std_logic_vector(7 downto 0);
     shadow_sample_rate_i  : in std_logic_vector(31 downto 0);
     m18_shadow_words_i    : in m18_config_words_t;
     config_apply_toggle_i : in std_logic;
 
-    m_axis_flk_tdata  : out std_logic_vector(31 downto 0);
-    m_axis_flk_tkeep  : out std_logic_vector(3 downto 0);
-    m_axis_flk_tvalid : out std_logic;
-    m_axis_flk_tready : in std_logic;
-    m_axis_flk_tlast  : out std_logic;
+    m_axis_mcs_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_mcs_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_mcs_tvalid : out std_logic;
+    m_axis_mcs_tready : in std_logic;
+    m_axis_mcs_tlast  : out std_logic;
 
     drop_count_o : out std_logic_vector(31 downto 0)
   );
 end entity;
 
-architecture rtl of meter_flicker_hls_shim is
-  constant IN_SAMPLES_LSB      : natural := 0;
-  constant IN_FRAME_MASK_LSB   : natural := 384;
-  constant IN_MALFORMED_BIT    : natural := 392;
-  constant IN_APPLY_BIT        : natural := 393;
-  constant IN_ENABLE_BIT       : natural := 394;
-  constant IN_LOCKED_BIT       : natural := 395;
-  constant IN_FALLBACK_BIT     : natural := 396;
-  constant IN_GENERATION_LSB   : natural := 400;
-  constant IN_SAMPLE_RATE_LSB  : natural := 432;
-  constant IN_PHASE_MASK_LSB   : natural := 464;
-  constant IN_LAMP_VOLTAGE_LSB : natural := 472;
-  constant IN_NOMINAL_HZ_LSB   : natural := 488;
-  constant IN_LIVE_MS_LSB      : natural := 496;
-  constant IN_PST_SECONDS_LSB  : natural := 528;
-  constant IN_REFERENCE_UV_LSB : natural := 560;
-  constant IN_SAMPLE_INDEX_LSB : natural := 592;
-  constant BEAT_BITS           : natural := 656;
-  constant FIFO_DEPTH          : natural := 8;
+architecture rtl of meter_mains_signal_hls_shim is
+  constant IN_SAMPLES_LSB       : natural := 0;
+  constant IN_FRAME_MASK_LSB    : natural := 384;
+  constant IN_MALFORMED_BIT     : natural := 392;
+  constant IN_APPLY_BIT         : natural := 393;
+  constant IN_ENABLE_BIT        : natural := 394;
+  constant IN_LOCKED_BIT        : natural := 395;
+  constant IN_FALLBACK_BIT      : natural := 396;
+  constant IN_GENERATION_LSB    : natural := 400;
+  constant IN_SAMPLE_RATE_LSB   : natural := 432;
+  constant IN_PHASE_MASK_LSB    : natural := 464;
+  constant IN_CARRIER_LSB       : natural := 472;
+  constant IN_BANDWIDTH_LSB     : natural := 504;
+  constant IN_OBSERVATION_LSB   : natural := 536;
+  constant IN_THRESHOLD_LSB     : natural := 568;
+  constant IN_REFERENCE_UV_LSB  : natural := 600;
+  constant IN_SAMPLE_INDEX_LSB  : natural := 632;
+  constant BEAT_BITS            : natural := 696;
+  constant FIFO_DEPTH           : natural := 8;
 
-  component hls_flicker_engine_ip is
+  component hls_mains_signal_engine_ip is
     port (
       ap_clk         : in std_logic;
       ap_rst_n       : in std_logic;
       s_frame_TDATA  : in std_logic_vector(BEAT_BITS - 1 downto 0);
       s_frame_TVALID : in std_logic;
       s_frame_TREADY : out std_logic;
-      m_flk_TDATA    : out std_logic_vector(31 downto 0);
-      m_flk_TVALID   : out std_logic;
-      m_flk_TREADY   : in std_logic;
-      m_flk_TKEEP    : out std_logic_vector(3 downto 0);
-      m_flk_TSTRB    : out std_logic_vector(3 downto 0);
-      m_flk_TLAST    : out std_logic_vector(0 downto 0)
+      m_mcs_TDATA    : out std_logic_vector(31 downto 0);
+      m_mcs_TVALID   : out std_logic;
+      m_mcs_TREADY   : in std_logic;
+      m_mcs_TKEEP    : out std_logic_vector(3 downto 0);
+      m_mcs_TSTRB    : out std_logic_vector(3 downto 0);
+      m_mcs_TLAST    : out std_logic_vector(0 downto 0)
     );
   end component;
 
@@ -94,22 +93,22 @@ architecture rtl of meter_flicker_hls_shim is
   signal staged_index     : std_logic_vector(63 downto 0) := (others => '0');
   signal staged_malformed : std_logic := '0';
 begin
-  core : hls_flicker_engine_ip
+  core : hls_mains_signal_engine_ip
     port map (
       ap_clk => aclk,
       ap_rst_n => aresetn,
       s_frame_TDATA => fifo_mem(rd_ptr),
       s_frame_TVALID => head_valid,
       s_frame_TREADY => in_ready,
-      m_flk_TDATA => m_axis_flk_tdata,
-      m_flk_TVALID => m_axis_flk_tvalid,
-      m_flk_TREADY => m_axis_flk_tready,
-      m_flk_TKEEP => m_axis_flk_tkeep,
-      m_flk_TSTRB => tstrb_nc,
-      m_flk_TLAST => tlast_vec
+      m_mcs_TDATA => m_axis_mcs_tdata,
+      m_mcs_TVALID => m_axis_mcs_tvalid,
+      m_mcs_TREADY => m_axis_mcs_tready,
+      m_mcs_TKEEP => m_axis_mcs_tkeep,
+      m_mcs_TSTRB => tstrb_nc,
+      m_mcs_TLAST => tlast_vec
     );
 
-  m_axis_flk_tlast <= tlast_vec(0);
+  m_axis_mcs_tlast <= tlast_vec(0);
   head_valid <= '1' when fill_level /= 0 else '0';
   drop_count_o <= std_logic_vector(drop_count);
 
@@ -144,7 +143,7 @@ begin
             beat(IN_MALFORMED_BIT) := staged_malformed;
             beat(IN_APPLY_BIT) := config_apply_toggle_i;
             beat(IN_ENABLE_BIT) :=
-              m18_shadow_words_i(M18_CONFIG_FLICKER_FLAGS_WORD)
+              m18_shadow_words_i(M18_CONFIG_MAINS_FLAGS_WORD)
                 (M18_ENGINE_ENABLED_BIT);
             beat(IN_LOCKED_BIT) := cycle_locked_i;
             beat(IN_FALLBACK_BIT) := cycle_fallback_i;
@@ -153,15 +152,15 @@ begin
             beat(IN_SAMPLE_RATE_LSB + 31 downto IN_SAMPLE_RATE_LSB) :=
               shadow_sample_rate_i;
             beat(IN_PHASE_MASK_LSB + 7 downto IN_PHASE_MASK_LSB) :=
-              m18_shadow_words_i(M18_CONFIG_FLICKER_PHASE_MASK_WORD)(7 downto 0);
-            beat(IN_LAMP_VOLTAGE_LSB + 15 downto IN_LAMP_VOLTAGE_LSB) :=
-              m18_shadow_words_i(M18_CONFIG_FLICKER_LAMP_WORD)(15 downto 0);
-            beat(IN_NOMINAL_HZ_LSB + 7 downto IN_NOMINAL_HZ_LSB) :=
-              nominal_hz_i;
-            beat(IN_LIVE_MS_LSB + 31 downto IN_LIVE_MS_LSB) :=
-              m18_shadow_words_i(M18_CONFIG_FLICKER_LIVE_MS_WORD);
-            beat(IN_PST_SECONDS_LSB + 31 downto IN_PST_SECONDS_LSB) :=
-              m18_shadow_words_i(M18_CONFIG_FLICKER_PST_SECONDS_WORD);
+              m18_shadow_words_i(M18_CONFIG_MAINS_PHASE_MASK_WORD)(7 downto 0);
+            beat(IN_CARRIER_LSB + 31 downto IN_CARRIER_LSB) :=
+              m18_shadow_words_i(M18_CONFIG_MAINS_CARRIER_WORD);
+            beat(IN_BANDWIDTH_LSB + 31 downto IN_BANDWIDTH_LSB) :=
+              m18_shadow_words_i(M18_CONFIG_MAINS_BANDWIDTH_WORD);
+            beat(IN_OBSERVATION_LSB + 31 downto IN_OBSERVATION_LSB) :=
+              m18_shadow_words_i(M18_CONFIG_MAINS_OBSERVATION_WORD);
+            beat(IN_THRESHOLD_LSB + 31 downto IN_THRESHOLD_LSB) :=
+              m18_shadow_words_i(M18_CONFIG_MAINS_THRESHOLD_WORD);
             beat(IN_REFERENCE_UV_LSB + 31 downto IN_REFERENCE_UV_LSB) :=
               m18_shadow_words_i(M18_CONFIG_REFERENCE_VOLTAGE_WORD);
             beat(IN_SAMPLE_INDEX_LSB + 63 downto IN_SAMPLE_INDEX_LSB) :=

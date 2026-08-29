@@ -8,7 +8,7 @@ use work.grid_timing_pkg.all;
 use work.pq_event_pkg.all;
 use work.measurement_record_bus_pkg.all;
 use work.metering_pkg.all;
-use work.meter_r5_m18_pkg.all;
+use work.meter_r5_power_quality_protocol_pkg.all;
 
 entity meter_processing_axi_regs is
   port (

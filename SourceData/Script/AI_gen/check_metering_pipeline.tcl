@@ -45,7 +45,7 @@ set common_vhdl [list \
   [file join $design_root MeterCommon grid_timing_pkg.vhd] \
   [file join $design_root MeterCommon pq_event_pkg.vhd] \
   [file join $design_root MeterCommon measurement_record_bus_pkg.vhd] \
-  [file join $design_root MeterProcessing meter_r5_m18_pkg.vhd] \
+  [file join $design_root MeterProcessing meter_r5_power_quality_protocol_pkg.vhd] \
   [file join $design_root AdcConversion adc_conversion_axi_regs.vhd] \
   [file join $design_root AdcConversion adc_conversion.vhd] \
   [file join $design_root MeterProcessing meter_frequency_pkg.vhd] \
