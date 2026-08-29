@@ -22,7 +22,13 @@ module hls_sliding_one_cycle_rms_engine_ip (
     input          m_axis_TREADY,
     output [3:0]   m_axis_TKEEP,
     output [3:0]   m_axis_TSTRB,
-    output [0:0]   m_axis_TLAST
+    output [0:0]   m_axis_TLAST,
+    output [31:0]  m_pqe_TDATA,
+    output         m_pqe_TVALID,
+    input          m_pqe_TREADY,
+    output [3:0]   m_pqe_TKEEP,
+    output [3:0]   m_pqe_TSTRB,
+    output [0:0]   m_pqe_TLAST
 );
   hls_sliding_one_cycle_rms_engine core (
       .ap_clk(ap_clk),
@@ -35,6 +41,12 @@ module hls_sliding_one_cycle_rms_engine_ip (
       .m_axis_TREADY(m_axis_TREADY),
       .m_axis_TKEEP(m_axis_TKEEP),
       .m_axis_TSTRB(m_axis_TSTRB),
-      .m_axis_TLAST(m_axis_TLAST)
+      .m_axis_TLAST(m_axis_TLAST),
+      .m_pqe_TDATA(m_pqe_TDATA),
+      .m_pqe_TVALID(m_pqe_TVALID),
+      .m_pqe_TREADY(m_pqe_TREADY),
+      .m_pqe_TKEEP(m_pqe_TKEEP),
+      .m_pqe_TSTRB(m_pqe_TSTRB),
+      .m_pqe_TLAST(m_pqe_TLAST)
   );
 endmodule

@@ -98,6 +98,7 @@ static const int HALF_SAMPLES = 8;  // samples per half cycle (bench cadence)
 struct Bench {
   hls::stream<pq_input_beat_t> s_frame{"s_frame"};
   hls::stream<record_axis_t> m_axis{"m_axis"};
+  hls::stream<record_axis_t> m_pqe{"m_pqe"};
   bool apply_level = false;
   unsigned generation = 1;
   unsigned sample_rate = 32000;
@@ -110,6 +111,24 @@ struct Bench {
   unsigned sag = 9000, swell = 11000, interrupt = 1000, hysteresis = 200;
   unsigned long long sample_index = 1000;
   GoldenWindow golden;
+  unsigned summary_count = 0;
+  ap_uint<32> last_summary[PQE_PAYLOAD_WORDS] = {};
+
+  void drain_summaries() {
+    while (!m_pqe.empty()) {
+      for (int word = 0; word < PQE_PAYLOAD_WORDS; ++word) {
+        CHECK(!m_pqe.empty(), "PQE summary has all 64 beats");
+        if (m_pqe.empty()) return;
+        const record_axis_t output = m_pqe.read();
+        last_summary[word] = output.data;
+        CHECK(output.keep == MREC_KEEP_ALL && output.strb == MREC_KEEP_ALL,
+              "PQE summary beat %d has full byte qualifiers", word);
+        CHECK((output.last == 1) == (word == PQE_PAYLOAD_WORDS - 1),
+              "PQE summary TLAST on beat 63 only (beat %d)", word);
+      }
+      ++summary_count;
+    }
+  }
 
   void send(const long long value[PQ_LANES], bool half,
             bool apply_toggles = false) {
@@ -138,7 +157,8 @@ struct Bench {
     beat.range(PQIN_INTERRUPT_LSB + 15, PQIN_INTERRUPT_LSB) = interrupt;
     beat.range(PQIN_HYSTERESIS_LSB + 15, PQIN_HYSTERESIS_LSB) = hysteresis;
     s_frame.write(beat);
-    hls_sliding_one_cycle_rms_engine(s_frame, m_axis);
+    hls_sliding_one_cycle_rms_engine(s_frame, m_axis, m_pqe);
+    drain_summaries();
     if (!malformed && enable) {
       golden.sample(value);
       if (half) golden.close_half();
@@ -232,6 +252,45 @@ int main() {
               (unsigned long long)nominal,
           "golden Urms of a constant is the constant (got %llu)",
           (unsigned long long)b.golden.urms[0]);
+    CHECK(b.summary_count == 1, "one PQE1 payload per qualified half-cycle");
+    CHECK(b.last_summary[PQE_SEQUENCE_WORD] == 1,
+          "first PQE1 payload sequence is one");
+    CHECK(b.last_summary[PQE_GENERATION_WORD] == b.generation &&
+              b.last_summary[PQE_SAMPLE_RATE_WORD] == b.sample_rate,
+          "PQE1 echoes generation and rate");
+    CHECK(b.last_summary[PQE_VALID_PHASES_WORD] == 0x707,
+          "PQE1 maps A/B/C voltage and current validity");
+    const unsigned long long summary_first =
+        (unsigned long long)b.last_summary[PQE_FIRST_SAMPLE_LOW_WORD] |
+        ((unsigned long long)b.last_summary[PQE_FIRST_SAMPLE_HIGH_WORD] << 32);
+    const unsigned long long summary_last =
+        (unsigned long long)b.last_summary[PQE_LAST_SAMPLE_LOW_WORD] |
+        ((unsigned long long)b.last_summary[PQE_LAST_SAMPLE_HIGH_WORD] << 32);
+    CHECK(summary_last - summary_first + 1 ==
+              (unsigned)b.last_summary[PQE_WINDOW_SAMPLES_WORD],
+          "PQE1 sample anchors match the exact one-cycle sample count");
+    CHECK((b.last_summary[PQE_STATUS_WORD] &
+              (1u << PQE_STATUS_DISCONTINUITY_BIT)) != 0,
+          "first PQE1 payload is marked discontinuous");
+    for (int phase = 0; phase < PQ_PHASES; ++phase) {
+      const unsigned long long urms =
+          (unsigned long long)b.last_summary[
+              PQE_URMS_Q16_BASE_WORD + phase * 2] |
+          ((unsigned long long)b.last_summary[
+              PQE_URMS_Q16_BASE_WORD + phase * 2 + 1] << 32);
+      const unsigned long long irms =
+          (unsigned long long)b.last_summary[
+              PQE_IRMS_Q16_BASE_WORD + phase * 2] |
+          ((unsigned long long)b.last_summary[
+              PQE_IRMS_Q16_BASE_WORD + phase * 2 + 1] << 32);
+      CHECK(urms == b.golden.urms[phase],
+            "PQE1 phase %d Urms Q16 is byte exact", phase);
+      CHECK(irms == b.golden.irms[phase],
+            "PQE1 phase %d Irms Q16 is byte exact", phase);
+    }
+    for (int word = 30; word < PQE_PAYLOAD_WORDS; ++word)
+      CHECK(b.last_summary[word] == 0,
+            "PQE1 reserved word %d is zero", word);
   }
 
   // --- Periodic heartbeat after PQ_PERIODIC_UPDATES updates. -------------

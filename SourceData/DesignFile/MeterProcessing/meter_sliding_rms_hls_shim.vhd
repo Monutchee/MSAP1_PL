@@ -59,6 +59,14 @@ entity meter_sliding_rms_hls_shim is
     m_axis_pq_tready : in  std_logic;
     m_axis_pq_tlast  : out std_logic;
 
+    -- M18 half-cycle sufficient-statistic payload. The fixed packet exporter
+    -- adds the PQE1 header and CRC32C for R5C1.
+    m_axis_pqe_tdata  : out std_logic_vector(31 downto 0);
+    m_axis_pqe_tkeep  : out std_logic_vector(3 downto 0);
+    m_axis_pqe_tvalid : out std_logic;
+    m_axis_pqe_tready : in  std_logic;
+    m_axis_pqe_tlast  : out std_logic;
+
     -- Frames dropped because the engine was still busy (saturating).
     drop_count_o : out std_logic_vector(31 downto 0)
   );
@@ -100,7 +108,13 @@ architecture rtl of meter_sliding_rms_hls_shim is
       m_axis_TREADY  : in  std_logic;
       m_axis_TKEEP   : out std_logic_vector(3 downto 0);
       m_axis_TSTRB   : out std_logic_vector(3 downto 0);
-      m_axis_TLAST   : out std_logic_vector(0 downto 0)
+      m_axis_TLAST   : out std_logic_vector(0 downto 0);
+      m_pqe_TDATA    : out std_logic_vector(31 downto 0);
+      m_pqe_TVALID   : out std_logic;
+      m_pqe_TREADY   : in  std_logic;
+      m_pqe_TKEEP    : out std_logic_vector(3 downto 0);
+      m_pqe_TSTRB    : out std_logic_vector(3 downto 0);
+      m_pqe_TLAST    : out std_logic_vector(0 downto 0)
     );
   end component;
 
@@ -120,8 +134,10 @@ architecture rtl of meter_sliding_rms_hls_shim is
   signal head_valid : std_logic;
   signal in_ready   : std_logic;
   signal tlast_vec  : std_logic_vector(0 downto 0);
+  signal pqe_tlast_vec : std_logic_vector(0 downto 0);
   -- Records are never sparse: TSTRB duplicates TKEEP and terminates here.
   signal tstrb_nc   : std_logic_vector(3 downto 0);
+  signal pqe_tstrb_nc : std_logic_vector(3 downto 0);
 
   -- One-cycle frame stage: payload captured with the frame, the strobes
   -- and configuration sampled at the push, one cycle later, so
@@ -145,9 +161,16 @@ begin
       m_axis_TREADY  => m_axis_pq_tready,
       m_axis_TKEEP   => m_axis_pq_tkeep,
       m_axis_TSTRB   => tstrb_nc,
-      m_axis_TLAST   => tlast_vec
+      m_axis_TLAST   => tlast_vec,
+      m_pqe_TDATA    => m_axis_pqe_tdata,
+      m_pqe_TVALID   => m_axis_pqe_tvalid,
+      m_pqe_TREADY   => m_axis_pqe_tready,
+      m_pqe_TKEEP    => m_axis_pqe_tkeep,
+      m_pqe_TSTRB    => pqe_tstrb_nc,
+      m_pqe_TLAST    => pqe_tlast_vec
     );
   m_axis_pq_tlast <= tlast_vec(0);
+  m_axis_pqe_tlast <= pqe_tlast_vec(0);
   head_valid <= '1' when fill_level /= 0 else '0';
   drop_count_o <= std_logic_vector(drop_count);
 

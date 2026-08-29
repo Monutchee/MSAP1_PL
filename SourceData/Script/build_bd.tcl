@@ -35,6 +35,7 @@ pl_build_open_project
 # invocation leaves module-reference OOC synthesis with an incomplete source
 # closure.
 source [file join $pl_build_script_dir register_m16_harmonic_sources.tcl]
+source [file join $pl_build_script_dir register_m18_sources.tcl]
 
 set bd [pl_build_block_design]
 puts "PL_BUILD_STAGE=bd"
