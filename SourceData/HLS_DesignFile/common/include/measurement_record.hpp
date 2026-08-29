@@ -42,12 +42,17 @@ static const int MREC_BYTES = 256;
 // meter_record.hpp so PL and software can never race for a format word:
 //   0x0001 basic (MTR1)      0x0004 demand
 //   0x0002 aggregate (MTR2)  0x0005 harmonics
-//   0x0003 energy            0x0006 PQ event
+//   0x0003 energy            0x0006 PQ event lifecycle
 //   0x0007 power             0x000A single-cycle diagnostic
-//   0x0008 phasor            0x000B sliding RMS / PQ trigger
-//   0x0009 unbalance         0x000C..0x000F 10-min/2-h/flicker/mains
-//   0x0010 aggregate power   0x0012 aggregate unbalance
-//   0x0011 aggregate phasor
+//   0x0008 phasor            0x000B sliding RMS / PQ trigger diagnostic
+//   0x0009 unbalance         0x000C ten-minute
+//   0x000D two-hour          0x000E flicker
+//   0x000F mains signalling  0x0010 aggregate power
+//   0x0011 aggregate phasor  0x0012 aggregate unbalance
+//   0x0013..0x0018 completed long-period companion records
+//   0x001F aggregate harmonics
+//   0x0020..0x0023 open ten-minute preview family
+//   0x0024..0x0027 open two-hour preview family
 // ---------------------------------------------------------------------------
 // Plain integer constants so they can parameterize serialize_record<>.
 static const uint32_t MREC_MAGIC = 0x3152544Du;  // ASCII "MTR1", little-endian
@@ -177,15 +182,18 @@ static const uint32_t MREC_FORMAT_TWO_HOUR_UNBAL_V2  = 0x00180002u;
 // accumulator images, not normative IEC interval results. Their layouts are
 // identical to the completed long-period families so consumers can share the
 // decoder, while the distinct format IDs and status flags prevent an open
-// result from replacing or masquerading as a completed result.
-static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_V1        = 0x000E0001u;
-static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_POWER_V1  = 0x00190001u;
-static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_PHASOR_V2 = 0x001A0002u;
-static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_UNBAL_V2  = 0x001B0002u;
-static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_V1        = 0x000F0001u;
-static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_POWER_V1  = 0x001C0001u;
-static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_PHASOR_V2 = 0x001D0002u;
-static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_UNBAL_V2  = 0x001E0002u;
+// result from replacing or masquerading as a completed result. M18 moved the
+// pre-production IDs out of 0x000E/0x000F before those types were assigned to
+// flicker and mains signalling. No compatibility decoder is provided for the
+// old volatile preview IDs.
+static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_V1        = 0x00200001u;
+static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_POWER_V1  = 0x00210001u;
+static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_PHASOR_V2 = 0x00220002u;
+static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_UNBAL_V2  = 0x00230002u;
+static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_V1        = 0x00240001u;
+static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_POWER_V1  = 0x00250001u;
+static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_PHASOR_V2 = 0x00260002u;
+static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_UNBAL_V2  = 0x00270002u;
 // HARMONIC v1 (M16): one complete 10/12-cycle spectrum is a family of
 // channel/chunk records with one shared sequence and common envelope.  Each
 // record carries up to 24 consecutive orders as packed 64-bit entries.  The
@@ -205,6 +213,14 @@ static const uint32_t MREC_FORMAT_HARMONIC_AGG_V1 = 0x001F0001u;
 // the polyphase begin/end rule, severity, and residual/peak selection —
 // are normative in metering_types.hpp.
 static const uint32_t MREC_FORMAT_PQEVT_V1 = 0x000B0001u;
+
+// M18 public record allocations. These constants reserve the final S02
+// record identities before the payload contracts and producers are enabled.
+// PQ_EVENT is the durable R5C1 lifecycle product; PQEVT above remains the
+// low-level PL Urms(1/2) diagnostic and trigger record on S01.
+static const uint32_t MREC_FORMAT_PQ_EVENT_V1    = 0x00060001u;
+static const uint32_t MREC_FORMAT_FLICKER_V1     = 0x000E0001u;
+static const uint32_t MREC_FORMAT_MAINS_SIGNAL_V1 = 0x000F0001u;
 
 // ---------------------------------------------------------------------------
 // Common envelope — words 0..12 mean the same thing in EVERY format, so

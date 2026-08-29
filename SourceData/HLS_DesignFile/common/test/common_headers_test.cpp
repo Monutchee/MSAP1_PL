@@ -40,6 +40,29 @@ static_assert(AGGB_SUM_LSB == 512 && AGGB_SQUARE_LSB == 1408 &&
 static_assert(MREC_WORDS == 64 && MREC_BYTES == 256, "DMA framing contract");
 static_assert(MREC_WORDS * 4 == MREC_BYTES, "words/bytes coherence");
 
+// M18 record allocation: pin the M15 preview migration and the three public
+// M18 identities before any new producer is allowed to use them.
+static_assert(MREC_FORMAT_OPEN_TEN_MINUTE_V1 == 0x00200001u &&
+                  MREC_FORMAT_OPEN_TEN_MINUTE_POWER_V1 == 0x00210001u &&
+                  MREC_FORMAT_OPEN_TEN_MINUTE_PHASOR_V2 == 0x00220002u &&
+                  MREC_FORMAT_OPEN_TEN_MINUTE_UNBAL_V2 == 0x00230002u,
+              "M18 open ten-minute record allocation");
+static_assert(MREC_FORMAT_OPEN_TWO_HOUR_V1 == 0x00240001u &&
+                  MREC_FORMAT_OPEN_TWO_HOUR_POWER_V1 == 0x00250001u &&
+                  MREC_FORMAT_OPEN_TWO_HOUR_PHASOR_V2 == 0x00260002u &&
+                  MREC_FORMAT_OPEN_TWO_HOUR_UNBAL_V2 == 0x00270002u,
+              "M18 open two-hour record allocation");
+static_assert(MREC_FORMAT_PQ_EVENT_V1 == 0x00060001u &&
+                  MREC_FORMAT_FLICKER_V1 == 0x000E0001u &&
+                  MREC_FORMAT_MAINS_SIGNAL_V1 == 0x000F0001u,
+              "M18 public record allocation");
+static_assert(MREC_FORMAT_PQ_EVENT_V1 != MREC_FORMAT_PQEVT_V1 &&
+                  MREC_FORMAT_FLICKER_V1 !=
+                      MREC_FORMAT_OPEN_TEN_MINUTE_V1 &&
+                  MREC_FORMAT_MAINS_SIGNAL_V1 !=
+                      MREC_FORMAT_OPEN_TWO_HOUR_V1,
+              "M18 record identities must not collide with diagnostics or previews");
+
 // Interior maps must stay inside the record and clear of each other.
 static_assert(MTR1_CH_BASE_WORD + MET_CHANNEL_LANES * MTR1_CH_STRIDE_WORDS ==
                   MTR1_FREQUENCY_VALUE_WORD,
