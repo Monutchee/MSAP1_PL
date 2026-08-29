@@ -15,6 +15,8 @@
 
 #include <ap_int.h>
 
+#include <cstdint>
+
 // Shared metering geometry and scalar types for every MSAP1 HLS engine.
 //
 // This header is the single C++ definition of quantities that used to be
@@ -169,6 +171,28 @@ static const int MET_NATURE_UNDEFINED = 0;  // S1 = 0, nothing to classify
 static const int MET_NATURE_UNITY     = 1;  // Q1 = 0 exactly
 static const int MET_NATURE_LAGGING   = 2;  // Q1 > 0, inductive
 static const int MET_NATURE_LEADING   = 3;  // Q1 < 0, capacitive
+
+// Four-quadrant energy classification (M17).  Spell the enumerators out:
+// "Q1" already means fundamental reactive power throughout the metrology
+// contract and must never be overloaded to mean quadrant I.
+enum class EnergyQuadrant : std::uint8_t {
+  quadrant_i = 0,    // P >= 0, Q1 > 0: import, inductive/lagging
+  quadrant_ii = 1,   // P < 0,  Q1 > 0: export, inductive/lagging
+  quadrant_iii = 2,  // P < 0,  Q1 < 0: export, capacitive/leading
+  quadrant_iv = 3,   // P >= 0, Q1 < 0: import, capacitive/leading
+  none = 0xff,       // Q1 == 0: no reactive-energy contribution
+};
+
+constexpr inline EnergyQuadrant met_energy_quadrant(std::int64_t active_power,
+                                                    std::int64_t reactive_power_q1) {
+  if (reactive_power_q1 == 0) return EnergyQuadrant::none;
+  if (reactive_power_q1 > 0) {
+    return active_power < 0 ? EnergyQuadrant::quadrant_ii
+                            : EnergyQuadrant::quadrant_i;
+  }
+  return active_power < 0 ? EnergyQuadrant::quadrant_iii
+                          : EnergyQuadrant::quadrant_iv;
+}
 
 // ---------------------------------------------------------------------------
 // IEC 61000-4-30 block geometry.

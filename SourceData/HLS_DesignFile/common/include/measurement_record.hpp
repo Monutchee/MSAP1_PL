@@ -59,6 +59,19 @@ static const uint32_t MREC_FORMAT_SCYC_V4 = 0x000A0004u;  // single-cycle diagno
 // causes) and every emitted result is a whole cycle (partial windows
 // after reset/APPLY/abort are suppressed, not emitted).
 static const uint32_t MREC_FORMAT_SCYC_V5 = 0x000A0005u;  // single-cycle diagnostic
+// ENERGY v1 (M17): an atomic two-record family emitted by R5C1 after every
+// coherent BASIC/POWER/PHASOR/UNBAL family.  The summary part carries active
+// import/export and apparent energy; the quadrant part carries fundamental
+// reactive energy selected by the simultaneous P/Q1 signs.  Both parts are
+// volatile R5C1-session cumulative counters.  Linux persists authoritative
+// lifetime values and must publish nothing until both matching parts arrive.
+static const uint32_t MREC_FORMAT_ENERGY_V1 = 0x00030001u;
+// DEMAND v1 (M17): one R5C1 record for the configured active-demand profile.
+// Fixed mode closes on an aligned UTC ten-minute boundary. Sliding mode uses
+// a configurable 1/5/10/15/30-minute window and refreshes on every completed
+// 150/180-cycle aggregate (nominally three seconds). It carries signed active
+// demand plus volatile profile import/export peaks. Linux owns persistence.
+static const uint32_t MREC_FORMAT_DEMAND_V1 = 0x00040001u;
 // BASIC v4 (M7): the 10/12-cycle tier record emitted by
 // Agg10_12MeasurementEngine, which merges SingleCycleResults and retires
 // Mtr1Engine. Interior identical to MTR1-v3 for the envelope, timing
@@ -219,6 +232,76 @@ static const int MREC_PAYLOAD_WORD       = 16;
 
 // Common status bit (both formats today).
 static const int MREC_STATUS_ARITHMETIC_BIT = 0;  // any arithmetic overflow
+
+// ENERGY-v1 interior. Words 0..12 are the common envelope. Word 13 identifies
+// one member of the two-record family and carries a four-bit A/B/C/total
+// validity mask. Words 14/15 are the inclusive last-sample anchor. All values
+// are non-negative s64-compatible counters (saturated at INT64_MAX), low word
+// first. Metadata offsets are identical in both parts.
+static const int ENERGY_PART_SUMMARY = 0;
+static const int ENERGY_PART_QUADRANTS = 1;
+static const int ENERGY_PART_COUNT = 2;
+static const int ENERGY_HEADER_PART_LSB = 0;
+static const int ENERGY_HEADER_PART_COUNT_LSB = 2;
+static const int ENERGY_HEADER_FAMILY_COMPLETE_BIT = 4;
+static const int ENERGY_HEADER_VALID_LSB = 8;
+static const int ENERGY_LAST_SAMPLE_LOW_WORD = 14;
+static const int ENERGY_LAST_SAMPLE_HIGH_WORD = 15;
+static const int ENERGY_VALUE_COUNT = 4;  // A, B, C, algebraic total
+static const int ENERGY_VALUE_STRIDE = 2;
+static const int ENERGY_SUMMARY_IMPORT_BASE_WORD = 16;
+static const int ENERGY_SUMMARY_EXPORT_BASE_WORD = 24;
+static const int ENERGY_SUMMARY_APPARENT_BASE_WORD = 32;
+static const int ENERGY_QUADRANT_I_BASE_WORD = 16;
+static const int ENERGY_QUADRANT_II_BASE_WORD = 24;
+static const int ENERGY_QUADRANT_III_BASE_WORD = 32;
+static const int ENERGY_QUADRANT_IV_BASE_WORD = 40;
+static const int ENERGY_SESSION_ID_LOW_WORD = 48;
+static const int ENERGY_ACCEPTED_SAMPLES_LOW_WORD = 50;
+static const int ENERGY_SKIPPED_SAMPLES_LOW_WORD = 52;
+static const int ENERGY_ACCEPTED_BLOCKS_WORD = 54;
+static const int ENERGY_SKIPPED_BLOCKS_WORD = 55;
+static const int ENERGY_STATUS_COMPLETE_BIT = 1;
+static const int ENERGY_STATUS_INCOMPLETE_INPUT_BIT = 2;
+static const int ENERGY_STATUS_SATURATED_BIT = 3;
+static const int ENERGY_STATUS_DISCONTINUITY_BIT = 4;
+
+// DEMAND-v1 interior. Current signed active demand is in micro-watts; peak
+// values are non-negative magnitudes in micro-watts. Each peak has the
+// inclusive last-sample anchor of the window which established it. Word 13
+// carries averaging window, validity, method, and update cadence. Word 58 is
+// the window's first-sample/UTC-target anchor; word 62 identifies the R5C1
+// demand-profile generation.
+static const int DEMAND_METHOD_FIXED_BLOCK = 0;
+static const int DEMAND_METHOD_SLIDING = 1;
+static const int DEMAND_FIXED_INTERVAL_SECONDS = 600;
+static const int DEMAND_DEFAULT_WINDOW_SECONDS = 60;
+static const int DEMAND_SLIDING_UPDATE_SECONDS = 3;
+static const int DEMAND_MAX_WINDOW_SECONDS = 1800;
+static const int DEMAND_HEADER_INTERVAL_SECONDS_LSB = 0;
+static const int DEMAND_HEADER_VALID_LSB = 16;
+static const int DEMAND_HEADER_METHOD_LSB = 20;
+static const int DEMAND_HEADER_UPDATE_SECONDS_LSB = 22;
+static const int DEMAND_LAST_SAMPLE_LOW_WORD = 14;
+static const int DEMAND_LAST_SAMPLE_HIGH_WORD = 15;
+static const int DEMAND_VALUE_COUNT = 4;
+static const int DEMAND_VALUE_STRIDE = 2;
+static const int DEMAND_CURRENT_BASE_WORD = 16;
+static const int DEMAND_IMPORT_PEAK_BASE_WORD = 24;
+static const int DEMAND_EXPORT_PEAK_BASE_WORD = 32;
+static const int DEMAND_IMPORT_PEAK_ANCHOR_BASE_WORD = 40;
+static const int DEMAND_EXPORT_PEAK_ANCHOR_BASE_WORD = 48;
+static const int DEMAND_SESSION_ID_LOW_WORD = 56;
+static const int DEMAND_INTERVAL_ANCHOR_SAMPLE_LOW_WORD = 58;
+static const int DEMAND_SOURCE_INTERVAL_COUNT_WORD = 60;
+static const int DEMAND_SOURCE_STATUS_WORD = 61;
+static const int DEMAND_PROFILE_GENERATION_WORD = 62;
+static const int DEMAND_STATUS_COMPLETE_BIT = 1;
+static const int DEMAND_STATUS_TIME_ALIGNED_BIT = 2;
+static const int DEMAND_STATUS_CONTAMINATED_BIT = 3;
+static const int DEMAND_STATUS_BOUNDARY_VALID_BIT = 4;
+static const int DEMAND_STATUS_SATURATED_BIT = 5;
+static const int DEMAND_STATUS_INCOMPLETE_INPUT_BIT = 6;
 
 // HARMONIC-v1 interior.  Word 13 is intentionally range-shaped rather than
 // hard-coded to six chunks so a later record producer may extend max_order
