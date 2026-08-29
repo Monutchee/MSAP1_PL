@@ -12,7 +12,12 @@ lossless sequence of 35 packets containing all 512 bins for each phase. R5C1
 computes the standardized percentiles, `Pst`, and the rolling twelve-value
 `Plt`; sample payloads never cross RPMsg.
 
-The testbench pins the published IEC sinusoidal-modulation reference points,
+The testbench pins the published IEC sinusoidal-modulation reference points
+and independently evaluates the seven bilinear sections, voltage adaptation,
+memory filter, and calibration in double precision. It compares fixed-point
+`Pinst` at both unity points and at 4 Hz/12 Hz response points, and also covers
 the packet geometry, full histogram reconstruction, APPLY, missing-reference,
-and discontinuity behavior. Run it through the repository-wide
+and discontinuity behavior. Q30 products use symmetric round-to-nearest;
+flooring negative recursive products creates a measurable low bias away from
+the calibration point. Run the suite through the repository-wide
 `HLS_DesignFile/run_hls.sh FlickerEngine` flow.

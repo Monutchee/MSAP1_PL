@@ -1,5 +1,6 @@
 #include "mains_signal_engine.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -22,24 +23,148 @@ struct Packet {
   std::uint32_t word[MCS_PAYLOAD_WORDS]{};
 };
 
+struct DoubleMainsReference {
+  std::array<double, MCS_PHASES> carrier_microvolts{};
+  std::array<double, MCS_PHASES> background_microvolts{};
+  double measured_hz = 1000.0;
+};
+
+double source_microvolts(std::uint64_t index, int phase, std::uint32_t rate,
+                         double carrier_hz, double carrier_rms_uv,
+                         double adjacent_hz, double adjacent_rms_uv) {
+  constexpr double pi = 3.14159265358979323846;
+  constexpr double fundamental_rms_uv = 120000000.0;
+  const double time = static_cast<double>(index) / rate;
+  const double phase_angle =
+      -2.0 * pi * static_cast<double>(phase) / 3.0;
+  double sample_uv = fundamental_rms_uv * std::sqrt(2.0) *
+      std::sin(2.0 * pi * 60.0 * time + phase_angle);
+  sample_uv += carrier_rms_uv * std::sqrt(2.0) *
+      std::sin(2.0 * pi * carrier_hz * time + 0.21);
+  if (adjacent_hz > 0.0)
+    sample_uv += adjacent_rms_uv * std::sqrt(2.0) *
+        std::sin(2.0 * pi * adjacent_hz * time - 0.37);
+  return sample_uv;
+}
+
+DoubleMainsReference double_reference_window(
+    std::uint32_t rate, std::uint64_t first, double carrier_hz,
+    double carrier_rms_uv, double adjacent_hz, double adjacent_rms_uv,
+    std::uint8_t configured_phase_mask = 0x7) {
+  constexpr double pi = 3.14159265358979323846;
+  constexpr std::array<double, MCS_PROBES> probe_hz{
+      980.0, 990.0, 995.0, 1000.0, 1005.0, 1010.0, 1020.0};
+  const auto frames = rate / 5U;
+  std::array<std::array<double, MCS_PROBES>, MCS_PHASES> re{};
+  std::array<std::array<double, MCS_PROBES>, MCS_PHASES> im{};
+  for (std::uint32_t offset = 0; offset < frames; ++offset) {
+    for (int phase = 0; phase < MCS_PHASES; ++phase) {
+      const double sample = source_microvolts(
+          first + offset, phase, rate, carrier_hz, carrier_rms_uv,
+          adjacent_hz, adjacent_rms_uv);
+      for (int probe = 0; probe < MCS_PROBES; ++probe) {
+        const double angle = 2.0 * pi * probe_hz[probe] * offset / rate;
+        re[phase][probe] += sample * std::cos(angle);
+        im[phase][probe] -= sample * std::sin(angle);
+      }
+    }
+  }
+
+  DoubleMainsReference result;
+  std::array<double, 5> weights{};
+  for (int phase = 0; phase < MCS_PHASES; ++phase) {
+    std::array<double, MCS_PROBES> magnitude{};
+    for (int probe = 0; probe < MCS_PROBES; ++probe)
+      magnitude[probe] = std::hypot(re[phase][probe], im[phase][probe]) *
+          std::sqrt(2.0) / frames;
+    result.carrier_microvolts[phase] = *std::max_element(
+        magnitude.begin() + 1, magnitude.begin() + 6);
+    result.background_microvolts[phase] =
+        std::max(magnitude.front(), magnitude.back());
+    if ((configured_phase_mask & (1U << phase)) != 0U)
+      for (int inner = 0; inner < 5; ++inner)
+        weights[inner] += magnitude[inner + 1];
+  }
+  constexpr std::array<double, 5> inner_offset_hz{
+      -10.0, -5.0, 0.0, 5.0, 10.0};
+  double weight_total = 0.0;
+  double weighted_offset = 0.0;
+  for (std::size_t inner = 0; inner < weights.size(); ++inner) {
+    weight_total += weights[inner];
+    weighted_offset += weights[inner] * inner_offset_hz[inner];
+  }
+  if (weight_total != 0.0)
+    result.measured_hz += weighted_offset / weight_total;
+  return result;
+}
+
+void check_double_reference(const Packet &packet,
+                            const DoubleMainsReference &reference,
+                            std::uint8_t valid_mask,
+                            const char *description) {
+  const std::uint32_t detected_mask = packet.word[MCS_PHASES_WORD] >> 8U;
+  CHECK((packet.word[MCS_PHASES_WORD] & 0x7U) == valid_mask,
+        "double-reference validity mask is exact");
+  for (int phase = 0; phase < MCS_PHASES; ++phase) {
+    const bool valid = (valid_mask & (1U << phase)) != 0U;
+    const bool should_detect = valid &&
+        reference.carrier_microvolts[phase] >= 600000.0;
+    CHECK(((detected_mask >> phase) & 1U) == should_detect,
+          "double-reference detection mask is exact");
+    const double actual_carrier =
+        packet.word[MCS_MAGNITUDE_UV_WORD + phase];
+    const double actual_background =
+        packet.word[MCS_BACKGROUND_UV_WORD + phase];
+    const double carrier_tolerance = std::max(
+        2500.0, reference.carrier_microvolts[phase] * 0.01);
+    const double background_tolerance = std::max(
+        25000.0, reference.background_microvolts[phase] * 0.01);
+    if (valid &&
+        std::abs(actual_carrier - reference.carrier_microvolts[phase]) >
+            carrier_tolerance) {
+      std::fprintf(stderr,
+                   "FAIL: %s phase %d carrier=%f reference=%f tolerance=%f\n",
+                   description, phase, actual_carrier,
+                   reference.carrier_microvolts[phase], carrier_tolerance);
+      ++failures;
+    }
+    if (valid &&
+        std::abs(actual_background - reference.background_microvolts[phase]) >
+            background_tolerance) {
+      std::fprintf(stderr,
+                   "FAIL: %s phase %d background=%f reference=%f tolerance=%f\n",
+                   description, phase, actual_background,
+                   reference.background_microvolts[phase],
+                   background_tolerance);
+      ++failures;
+    }
+    if (!valid)
+      CHECK(actual_carrier == 0.0 && actual_background == 0.0,
+            "invalid phase cannot retain a correlation magnitude");
+  }
+  if ((detected_mask & valid_mask) != 0U) {
+    const double actual_hz =
+        static_cast<double>(packet.word[MCS_MEASURED_MILLIHZ_WORD]) / 1000.0;
+    if (std::abs(actual_hz - reference.measured_hz) > 1.5) {
+      std::fprintf(stderr,
+                   "FAIL: %s measured=%f reference=%f tolerance=1.5 Hz\n",
+                   description, actual_hz, reference.measured_hz);
+      ++failures;
+    }
+  }
+}
+
 mains_signal_input_beat_t make_frame(
     std::uint64_t index, bool apply, std::uint32_t generation,
     std::uint32_t rate, double carrier_hz, double carrier_rms_uv,
     double adjacent_hz = 0.0, double adjacent_rms_uv = 0.0,
-    bool malformed = false, std::uint8_t frame_mask = 0x7f) {
-  constexpr double pi = 3.14159265358979323846;
-  constexpr double fundamental_rms_uv = 120000000.0;
-  const double time = static_cast<double>(index) / rate;
+    bool malformed = false, std::uint8_t frame_mask = 0x7f,
+    std::uint8_t configured_phase_mask = 0x7) {
   mains_signal_input_beat_t beat = 0;
   for (int phase = 0; phase < MCS_PHASES; ++phase) {
-    const double phase_angle = -2.0 * pi * static_cast<double>(phase) / 3.0;
-    double sample_uv = fundamental_rms_uv * std::sqrt(2.0) *
-        std::sin(2.0 * pi * 60.0 * time + phase_angle);
-    sample_uv += carrier_rms_uv * std::sqrt(2.0) *
-        std::sin(2.0 * pi * carrier_hz * time + 0.21);
-    if (adjacent_hz > 0.0)
-      sample_uv += adjacent_rms_uv * std::sqrt(2.0) *
-          std::sin(2.0 * pi * adjacent_hz * time - 0.37);
+    const double sample_uv = source_microvolts(
+        index, phase, rate, carrier_hz, carrier_rms_uv,
+        adjacent_hz, adjacent_rms_uv);
     const std::int64_t sample_q16 =
         static_cast<std::int64_t>(std::llround(sample_uv * 65536.0));
     const int lane = phase == 0 ? MET_LANE_VA
@@ -56,7 +181,8 @@ mains_signal_input_beat_t make_frame(
   beat.bit(MCSIN_FALLBACK_BIT) = 0;
   beat.range(MCSIN_GENERATION_LSB + 31, MCSIN_GENERATION_LSB) = generation;
   beat.range(MCSIN_SAMPLE_RATE_LSB + 31, MCSIN_SAMPLE_RATE_LSB) = rate;
-  beat.range(MCSIN_PHASE_MASK_LSB + 7, MCSIN_PHASE_MASK_LSB) = 0x7;
+  beat.range(MCSIN_PHASE_MASK_LSB + 7, MCSIN_PHASE_MASK_LSB) =
+      configured_phase_mask;
   beat.range(MCSIN_CARRIER_MILLIHZ_LSB + 31,
              MCSIN_CARRIER_MILLIHZ_LSB) = 1000000U;
   beat.range(MCSIN_BANDWIDTH_MILLIHZ_LSB + 31,
@@ -93,13 +219,16 @@ Packet run_window(std::uint32_t rate, bool apply, std::uint32_t generation,
                   double adjacent_hz, double adjacent_rms_uv,
                   std::uint64_t first,
                   hls::stream<mains_signal_input_beat_t> &input,
-                  hls::stream<record_axis_t> &output) {
+                  hls::stream<record_axis_t> &output,
+                  std::uint8_t configured_phase_mask = 0x7,
+                  std::uint8_t frame_mask = 0x7f) {
   std::vector<Packet> packets;
   const auto frames = rate / 5U;
   for (std::uint32_t offset = 0; offset < frames; ++offset) {
     input.write(make_frame(first + offset, apply, generation, rate,
                            carrier_hz, carrier_rms_uv,
-                           adjacent_hz, adjacent_rms_uv));
+                           adjacent_hz, adjacent_rms_uv, false, frame_mask,
+                           configured_phase_mask));
     hls_mains_signal_engine(input, output);
     drain(output, packets);
   }
@@ -142,16 +271,37 @@ int main() {
   std::uint32_t generation = 100U;
   std::uint64_t first = 0U;
 
+  // Exercise the product-default rate first, followed by every other valid
+  // rate at which the 1 kHz carrier is strictly below Nyquist.
   const std::array<std::uint32_t, 6> supported_rates =
-      {4000U, 8000U, 16000U, 32000U, 64000U, 128000U};
+      {128000U, 64000U, 32000U, 16000U, 8000U, 4000U};
   for (const auto rate : supported_rates) {
     apply = !apply;
     const auto packet = run_window(rate, apply, generation, 1000.0,
                                    1200000.0, 0.0, 0.0, first,
                                    input, output);
     check_detected(packet, rate, generation, first, 1000000U);
+    check_double_reference(packet,
+        double_reference_window(rate, first, 1000.0, 1200000.0,
+                                0.0, 0.0),
+        0x7, "centred carrier per-rate oracle");
     first += rate / 5U;
     ++generation;
+  }
+
+  // Both inclusive passband edges are dedicated correlation probes. Pin them
+  // at the default 128 kSPS rate against the independent correlation bank.
+  for (const double edge_hz : {990.0, 1010.0}) {
+    apply = !apply;
+    const auto edge = run_window(128000U, apply, generation++, edge_hz,
+                                 1200000.0, 0.0, 0.0, first,
+                                 input, output);
+    check_double_reference(edge,
+        double_reference_window(128000U, first, edge_hz, 1200000.0,
+                                0.0, 0.0),
+        0x7, edge_hz < 1000.0 ? "lower passband edge"
+                              : "upper passband edge");
+    first += 128000U / 5U;
   }
 
   // A carrier one inner probe above the configured centre is recovered as
@@ -160,6 +310,10 @@ int main() {
   auto detuned = run_window(32000U, apply, generation++, 1005.0,
                             1200000.0, 0.0, 0.0, first, input, output);
   check_detected(detuned, 32000U, generation - 1U, first, 1005000U);
+  check_double_reference(detuned,
+      double_reference_window(32000U, first, 1005.0, 1200000.0,
+                              0.0, 0.0),
+      0x7, "inner detuned probe");
   first += 6400U;
 
   // An adjacent +20 Hz tone is rejected from the configured passband and
@@ -167,6 +321,10 @@ int main() {
   apply = !apply;
   auto adjacent = run_window(32000U, apply, generation++, 0.0, 0.0,
                              1020.0, 2400000.0, first, input, output);
+  check_double_reference(adjacent,
+      double_reference_window(32000U, first, 0.0, 0.0,
+                              1020.0, 2400000.0),
+      0x7, "adjacent background probe");
   CHECK((adjacent.word[MCS_PHASES_WORD] & 0x700U) == 0U,
         "adjacent tone does not satisfy the carrier threshold");
   for (int phase = 0; phase < MCS_PHASES; ++phase) {
@@ -176,6 +334,20 @@ int main() {
           "adjacent tone reaches the background probe");
   }
   first += 6400U;
+
+  // Invalid voltage-B samples remove only B from validity/detection and must
+  // not poison the two complete phase estimators.
+  apply = !apply;
+  const auto without_b = static_cast<std::uint8_t>(
+      0x7fU & ~(1U << MET_LANE_VB));
+  const auto partial = run_window(128000U, apply, generation++, 1000.0,
+                                  1200000.0, 0.0, 0.0, first,
+                                  input, output, 0x7, without_b);
+  check_double_reference(partial,
+      double_reference_window(128000U, first, 1000.0, 1200000.0,
+                              0.0, 0.0),
+      0x5, "phase-B invalid input");
+  first += 128000U / 5U;
 
   // A discontinuity discards the partial observation and marks the first
   // subsequently complete window.
@@ -210,6 +382,6 @@ int main() {
     std::fprintf(stderr, "%d MainsSignalEngine checks failed\n", failures);
     return 1;
   }
-  std::puts("MainsSignalEngine per-rate, detuning, and rejection checks passed");
+  std::puts("MainsSignalEngine double-reference passband checks passed");
   return 0;
 }

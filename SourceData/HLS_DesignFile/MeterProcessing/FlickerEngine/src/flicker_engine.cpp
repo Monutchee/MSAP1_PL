@@ -60,7 +60,15 @@ inline q30_t multiply_q30(q30_t lhs, ap_int<64> rhs,
                           ap_uint<1> &overflow) {
 #pragma HLS INLINE
   const ap_int<128> product = ap_int<128>(lhs) * ap_int<128>(rhs);
-  return saturate_q30(product >> 30, overflow);
+  const ap_int<128> half = ap_int<128>(1) << 29;
+  ap_int<128> rounded;
+  if (product < 0) {
+    const ap_int<128> magnitude = -product;
+    rounded = -ap_int<128>((magnitude + half) >> 30);
+  } else {
+    rounded = ap_int<128>((product + half) >> 30);
+  }
+  return saturate_q30(rounded, overflow);
 }
 
 inline q30_t run_biquad(q30_t input, const BiquadCoefficients &coefficient,
@@ -424,7 +432,8 @@ process_phases:
       const ap_int<128> perceptibility_square =
           ap_int<128>(filtered) * ap_int<128>(filtered);
       const q30_t squared_q30 = saturate_q30(
-          perceptibility_square >> 30, arithmetic_overflow);
+          (perceptibility_square + (ap_int<128>(1) << 29)) >> 30,
+          arithmetic_overflow);
       const BiquadCoefficients &memory_coefficient =
           lamp_voltage == 120 ? k120VoltCoefficients[6]
                               : k230VoltCoefficients[6];

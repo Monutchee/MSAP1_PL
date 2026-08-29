@@ -13,8 +13,10 @@ background in microvolts, exact sample anchors, validity/detection masks,
 configuration generation, and discontinuity/arithmetic provenance. R5C1 owns
 the final 256-byte `MAINS-SIGNAL-v1` record.
 
-The testbench uses an independent double-precision source model at every
-supported acquisition rate for which the default 1 kHz carrier is below
-Nyquist. It also covers in-band detuning, adjacent-tone rejection, APPLY,
-sample gaps, and the 2 kSPS Nyquist boundary. Run it through
-`HLS_DesignFile/run_hls.sh MainsSignalEngine`.
+The testbench uses an independent double-precision seven-probe correlation
+bank at every supported acquisition rate for which the default 1 kHz carrier
+is below Nyquist, exercising 128 kSPS first as the product default. It checks
+carrier/background magnitude and the frequency centroid numerically, including
+both passband edges, in-band detuning, adjacent-tone rejection, per-phase
+invalid input, APPLY, sample gaps, and the 2 kSPS Nyquist boundary. Run it
+through `HLS_DesignFile/run_hls.sh MainsSignalEngine`.
