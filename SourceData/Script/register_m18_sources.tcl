@@ -17,7 +17,8 @@ if {$open_now eq ""} {
 set vhdl_sources [list \
     [file join $processing_dir meter_r5_m18_pkg.vhd] \
     [file join $processing_dir meter_r5_fixed_packet_export.vhd] \
-    [file join $processing_dir meter_axis_packet_arbiter_5to1.vhd]]
+    [file join $processing_dir meter_axis_packet_arbiter_5to1.vhd] \
+    [file join $processing_dir meter_flicker_hls_shim.vhd]]
 
 set missing_sources [list]
 foreach source $vhdl_sources {

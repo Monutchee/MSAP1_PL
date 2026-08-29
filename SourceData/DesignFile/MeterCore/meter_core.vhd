@@ -246,6 +246,7 @@ architecture structural of meter_core is
   signal shadow_enable         : std_logic;
   signal shadow_dc_remove      : std_logic;
   signal apply_toggle          : std_logic;
+  signal m18_shadow_words      : m18_config_words_t;
   signal frequency_shadow_control         : std_logic_vector(31 downto 0);
   signal frequency_shadow_window          : std_logic_vector(31 downto 0);
   signal frequency_shadow_minimum         : std_logic_vector(31 downto 0);
@@ -322,6 +323,21 @@ architecture structural of meter_core is
   signal r5_pqe_dropped_packets  : std_logic_vector(31 downto 0);
   signal r5_pqe_transmitted_packets : std_logic_vector(31 downto 0);
   signal r5_pqe_framing_errors   : std_logic_vector(31 downto 0);
+  signal flk_payload_axis_tdata   : std_logic_vector(31 downto 0);
+  signal flk_payload_axis_tkeep   : std_logic_vector(3 downto 0);
+  signal flk_payload_axis_tvalid  : std_logic;
+  signal flk_payload_axis_tready  : std_logic;
+  signal flk_payload_axis_tlast   : std_logic;
+  signal r5_flk_axis_tdata        : std_logic_vector(31 downto 0);
+  signal r5_flk_axis_tkeep        : std_logic_vector(3 downto 0);
+  signal r5_flk_axis_tvalid       : std_logic;
+  signal r5_flk_axis_tready       : std_logic;
+  signal r5_flk_axis_tlast        : std_logic;
+  signal r5_flk_accepted_packets  : std_logic_vector(31 downto 0);
+  signal r5_flk_dropped_packets   : std_logic_vector(31 downto 0);
+  signal r5_flk_transmitted_packets : std_logic_vector(31 downto 0);
+  signal r5_flk_framing_errors    : std_logic_vector(31 downto 0);
+  signal flicker_shim_drop_count  : std_logic_vector(31 downto 0);
   signal pq_shim_drop_count : std_logic_vector(31 downto 0);
   signal grid_half_boundary : std_logic;
   signal pq_shadow_reference : std_logic_vector(31 downto 0);
@@ -778,6 +794,7 @@ begin
       pq_shadow_threshold_o => pq_shadow_threshold,
       pq_shadow_limits_o => pq_shadow_limits,
       pq_status_i => pq_status,
+      m18_shadow_words_o => m18_shadow_words,
       grid_active_config_i => grid_active_config,
       grid_status_i => grid_status,
       -- The retired PL interval/result diagnostics keep their AXI-Lite
@@ -1046,11 +1063,11 @@ begin
       s1_axis_tvalid => r5_pqe_axis_tvalid,
       s1_axis_tready => r5_pqe_axis_tready,
       s1_axis_tlast => r5_pqe_axis_tlast,
-      s2_axis_tdata => (others => '0'),
-      s2_axis_tkeep => (others => '0'),
-      s2_axis_tvalid => '0',
-      s2_axis_tready => open,
-      s2_axis_tlast => '0',
+      s2_axis_tdata => r5_flk_axis_tdata,
+      s2_axis_tkeep => r5_flk_axis_tkeep,
+      s2_axis_tvalid => r5_flk_axis_tvalid,
+      s2_axis_tready => r5_flk_axis_tready,
+      s2_axis_tlast => r5_flk_axis_tlast,
       s3_axis_tdata => (others => '0'),
       s3_axis_tkeep => (others => '0'),
       s3_axis_tvalid => '0',
@@ -1172,6 +1189,58 @@ begin
       dropped_packet_count_o => r5_pqe_dropped_packets,
       transmitted_packet_count_o => r5_pqe_transmitted_packets,
       framing_error_count_o => r5_pqe_framing_errors
+    );
+
+  flicker_producer : entity work.meter_flicker_hls_shim
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      frame_accept_i => engine_valid,
+      frame_data_i => converted_fifo.data,
+      frame_keep_i => converted_fifo.keep,
+      frame_user_i => converted_fifo.user,
+      cycle_locked_i => grid_cycle_locked,
+      cycle_fallback_i => grid_cycle_fallback,
+      nominal_hz_i => grid_active_config(15 downto 8),
+      shadow_sample_rate_i => shadow_sample_rate,
+      m18_shadow_words_i => m18_shadow_words,
+      config_apply_toggle_i => apply_toggle,
+      m_axis_flk_tdata => flk_payload_axis_tdata,
+      m_axis_flk_tkeep => flk_payload_axis_tkeep,
+      m_axis_flk_tvalid => flk_payload_axis_tvalid,
+      m_axis_flk_tready => flk_payload_axis_tready,
+      m_axis_flk_tlast => flk_payload_axis_tlast,
+      drop_count_o => flicker_shim_drop_count
+    );
+
+  -- A completed 600 s classifier is a burst of 35 fixed packets. Reserve a
+  -- whole-family queue so even a simultaneous AGG1/HRM1 transfer cannot turn
+  -- a valid Pst interval into a partial histogram at the R5 boundary.
+  flicker_packetizer : entity work.meter_r5_fixed_packet_export
+    generic map (
+      G_MAGIC => R5_FLK_MAGIC,
+      G_PAYLOAD_WORDS => R5_FLK_PAYLOAD_WORDS,
+      G_FIFO_DEPTH => 4096,
+      G_FIFO_COUNT_WIDTH => 13,
+      G_PACKET_SLOTS => 40
+    )
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      s_axis_tdata => flk_payload_axis_tdata,
+      s_axis_tkeep => flk_payload_axis_tkeep,
+      s_axis_tvalid => flk_payload_axis_tvalid,
+      s_axis_tready => flk_payload_axis_tready,
+      s_axis_tlast => flk_payload_axis_tlast,
+      m_axis_tdata => r5_flk_axis_tdata,
+      m_axis_tkeep => r5_flk_axis_tkeep,
+      m_axis_tvalid => r5_flk_axis_tvalid,
+      m_axis_tready => r5_flk_axis_tready,
+      m_axis_tlast => r5_flk_axis_tlast,
+      accepted_packet_count_o => r5_flk_accepted_packets,
+      dropped_packet_count_o => r5_flk_dropped_packets,
+      transmitted_packet_count_o => r5_flk_transmitted_packets,
+      framing_error_count_o => r5_flk_framing_errors
     );
 
   m_axis_pq_tdata <= pq_axis_tdata;

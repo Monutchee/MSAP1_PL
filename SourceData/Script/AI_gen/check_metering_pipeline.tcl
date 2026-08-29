@@ -45,6 +45,7 @@ set common_vhdl [list \
   [file join $design_root MeterCommon grid_timing_pkg.vhd] \
   [file join $design_root MeterCommon pq_event_pkg.vhd] \
   [file join $design_root MeterCommon measurement_record_bus_pkg.vhd] \
+  [file join $design_root MeterProcessing meter_r5_m18_pkg.vhd] \
   [file join $design_root AdcConversion adc_conversion_axi_regs.vhd] \
   [file join $design_root AdcConversion adc_conversion.vhd] \
   [file join $design_root MeterProcessing meter_frequency_pkg.vhd] \
@@ -59,7 +60,6 @@ set common_vhdl [list \
   [file join $design_root MeterProcessing meter_sliding_rms_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_r5_aggregation_pkg.vhd] \
   [file join $design_root MeterProcessing meter_r5_harmonic_pkg.vhd] \
-  [file join $design_root MeterProcessing meter_r5_m18_pkg.vhd] \
   [file join $design_root MeterProcessing meter_r5_harmonic_export.vhd] \
   [file join $design_root MeterProcessing meter_axis_packet_arbiter_2to1.vhd] \
   [file join $design_root MeterProcessing meter_r5_fixed_packet_export.vhd] \
