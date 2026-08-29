@@ -8,7 +8,7 @@
 -- becomes exactly 4,096 simultaneous seven-channel samples for the external
 -- 4K XFFT.
 --
--- Source capture is independent of the time-shared MAC.  A block-RAM history
+-- Source capture is independent of the time-shared MAC.  An UltraRAM history
 -- ring and a 16-entry source-token queue preserve every accepted ADC frame
 -- while one multiplier evaluates the active phase over all seven lanes.  The
 -- worst profile (128 kSPS, 257 taps) takes about 3,600 clocks per output,
@@ -36,7 +36,7 @@ entity meter_spectral_conditioner is
     OUTPUT_FRAMES          : positive := 4096;
     SOURCE_RATE_HZ         : positive := 32000;
     COEFFICIENT_MEMORY_PRIMITIVE : string := "block";
-    HISTORY_MEMORY_PRIMITIVE     : string := "block"
+    HISTORY_MEMORY_PRIMITIVE     : string := "ultra"
   );
   port (
     aclk    : in std_logic;
@@ -1013,7 +1013,7 @@ begin
 
           -- Source capture runs regardless of MAC or AXIS state.  The token
           -- FIFO contains only the history pointer plus delayed block markers;
-          -- the wide seven-lane sample remains in the block-RAM history ring.
+          -- the wide seven-lane sample remains in the UltraRAM history ring.
           if frame_accept_i = '1' and active_profile /= 0 then
             start_now := source_start_pending;
             profile_now := profile_is_qualified(

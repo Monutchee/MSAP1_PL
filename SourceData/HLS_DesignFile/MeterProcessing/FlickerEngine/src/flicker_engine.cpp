@@ -172,7 +172,7 @@ void hls_flicker_engine(hls::stream<flicker_input_beat_t> &s_frame,
   static ap_uint<1> live_classifier_overflow = 0;
 
   static ap_uint<32> histogram[2][FLK_PHASES][FLK_CLASSIFIER_BINS];
-#pragma HLS BIND_STORAGE variable=histogram type=ram_t2p impl=bram
+#pragma HLS BIND_STORAGE variable=histogram type=ram_t2p impl=uram
   static ap_uint<1> active_histogram_bank = 0;
   static ap_uint<32> interval_ticks = 0;
   static ap_uint<32> interval_valid_count[FLK_PHASES];

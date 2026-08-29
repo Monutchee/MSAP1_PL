@@ -108,7 +108,7 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
   exact 200 ms source block to 4,096 frames at 20.48 kSPS. The 32/64/128 kSPS
   profiles use a 1,025-tap Kaiser prototype; lower rates use a compact
   endpoint-inclusive 129-row fractional-delay table with carried-remainder
-  interpolation and exact Q20 unity gain. A 512-frame BRAM history ring and
+  interpolation and exact Q20 unity gain. A 512-frame K26 URAM history ring and
   16-entry marker queue decouple source capture from the time-shared MAC, so
   even 128 kSPS is lossless. A qualified boundary may select either adjacent
   ADC frame because a continuous crossing is discretized at the accepted-frame
@@ -126,8 +126,10 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
   overload.
 - `meter_harmonic_hls_shim`: owns the frontend, packaged HarmonicEngine,
   forward-XFFT configuration handshake, sticky XFFT family-fault injection,
-  and a 4,096-word packet-mode record FIFO. Only the XFFT itself crosses the
-  MeterCore boundary; records leave on `M_AXIS_HARMONIC`.
+  and a 4,096-word URAM packet-mode record FIFO. Only the XFFT itself crosses
+  the MeterCore boundary; records leave on `M_AXIS_HARMONIC`. The matching
+  private HRM1 and R5 aggregation packet stores also retain their full depth
+  in symmetric URAM FIFOs so the design preserves K26 BRAM headroom.
 - `meter_mtr1_hls_shim`: packs one 1264-bit sample beat per accepted
   converted frame (layout mirrors `mtr1_engine.hpp` MTR1_IN_*, kept in
   lock step), buffers up to eight beats, hosts the packaged

@@ -28,11 +28,12 @@
   return, and S03 harmonics.
 - M16 harmonic acquisition is also owned inside `MeterCore_Wrapper`: the
   VHDL-2008 adaptive L/25 polyphase conditioner for every selectable
-  1--128 kSPS rate, VHDL-2008 URAM-backed 4,096-frame ping/pong frontend,
+  1--128 kSPS rate with a 512-frame URAM history, VHDL-2008 URAM-backed
+  4,096-frame ping/pong frontend,
   packaged
   `hls_harmonic_engine_ip`, XFFT fault handling, and
-  4,096-word record FIFO are one hierarchy. Each exact 42-record base family
-  is losslessly forked into that public FIFO and a private
+  4,096-word URAM record FIFO are one hierarchy. Each exact 42-record base
+  family is losslessly forked into that public FIFO and a private
   `meter_r5_harmonic_export` packetizer. The packetizer emits one 2,693-word
   CRC32C-protected HRM1 packet; a whole-packet arbiter gives AGG1 priority and
   multiplexes both private contracts onto `M_AXIS_R5_AGG_INPUT`. Never
@@ -111,8 +112,10 @@
   integrity header, the exact 234-word aggregation input, and a CRC32C word.
   It is a private PL/R5C1 co-release contract: the fixed contract
   word detects a mixed bitstream/firmware image, but there is no negotiation,
-  legacy decoder, or compatibility fallback. The exporter uses AMD XPM FIFOs
-  and uses an explicit complete-packet credit before retaining word 0. When
+  legacy decoder, or compatibility fallback. The symmetric 32-bit record and
+  private-packet stores use K26 UltraRAM without reducing their complete-family
+  depths; the exporter uses an explicit complete-packet credit before retaining
+  word 0. When
   private-link storage is unavailable it still consumes the complete
   SingleCycle packet, discards that packet as one unit, and increments the
   sticky drop diagnostic. It must never deassert the upstream READY signal or

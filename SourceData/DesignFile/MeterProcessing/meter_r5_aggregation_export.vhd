@@ -185,10 +185,12 @@ begin
   context_snapshot(415 downto 384) <=
     (31 downto 2 => '0') & ten_minute_target_update_i & ten_minute_target_valid_i;
 
+  -- The symmetric 32-bit packet store maps to one K26 UltraRAM.  Keep the
+  -- 4,096-word depth: it is the complete-packet credit boundary for R5C1.
   result_words : xpm_fifo_sync
     generic map (
       DOUT_RESET_VALUE    => "0", ECC_MODE => "no_ecc",
-      FIFO_MEMORY_TYPE    => "block", FIFO_READ_LATENCY => 0,
+      FIFO_MEMORY_TYPE    => "ultra", FIFO_READ_LATENCY => 0,
       FIFO_WRITE_DEPTH    => RESULT_FIFO_DEPTH, FULL_RESET_VALUE => 0,
       PROG_EMPTY_THRESH   => 10, PROG_FULL_THRESH => RESULT_FIFO_DEPTH - 8,
       RD_DATA_COUNT_WIDTH => RESULT_FIFO_COUNT_WIDTH, READ_DATA_WIDTH => 32,

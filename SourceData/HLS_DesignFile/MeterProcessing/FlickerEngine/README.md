@@ -19,5 +19,7 @@ memory filter, and calibration in double precision. It compares fixed-point
 the packet geometry, full histogram reconstruction, APPLY, missing-reference,
 and discontinuity behavior. Q30 products use symmetric round-to-nearest;
 flooring negative recursive products creates a measurable low bias away from
-the calibration point. Run the suite through the repository-wide
-`HLS_DesignFile/run_hls.sh FlickerEngine` flow.
+the calibration point. The double-buffered 3,072-by-32 classifier histogram is
+bound to one UltraRAM so the K26 implementation retains BRAM capacity for the
+DMA and transport FIFOs without reducing classifier resolution. Run the suite
+through the repository-wide `HLS_DesignFile/run_hls.sh FlickerEngine` flow.

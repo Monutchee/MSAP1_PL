@@ -119,6 +119,19 @@ if {[llength [get_ports -quiet adc_dclk]] != 0} {
   set_clock_groups -asynchronous \
     -group [get_clocks metering_aclk] -group [get_clocks adc_dclk]
 }
+if {$top_name eq "MeterCore_Wrapper"} {
+  set uram_count [llength [get_cells -hier -filter {REF_NAME == URAM288}]]
+  set ramb36_count [llength [get_cells -hier -filter {REF_NAME == RAMB36E2}]]
+  set ramb18_count [llength [get_cells -hier -filter {REF_NAME == RAMB18E2}]]
+  set bram_tiles [expr {$ramb36_count + (0.5 * $ramb18_count)}]
+  puts "MeterCore storage: BRAM tiles=$bram_tiles URAM=$uram_count"
+  if {$uram_count < 14} {
+    error "MeterCore packet/history storage did not map to the required K26 UltraRAMs"
+  }
+  if {$bram_tiles > 104.0} {
+    error "MeterCore BRAM use $bram_tiles exceeds the M18 full-design headroom budget"
+  }
+}
 report_utilization -file [file join /tmp ${top_name}_utilization.rpt]
 report_timing_summary -delay_type max \
   -file [file join /tmp ${top_name}_timing.rpt]
