@@ -66,9 +66,11 @@ static const uint32_t MREC_FORMAT_SCYC_V5 = 0x000A0005u;  // single-cycle diagno
 // volatile R5C1-session cumulative counters.  Linux persists authoritative
 // lifetime values and must publish nothing until both matching parts arrive.
 static const uint32_t MREC_FORMAT_ENERGY_V1 = 0x00030001u;
-// DEMAND v1 (M17): one R5C1 record after each completed UTC ten-minute
-// family.  It carries signed active block demand plus volatile session import
-// and export peaks.  Linux owns authoritative reset epochs and persistence.
+// DEMAND v1 (M17): one R5C1 record for the configured active-demand profile.
+// Fixed mode closes on an aligned UTC ten-minute boundary. Sliding mode uses
+// a configurable 1/5/10/15/30-minute window and refreshes on every completed
+// 150/180-cycle aggregate (nominally three seconds). It carries signed active
+// demand plus volatile profile import/export peaks. Linux owns persistence.
 static const uint32_t MREC_FORMAT_DEMAND_V1 = 0x00040001u;
 // BASIC v4 (M7): the 10/12-cycle tier record emitted by
 // Agg10_12MeasurementEngine, which merges SingleCycleResults and retires
@@ -266,11 +268,20 @@ static const int ENERGY_STATUS_DISCONTINUITY_BIT = 4;
 
 // DEMAND-v1 interior. Current signed active demand is in micro-watts; peak
 // values are non-negative magnitudes in micro-watts. Each peak has the
-// inclusive last-sample anchor of the ten-minute interval which established
-// it. Word 13 carries the fixed interval length and A/B/C/total validity.
-static const int DEMAND_INTERVAL_SECONDS = 600;
+// inclusive last-sample anchor of the window which established it. Word 13
+// carries averaging window, validity, method, and update cadence. Word 58 is
+// the window's first-sample/UTC-target anchor; word 62 identifies the R5C1
+// demand-profile generation.
+static const int DEMAND_METHOD_FIXED_BLOCK = 0;
+static const int DEMAND_METHOD_SLIDING = 1;
+static const int DEMAND_FIXED_INTERVAL_SECONDS = 600;
+static const int DEMAND_DEFAULT_WINDOW_SECONDS = 60;
+static const int DEMAND_SLIDING_UPDATE_SECONDS = 3;
+static const int DEMAND_MAX_WINDOW_SECONDS = 1800;
 static const int DEMAND_HEADER_INTERVAL_SECONDS_LSB = 0;
 static const int DEMAND_HEADER_VALID_LSB = 16;
+static const int DEMAND_HEADER_METHOD_LSB = 20;
+static const int DEMAND_HEADER_UPDATE_SECONDS_LSB = 22;
 static const int DEMAND_LAST_SAMPLE_LOW_WORD = 14;
 static const int DEMAND_LAST_SAMPLE_HIGH_WORD = 15;
 static const int DEMAND_VALUE_COUNT = 4;
@@ -281,9 +292,10 @@ static const int DEMAND_EXPORT_PEAK_BASE_WORD = 32;
 static const int DEMAND_IMPORT_PEAK_ANCHOR_BASE_WORD = 40;
 static const int DEMAND_EXPORT_PEAK_ANCHOR_BASE_WORD = 48;
 static const int DEMAND_SESSION_ID_LOW_WORD = 56;
-static const int DEMAND_TARGET_SAMPLE_LOW_WORD = 58;
+static const int DEMAND_INTERVAL_ANCHOR_SAMPLE_LOW_WORD = 58;
 static const int DEMAND_SOURCE_INTERVAL_COUNT_WORD = 60;
 static const int DEMAND_SOURCE_STATUS_WORD = 61;
+static const int DEMAND_PROFILE_GENERATION_WORD = 62;
 static const int DEMAND_STATUS_COMPLETE_BIT = 1;
 static const int DEMAND_STATUS_TIME_ALIGNED_BIT = 2;
 static const int DEMAND_STATUS_CONTAMINATED_BIT = 3;
