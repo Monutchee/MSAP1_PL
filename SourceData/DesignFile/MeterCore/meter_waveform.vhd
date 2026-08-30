@@ -17,7 +17,7 @@ use xpm.vcomponents.all;
 -- sequence_o carries the conversion-domain sample index of the most recently
 -- accepted frame (delivered with the frame via sample_index_i), not a local
 -- count. The Linux correlation latch therefore captures the same monotonic
--- measurement timebase that MTR1 basic blocks reference, and UTC mapping
+-- measurement timebase that BASIC-v4 records reference, and UTC mapping
 -- needs no separate counter domain.
 entity meter_waveform is
   generic (
@@ -260,7 +260,7 @@ begin
 
         if frame_accept_i = '1' then
           -- The sample index arrives with the frame itself, so the value
-          -- latched here is exactly the index MTR1 records reference.
+          -- latched here is exactly the index BASIC-v4 records reference.
           next_sequence := unsigned(sample_index_i);
           frame_sequence <= next_sequence;
           if enable_i = '1' and fifo_full = '0' and fifo_reset_busy = '0' then

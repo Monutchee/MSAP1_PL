@@ -10,7 +10,7 @@
 
 // Shared statistical primitives for the MSAP1 HLS engines: the
 // accumulate-then-finalize idioms that every measurement tier repeats.
-// Extracted verbatim from the MTR1 basic engine (which itself pinned them
+// Extracted verbatim from the original Basic engine (which itself pinned them
 // to the retired meter_rms.vhd), so the semantics below are normative and
 // bit-exact:
 //

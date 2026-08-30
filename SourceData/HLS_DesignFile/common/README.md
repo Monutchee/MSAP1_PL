@@ -9,7 +9,7 @@ or record word maps.
 |---|---|
 | `include/metering_types.hpp` | channel geometry, IEC 61000-4-30 block geometry, block flags, scalar types (samples, Q16 lanes, micro-units, the 64-bit sample index) |
 | `include/single_cycle_packet.hpp` | the 221-word SingleCycle sufficient-statistics packet consumed by the R5C1 interval owner |
-| `include/measurement_record.hpp` | the 256-byte record: common envelope (words 0–12), format-word reservation table, MTR1-v3 / MTR2-v2 interior maps, `record_image_t`, `record_axis_t`, `clear_record`, `serialize_record<FORMAT>` |
+| `include/measurement_record.hpp` | the 256-byte record: common envelope (words 0–12), format-word reservation table, BASIC-v3 / AGG-v2 interior maps, `record_image_t`, `record_axis_t`, `clear_record`, `serialize_record<FORMAT>` |
 
 ## Using from a component
 
@@ -43,7 +43,7 @@ tb.cflags=-Isrc -I../../common/include
 
 | Definition | Current normative source | Consumer |
 |---|---|---|
-| Record envelope + MTR1-v3/MTR2-v2 maps | **normative here** | R5C1 record construction and APU decoding |
+| Record envelope + BASIC-v3/AGG-v2 maps | **normative here** | R5C1 record construction and APU decoding |
 | SingleCycle packet | `include/single_cycle_packet.hpp` | PL exporter and R5C1 interval owner |
 | Interval aggregate state/result | `include/agg_block_result.hpp` | R5C1 only |
 | VHDL boundary mirrors | `measurement_record_bus_pkg.vhd` and `meter_r5_aggregation_pkg.vhd` | PL-to-R5C1 packet export |

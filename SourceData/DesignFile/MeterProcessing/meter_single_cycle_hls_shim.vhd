@@ -12,7 +12,7 @@ use work.metering_pkg.all;
 -- (HLS_DesignFile/MeterProcessing/SingleCycleEngine; the beat layout
 -- below mirrors single_cycle_engine.hpp SCYC_IN_* in lock step).
 --
--- Structure and rules follow meter_mtr1_hls_shim.vhd:
+-- Structure and rules for the Basic-record path:
 --   * each accepted frame is staged for one cycle and pushed with context
 --     sampled at the push. That alignment is load-bearing twice over
 --     here: grid_cycle_timing's cycle_boundary_o and cycle_sequence_o are

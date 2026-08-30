@@ -216,7 +216,7 @@ inline ap_uint<8> met_expected_cycles(const ap_uint<8> nominal_hz) {
 }
 
 // Block provenance flags (grid_timing_pkg.vhd bit positions, carried in
-// basic result beats and in the MTR1 timing word).
+// basic result beats and in the BASIC-v4 timing word).
 static const int MET_FLAG_LOCKED      = 0;  // block closed on a counted crossing
 static const int MET_FLAG_FALLBACK    = 1;  // block closed on the fallback window
 static const int MET_FLAG_FIRST_BLOCK = 2;  // first block after APPLY

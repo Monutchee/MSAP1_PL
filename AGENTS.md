@@ -21,9 +21,10 @@
   record-stream register taps (`MeterProcessing/record_word_tap.vhd`). The
   single-cycle metering numerics are implemented by Vitis HLS inside this
   hierarchy. In the production configuration R5C1 owns interval aggregation
-  and returns finished 256-byte MTR1/MTR2 records through the bidirectional
-  AXI FIFO MM-S into `MTR_AXI_Switch/S02_AXIS` in `TopDesign.bd`. The retired
-  duplicate `M_AXIS_MTR1` and `M_AXIS_MTR2` wrapper interfaces do not exist.
+  and returns finished 256-byte 10/12-cycle Basic and 150/180-cycle aggregate
+  records through the bidirectional AXI FIFO MM-S into
+  `MTR_AXI_Switch/S02_AXIS` in `TopDesign.bd`. The retired duplicate
+  basic/aggregate wrapper interfaces do not exist.
   The compact record-switch order is S00 SingleCycle, S01 PQ, S02 R5C1
   return, and S03 harmonics.
 - M16 harmonic acquisition is also owned inside `MeterCore_Wrapper`: the
@@ -56,7 +57,7 @@
 - The conversion stage owns the 64-bit free-running sample index (low word in
   `TUSER[31:0]`, high word in `TUSER[105:74]`). It is the measurement
   timebase: never reset it on configuration apply and never step it for time
-  synchronization. MTR1 format `0x00010002` references it in words 60/61 and
+  synchronization. BASIC-v2 format `0x00010002` references it in words 60/61 and
   the waveform correlation block latches it for Linux UTC mapping (the
   BASIC-v4 record keeps those words).
 - Grid-cycle timing registers live in the processing block: `GRID_SHADOW_CONFIG`

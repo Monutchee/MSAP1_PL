@@ -1,5 +1,5 @@
 // Non-project binding for the HLS single-cycle measurement engine IP
-// customization. Same role as hls_mtr1_engine_ip.v: the product project
+// customization. The product project
 // gets this module from SourceData/IP/hls_single_cycle_engine_ip, while
 // the xsim/OOC check flows compile the packaged RTL from
 // SourceData/HLS_DesignFile/ip_repo and bind the name here. Never add

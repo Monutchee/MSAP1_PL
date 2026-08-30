@@ -15,7 +15,7 @@ use work.metering_pkg.all;
 -- always derived from zero crossings; the configured sample-count window is
 -- only the free-run fallback used while the voltage reference is unusable.
 --
--- Keeping the software-visible register layout and the MTR1 word map beside
+-- Keeping the software-visible register layout and the Basic word map beside
 -- the packing helpers makes PL, RPU, and APU share one contract.
 package grid_timing_pkg is
   -- Processing AXI-Lite offsets (base 0xB0050000). The shadow value commits
@@ -56,7 +56,7 @@ package grid_timing_pkg is
   constant GRID_CYCLES_50HZ : natural := 10;
   constant GRID_CYCLES_60HZ : natural := 12;
 
-  -- MTR1 format 2 (word 1 = 0x00010002) additions. Word 6 carries the actual
+  -- BASIC-v2 (word 1 = 0x00010002) additions. Word 6 carries the actual
   -- sample count of the block; these words carry the remaining provenance.
   --   word 15: [7:0] nominal Hz, [15:8] cycle count,
   --            [16] cycle_locked, [17] free_run_fallback,
@@ -64,15 +64,15 @@ package grid_timing_pkg is
   --   words 60/61: first sample index of the block, low/high 32 bits.
   -- The last sample index is intentionally not recorded:
   -- last = first + count - 1.
-  constant MTR1_FORMAT_V2 : word32_t := x"00010002";
-  constant MTR1_TIMING_WORD            : natural := 15;
-  constant MTR1_FIRST_SAMPLE_LOW_WORD  : natural := 60;
-  constant MTR1_FIRST_SAMPLE_HIGH_WORD : natural := 61;
-  constant MTR1_TIMING_NOMINAL_LSB     : natural := 0;
-  constant MTR1_TIMING_CYCLES_LSB      : natural := 8;
-  constant MTR1_TIMING_LOCKED_BIT      : natural := 16;
-  constant MTR1_TIMING_FALLBACK_BIT    : natural := 17;
-  constant MTR1_TIMING_FIRST_BLOCK_BIT : natural := 18;
+  constant BASIC_FORMAT_V2 : word32_t := x"00010002";
+  constant BASIC_TIMING_WORD            : natural := 15;
+  constant BASIC_FIRST_SAMPLE_LOW_WORD  : natural := 60;
+  constant BASIC_FIRST_SAMPLE_HIGH_WORD : natural := 61;
+  constant BASIC_TIMING_NOMINAL_LSB     : natural := 0;
+  constant BASIC_TIMING_CYCLES_LSB      : natural := 8;
+  constant BASIC_TIMING_LOCKED_BIT      : natural := 16;
+  constant BASIC_TIMING_FALLBACK_BIT    : natural := 17;
+  constant BASIC_TIMING_FIRST_BLOCK_BIT : natural := 18;
 
   -- Closed-block flag vector shared between grid_cycle_timing and the hub.
   constant GRID_BLOCK_FLAG_LOCKED      : natural := 0;

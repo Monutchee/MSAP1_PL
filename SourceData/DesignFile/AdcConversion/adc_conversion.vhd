@@ -209,9 +209,9 @@ begin
             -- CONTRACT: bits 71:64 are CONFIGURED channel enablement, not
             -- per-frame validity -- active_valid_mask changes only at APPLY,
             -- so it is constant for every frame of a basic measurement
-            -- block. Mtr1Engine relies on this: it takes the CLOSING
+            -- block. The Basic interval engine relies on this: it takes the CLOSING
             -- frame's mask as authoritative instead of ANDing across the
-            -- block (see the valid-mask contract in mtr1_engine.hpp). If a
+            -- block (see the valid-mask contract in single_cycle_engine.hpp). If a
             -- genuinely per-frame condition is ever folded in here, that
             -- engine must gain a block-level AND accumulator in the same
             -- change, or a channel invalid mid-block will be reported

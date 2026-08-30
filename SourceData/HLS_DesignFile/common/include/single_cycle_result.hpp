@@ -29,8 +29,8 @@
 // sum ap_int<128>, square ap_uint<128> (saturating, sticky flag),
 // raw_sum ap_int<64>, raw_square ap_uint<96>. The 10/12-cycle tier (M7)
 // merges cycles by plain addition, and integer addition of per-cycle
-// accumulators reconstructs the legacy mtr1 BLOCK accumulators exactly:
-// that bit-identity is the acceptance proof for retiring Mtr1Engine.
+// accumulators reconstructs the legacy Basic block accumulators exactly:
+// that bit identity is the acceptance proof for the current engine.
 // A per-cycle square CAN saturate only in configurations where the block
 // accumulator would saturate too; both paths raise the sticky arithmetic
 // flag, so any divergence is confined to already-flagged results.

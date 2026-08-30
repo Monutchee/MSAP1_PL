@@ -93,8 +93,8 @@ design has zero DRC errors and zero critical warnings.
 
 All meter-record producers emit 256-byte records as 64 32-bit beats with
 `TLAST` asserted on beat 63. `MTR_AXI_Switch` has exactly four inputs:
-S00 SingleCycle, S01 PQ, S02 R5C1-returned MTR1/MTR2, and S03 harmonics. The
-retired duplicate `M_AXIS_MTR1` and `M_AXIS_MTR2` MeterCore interfaces are
+S00 SingleCycle, S01 PQ, S02 R5C1-returned Basic/aggregate records, and S03
+harmonics. The retired duplicate Basic/aggregate MeterCore interfaces are
 absent. The module-reference clock metadata is 99,999,001 Hz. `adc_dclk`
 remains an independent ADC-source clock and the capture entity retains the
 established CDC implementation.
@@ -231,7 +231,7 @@ measured sample rate, configuration generation, drop count, and block
 sequence. `TLAST` is asserted only on the final word of frame 1023. The
 waveform branch never drives the conversion stream's `ready`; when Linux is
 not armed or its FIFO fills, only raw waveform frames are dropped and counted.
-RMS, frequency, and MTR1 production continue without backpressure from the
+RMS, frequency, and Basic-record production continue without backpressure from the
 diagnostic waveform path.
 
 `TopDesign.bd` instantiates this wrapper directly. System-level IP such as the
@@ -289,7 +289,7 @@ RPMsg.
 The "frame sequence" latched here is the conversion stage's 64-bit
 free-running sample index, delivered with each frame in TUSER (low word in
 bits 31:0, high word in bits 105:74). It is the same monotonic measurement
-timebase that MTR1 format-2 basic blocks reference in words 60/61, so a
+timebase that BASIC-v2 records reference in words 60/61, so a
 correlation read maps basic-block sample ranges to UTC directly. Because the
 waveform branch taps the stream before the conversion-to-processing
 elasticity FIFO while RMS consumes after it, a latched value can lead the RMS
@@ -313,7 +313,7 @@ vivado -mode batch \
 
 The integration test programs the metering AXI4-Lite interfaces, sends real
 four-lane AD7771 serial frames, checks both DC-removal modes and the complete
-MTR1 record, and verifies that two RMS windows can be captured while the DMA
+Basic record, and verifies that two RMS windows can be captured while the DMA
 stream is backpressured. `adc_simulator_tb` separately checks channel order,
 phase progression, frame-boundary apply, packet `TLAST`, saturation, missed
 samples, and AXI backpressure stability.

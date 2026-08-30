@@ -14,8 +14,8 @@ the free-run fallback window used while the voltage reference is unusable
 programs it to the nominal block length, 6,400 frames at 32 kSPS.
 
 The numerics are a Vitis HLS engine
-(`SourceData/HLS_DesignFile/MeterProcessing/Mtr1Engine`;
-`mtr1_engine.hpp/.cpp` are the normative sources — the hand-written
+(`SourceData/HLS_DesignFile/MeterProcessing/SingleCycleEngine`;
+`single_cycle_engine.hpp/.cpp` are the normative sources — the hand-written
 `meter_rms`/`MeterResultHub` pair it replaced lives in git history).
 Mean-corrected AC RMS uses
 
@@ -29,7 +29,7 @@ accumulators, serial restoring division, and an exact restoring integer
 square root; zero-referenced total RMS uses `sqrt(sum(x^2) / N)`; all
 rounding is floor/truncation as pinned in the engine header. The engine
 finalizes each closed block inline (~15 us) while
-`meter_mtr1_hls_shim`'s 8-deep beat FIFO absorbs incoming frames, so
+`meter_single_cycle_hls_shim`'s 8-deep beat FIFO absorbs incoming frames, so
 measurement is never backpressured and any overflow is a counted fault,
 never silent.
 
@@ -130,10 +130,10 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
   the MeterCore boundary; records leave on `M_AXIS_HARMONIC`. The matching
   private HRM1 and R5 aggregation packet stores also retain their full depth
   in symmetric URAM FIFOs so the design preserves K26 BRAM headroom.
-- `meter_mtr1_hls_shim`: packs one 1264-bit sample beat per accepted
-  converted frame (layout mirrors `mtr1_engine.hpp` MTR1_IN_*, kept in
+- `meter_single_cycle_hls_shim`: packs one 1,024-bit logical frame per accepted
+  converted frame (layout mirrors `single_cycle_engine.hpp` SCYC_IN_*, kept in
   lock step), buffers up to eight beats, hosts the packaged
-  `hls_mtr1_engine_ip`, and mirrors the APPLY commit for the register
+  `hls_single_cycle_engine_ip`, and mirrors the APPLY commit for the register
   file. Deliberately contains NO level-to-event conversion — the
   2026-08-13..16 record-duplication incident was localized to exactly
   that pattern in the retired aggregator shim.
@@ -155,9 +155,9 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
 | `0x18` | `SHADOW_WINDOW_SAMPLES` | samples in each RMS result |
 | `0x1c` | `SHADOW_VALID_MASK` | valid converted channels |
 | `0x20` | `ACTIVE_GENERATION` | committed generation |
-| `0x24` | `RESULT_SEQUENCE` | MTR1 record sequence, as of the last emitted record (tap on word 3) |
-| `0x28` | `RESULT_DROP_COUNT` | MTR1 record word 12 (`result_drops`, constant 0: every close is finalized) |
-| `0x2c` | `PACKET_DROP_COUNT` | MTR1 record word 11 (`emit_drops`, constant 0: emission is blocking) |
+| `0x24` | `RESULT_SEQUENCE` | Basic-record sequence, as of the last emitted record (tap on word 3) |
+| `0x28` | `RESULT_DROP_COUNT` | Basic-record word 12 (`result_drops`, constant 0: every close is finalized) |
+| `0x2c` | `PACKET_DROP_COUNT` | Basic-record word 11 (`emit_drops`, constant 0: emission is blocking) |
 | `0x30` | `FREQUENCY_SHADOW_CONTROL` | enable, mode, CH6, cycle count |
 | `0x34` | `FREQUENCY_SHADOW_WINDOW_SAMPLES` | rolling-time target |
 | `0x38` | `FREQUENCY_SHADOW_MIN_MILLIHZ` | accepted lower limit |
@@ -224,7 +224,7 @@ is pinned by `meter_r5_aggregation_pkg.vhd` and
 R5C1 owns Basic, 150/180-cycle, UTC 10-minute, and 2-hour aggregation and
 record serialization. It returns one complete 256-byte record through the
 AXI FIFO TX channel into `MTR_AXI_Switch/S02_AXIS`. The retired duplicate
-`M_AXIS_MTR1` and `M_AXIS_MTR2` wrapper interfaces are removed. Every returned
+The duplicate legacy basic/aggregate wrapper interfaces are removed. Every returned
 record is 64 x 32-bit beats with TLAST on beat 63 before it joins the Linux
 meter-DMA path. The other compact switch inputs are S00 SingleCycle, S01 PQ,
 and S03 harmonics. RPMsg remains control-plane only.

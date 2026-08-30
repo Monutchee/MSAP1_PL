@@ -37,7 +37,7 @@
 //              narrow stream avoids a 7,072-bit physical interface while
 //              preserving every field of single_cycle_result_t.
 //
-// Window rules (the mtr1 conventions, applied per cycle):
+// Window rules (the Basic conventions, applied per cycle):
 //   - a cycle closes on the beat whose closes_cycle flag is set;
 //     grid_cycle_timing decides. While cycle timing is not locked
 //     (cycle_mode low) there are no cycle boundaries and no single-cycle
@@ -53,7 +53,7 @@
 //     serialization latency.
 
 // FREQUENCY_STATUS bit consumed for frequency_valid (meter_frequency_pkg
-// FREQUENCY_STATUS_VALID) — same convention as the mtr1 engine.
+// FREQUENCY_STATUS_VALID) — same convention as the Basic engine.
 static const int SCYC_FREQ_STATUS_VALID_BIT = 1;
 
 void hls_single_cycle_engine(hls::stream<single_cycle_sample_word_t> &s_sample,

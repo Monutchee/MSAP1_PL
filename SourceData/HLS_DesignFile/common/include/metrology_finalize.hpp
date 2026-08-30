@@ -342,7 +342,7 @@ inline ap_uint<1> met_fin_seq_set_valid(
       scratch, met_finalize_layout::SEQ_SET_VALID + set));
 }
 
-// One lane's basic finalization — the retired Mtr1 CALC_* sequence.
+// One lane's Basic finalization — the retired engine's CALC_* sequence.
 inline void met_finalize_lane(const ap_int<128> sum, const ap_uint<128> square,
                               const ap_int<64> raw_sum,
                               const ap_uint<96> raw_square,

@@ -271,7 +271,7 @@ architecture structural of meter_core is
   -- The PL SingleCycle engine builds its own SCYC diagnostic record and an
   -- ordered 221-word sufficient-statistics packet. The private exporter adds
   -- context and CRC32C for R5C1, which owns every interval record. Returned
-  -- MTR1/MTR2 records bypass this module through the block-design AXIS switch;
+  -- Basic/aggregate records bypass this module through the block-design AXIS switch;
   -- MeterCore no longer exposes duplicate legacy record outputs or taps.
   signal scyc_shim_drop_count : std_logic_vector(31 downto 0);
   signal grid_cycle_locked    : std_logic;
@@ -755,7 +755,7 @@ begin
     );
 
   -- The metering branches never backpressure conversion: every frame is
-  -- accepted the cycle it appears; the MTR1 shim's beat FIFO absorbs the
+  -- accepted the cycle it appears; the Basic shim's beat FIFO absorbs the
   -- HLS engine's finalize latency and counts (never hides) any overflow.
   engine_ready <= '1';
   converted_fifo.ready <= engine_ready;
@@ -826,7 +826,7 @@ begin
       legacy_agg_record_count_i => (others => '0'),
       legacy_agg_mismatch_count_i => (others => '0'),
       -- The sample-domain loss point is now the single-cycle shim's FIFO
-      -- (the retired Mtr1 shim's counter died with it).
+      -- (the retired Basic shim's counter died with it).
       legacy_agg_drop_count_i => scyc_shim_drop_count,
       r5_agg_export_status_i => r5_agg_status,
       r5_agg_export_accepted_count_i => r5_agg_accepted_packets,
@@ -1014,7 +1014,7 @@ begin
 
   -- R5C1 is the only interval-aggregation owner. The exporter consumes the
   -- SingleCycle packet without backpressuring metrology and emits a complete,
-  -- integrity-protected private-link frame. Finished MTR1/MTR2 records return
+  -- integrity-protected private-link frame. Finished Basic/aggregate records return
   -- through the independent block-design R5 FIFO path.
   scyc_result_tready <= r5_export_input_ready;
 

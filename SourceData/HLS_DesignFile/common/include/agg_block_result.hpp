@@ -31,7 +31,7 @@
 // Provenance carries everything the aggregation rules need, INCLUDING
 // the committed configuration (generation, sample rate, dc_remove) and
 // the APPLY toggle level — so the hosting shim is pure hosting with no
-// config ports, exactly like the retired mtr2 shim.
+// config ports, exactly like the retired aggregate shim.
 //
 // This beat has exactly one producer and one consumer inside this
 // repository: growing it is a lock-step header change, never a

@@ -35,10 +35,10 @@ package meter_frequency_pkg is
   constant FREQUENCY_REG_MEASUREMENT_SEQUENCE   : natural := 16#64#;
   constant FREQUENCY_REG_REJECTED_COUNT         : natural := 16#68#;
 
-  constant MTR1_FREQUENCY_VALUE_WORD    : natural := 56;
-  constant MTR1_FREQUENCY_STATUS_WORD   : natural := 57;
-  constant MTR1_FREQUENCY_PERIOD_WORD   : natural := 58;
-  constant MTR1_FREQUENCY_SEQUENCE_WORD : natural := 59;
+  constant BASIC_FREQUENCY_VALUE_WORD    : natural := 56;
+  constant BASIC_FREQUENCY_STATUS_WORD   : natural := 57;
+  constant BASIC_FREQUENCY_PERIOD_WORD   : natural := 58;
+  constant BASIC_FREQUENCY_SEQUENCE_WORD : natural := 59;
 
   constant FREQUENCY_STATUS_ENABLED          : natural := 0;
   constant FREQUENCY_STATUS_VALID            : natural := 1;
