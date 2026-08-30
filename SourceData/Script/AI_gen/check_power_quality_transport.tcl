@@ -24,9 +24,13 @@ set original_dir [pwd]
 cd $work_root
 
 puts [exec $xvhdl --2008 \
+  [file join $design_root MeterCommon metering_pkg.vhd] \
   [file join $design_root MeterProcessing meter_r5_aggregation_pkg.vhd] \
+  [file join $design_root MeterProcessing meter_r5_power_quality_protocol_pkg.vhd] \
   [file join $design_root MeterProcessing meter_r5_fixed_packet_export.vhd] \
   [file join $design_root MeterProcessing meter_axis_packet_arbiter_5to1.vhd] \
+  [file join $design_root MeterProcessing meter_flicker_sample_batcher.vhd] \
+  [file join $design_root MeterProcessing tb meter_flicker_sample_batcher_tb.vhd] \
   2>@1]
 puts [exec $xvlog --sv [file join $design_root MeterProcessing tb \
   meter_r5_power_quality_transport_tb.sv] 2>@1]
@@ -41,6 +45,18 @@ if {[string match "*FAIL:*" $simulation_log] ||
   error "power-quality transport simulation did not report PASS"
 }
 
+puts [exec $xelab -a --mt off meter_flicker_sample_batcher_tb \
+  -s meter_flicker_sample_batcher_tb_sim 2>@1]
+set flicker_axsim \
+  [file join $work_root xsim.dir meter_flicker_sample_batcher_tb_sim axsim]
+set flicker_log \
+  [exec env "LD_LIBRARY_PATH=$simulator_libraries" $flicker_axsim 2>@1]
+puts $flicker_log
+if {[string match "*FAIL:*" $flicker_log] ||
+    ![string match "*PASS: meter_flicker_sample_batcher_tb*" $flicker_log]} {
+  error "Flicker sample-batcher simulation did not report PASS"
+}
+
 cd $original_dir
 file delete -force $work_root
-puts "power-quality fixed packetizer and five-source arbiter PASS"
+puts "power-quality packetizers, Flicker batcher, and five-source arbiter PASS"

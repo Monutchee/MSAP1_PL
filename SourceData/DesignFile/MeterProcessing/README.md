@@ -33,6 +33,22 @@ finalizes each closed block inline (~15 us) while
 measurement is never backpressured and any overflow is a counted fault,
 never silent.
 
+## Flicker offload
+
+`meter_flicker_sample_batcher` is the complete PL-side Flicker boundary. It
+observes converted VA/VB/VC samples and emits one CRC32C-protected FLK1
+revision-2 packet for every 256 input frames. Each sample occupies five
+ordered 32-bit words; no wide HLS sample or result bus remains. The batcher
+never backpressures the metrology stream. When the private FIFO cannot retain
+a complete packet, it drops that packet as a unit and carries the loss into
+the next packet's discontinuity/source-drop status.
+
+R5C1 owns all IEC 61000-4-15 processing after this boundary: reference
+normalization, 2 kHz decimation, lamp-model filters, instantaneous flicker,
+the 600-second classifier, Pst, Plt, and serialization of the existing
+Flicker-v1 (`0x000E0001`) public record. The bitstream and R5C1 firmware are a
+co-release pair; there is no PL calculation fallback.
+
 ## Grid-cycle timing
 
 `grid_cycle_timing` observes the frames accepted by the RMS engine and the

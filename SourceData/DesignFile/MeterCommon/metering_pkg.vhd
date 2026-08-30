@@ -10,6 +10,12 @@ package metering_pkg is
   constant METER_CONVERTED_KEEP_BITS  : positive :=
     METER_CONVERTED_FRAME_BITS / 8;
 
+  -- Sensor-board lane order, mirrored from the shared HLS/R5 metering
+  -- contract. Voltage order is intentionally reversed in the converted frame.
+  constant METER_LANE_VC : natural := 4;
+  constant METER_LANE_VB : natural := 5;
+  constant METER_LANE_VA : natural := 6;
+
   subtype word32_t is std_logic_vector(31 downto 0);
   subtype sword48_t is signed(METER_CONVERTED_LANE_BITS - 1 downto 0);
   subtype sword64_t is signed(63 downto 0);

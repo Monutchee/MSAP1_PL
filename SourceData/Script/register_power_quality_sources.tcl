@@ -1,6 +1,7 @@
 # Register maintained power-quality private-packet infrastructure with the product
-# Vivado project. HLS customizations remain owned by register_hls_components;
-# this script adds only ordinary VHDL sources and is idempotent.
+# Vivado project. Remaining HLS customizations are owned by
+# register_hls_components; this script adds only ordinary VHDL sources and is
+# idempotent.
 
 set script_dir [file dirname [file normalize [info script]]]
 set project_root [file normalize [file join $script_dir ../..]]
@@ -18,8 +19,25 @@ set vhdl_sources [list \
     [file join $processing_dir meter_r5_power_quality_protocol_pkg.vhd] \
     [file join $processing_dir meter_r5_fixed_packet_export.vhd] \
     [file join $processing_dir meter_axis_packet_arbiter_5to1.vhd] \
-    [file join $processing_dir meter_flicker_hls_shim.vhd] \
+    [file join $processing_dir meter_flicker_sample_batcher.vhd] \
     [file join $processing_dir meter_mains_signal_hls_shim.vhd]]
+
+set obsolete_sources [list \
+    [file join $processing_dir meter_flicker_hls_shim.vhd] \
+    [file join $project_root SourceData IP hls_flicker_engine_ip \
+        hls_flicker_engine_ip.xci]]
+foreach source $obsolete_sources {
+    set registered [get_files -quiet -of_objects [get_filesets sources_1] \
+        $source]
+    if {[llength $registered] == 0} {
+        set registered [get_files -quiet -of_objects [get_filesets sources_1] \
+            "*[file tail $source]"]
+    }
+    if {[llength $registered] != 0} {
+        remove_files -fileset sources_1 $registered
+        puts "Removed retired Flicker HLS project input: $registered"
+    }
+}
 
 set missing_sources [list]
 foreach source $vhdl_sources {

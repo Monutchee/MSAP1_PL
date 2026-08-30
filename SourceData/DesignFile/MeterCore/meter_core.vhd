@@ -337,7 +337,7 @@ architecture structural of meter_core is
   signal r5_flk_dropped_packets   : std_logic_vector(31 downto 0);
   signal r5_flk_transmitted_packets : std_logic_vector(31 downto 0);
   signal r5_flk_framing_errors    : std_logic_vector(31 downto 0);
-  signal flicker_shim_drop_count  : std_logic_vector(31 downto 0);
+  signal flicker_batch_drop_count : std_logic_vector(31 downto 0);
   signal mcs_payload_axis_tdata   : std_logic_vector(31 downto 0);
   signal mcs_payload_axis_tkeep   : std_logic_vector(3 downto 0);
   signal mcs_payload_axis_tvalid  : std_logic;
@@ -1206,7 +1206,7 @@ begin
       framing_error_count_o => r5_pqe_framing_errors
     );
 
-  flicker_producer : entity work.meter_flicker_hls_shim
+  flicker_producer : entity work.meter_flicker_sample_batcher
     port map (
       aclk => aclk,
       aresetn => aresetn,
@@ -1225,19 +1225,20 @@ begin
       m_axis_flk_tvalid => flk_payload_axis_tvalid,
       m_axis_flk_tready => flk_payload_axis_tready,
       m_axis_flk_tlast => flk_payload_axis_tlast,
-      drop_count_o => flicker_shim_drop_count
+      drop_count_o => flicker_batch_drop_count
     );
 
-  -- A completed 600 s classifier is a burst of 35 fixed packets. Reserve a
-  -- whole-family queue so even a simultaneous AGG1/HRM1 transfer cannot turn
-  -- a valid Pst interval into a partial histogram at the R5 boundary.
+  -- Six complete 256-frame batches fit in the private queue. At 128 kSPS this
+  -- is 12 ms of transport elasticity; IEC filtering and classification live
+  -- on R5C1, so PL carries only packed 32-bit raw-voltage words.
   flicker_packetizer : entity work.meter_r5_fixed_packet_export
     generic map (
       G_MAGIC => R5_FLK_MAGIC,
+      G_CONTRACT_REVISION => R5_FLK_CONTRACT_REVISION,
       G_PAYLOAD_WORDS => R5_FLK_PAYLOAD_WORDS,
-      G_FIFO_DEPTH => 4096,
-      G_FIFO_COUNT_WIDTH => 13,
-      G_PACKET_SLOTS => 40
+      G_FIFO_DEPTH => 8192,
+      G_FIFO_COUNT_WIDTH => 14,
+      G_PACKET_SLOTS => 6
     )
     port map (
       aclk => aclk,

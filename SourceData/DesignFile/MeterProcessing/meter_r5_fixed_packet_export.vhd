@@ -15,6 +15,7 @@ use work.meter_r5_aggregation_pkg.all;
 entity meter_r5_fixed_packet_export is
   generic (
     G_MAGIC            : std_logic_vector(31 downto 0);
+    G_CONTRACT_REVISION: std_logic_vector(31 downto 0) := x"00000001";
     G_PAYLOAD_WORDS    : positive;
     G_FIFO_DEPTH       : positive := 512;
     G_FIFO_COUNT_WIDTH : positive := 10;
@@ -134,7 +135,7 @@ begin
         output_valid <= '1';
         case output_header_index is
           when 0 => output_word <= G_MAGIC;
-          when 1 => output_word <= x"00000001";
+          when 1 => output_word <= G_CONTRACT_REVISION;
           when 2 => output_word <= std_logic_vector(
             to_unsigned(G_PAYLOAD_WORDS, 32));
           when others => output_word <= fifo_data;

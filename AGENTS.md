@@ -124,6 +124,17 @@
   256-byte record through the FIFO TX AXI stream into
   `MTR_AXI_Switch/S02_AXIS`. There is intentionally no PL runtime fallback
   when the co-released R5 image or FIFO path is unavailable.
+- R5C1 is also the sole IEC 61000-4-15 Flicker computation authority. PL
+  `meter_flicker_sample_batcher` observes converted VA/VB/VC frames without
+  backpressure and emits FLK1 revision 2 as one 1,299-word packet for each
+  256-frame batch. Its payload contains ten metadata words, five tightly
+  packed 32-bit words per three-phase sample, and four trailer words. R5C1
+  owns normalization, 2 kHz decimation, filtering, classification, Pst, Plt,
+  and the unchanged `0x000E0001` public record. Keep the batcher bounded and
+  nonblocking, preserve discontinuity/source-drop provenance, and do not
+  restore the retired Flicker HLS IP or a wide parallel sample/result
+  boundary. FLK1 is an exact co-release private contract and remains below
+  the existing 2,693-word transport maximum.
 - `SourceData/HLS_DesignFile/` holds Vitis HLS components: C++ sources are
   the design input; the shared `HLS_DesignFile/run_hls.sh [component]`
   verifies one component (csim + C/RTL cosim), packages the IP, and unpacks

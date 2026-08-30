@@ -15,14 +15,6 @@ if {![file isdirectory $hls_pq_hdl]} {
 set hls_pq_verilog [concat \
   [lsort [glob -directory $hls_pq_hdl *.v]] \
   [list [file join $design_root MeterProcessing tb hls_sliding_one_cycle_rms_engine_ip.v]]]
-set hls_flicker_hdl [file join $project_root SourceData HLS_DesignFile \
-  ip_repo FlickerEngine hdl verilog]
-if {![file isdirectory $hls_flicker_hdl]} {
-  error "missing $hls_flicker_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
-}
-set hls_flicker_verilog [concat \
-  [lsort [glob -directory $hls_flicker_hdl *.v]] \
-  [list [file join $design_root MeterProcessing tb hls_flicker_engine_ip.v]]]
 set hls_mains_signal_hdl [file join $project_root SourceData HLS_DesignFile \
   ip_repo MainsSignalEngine hdl verilog]
 if {![file isdirectory $hls_mains_signal_hdl]} {
@@ -98,7 +90,7 @@ set vhdl2008_sources [list \
   [file join $design_root MeterProcessing meter_r5_aggregation_export.vhd] \
   [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_sliding_rms_hls_shim.vhd] \
-  [file join $design_root MeterProcessing meter_flicker_hls_shim.vhd] \
+  [file join $design_root MeterProcessing meter_flicker_sample_batcher.vhd] \
   [file join $design_root MeterProcessing meter_mains_signal_hls_shim.vhd] \
   [file join $design_root MeterProcessing meter_spectral_conditioner.vhd] \
   [file join $design_root MeterProcessing meter_spectral_frontend.vhd] \
@@ -131,8 +123,7 @@ file mkdir $work_root
 # packaged engine (sim-wave sine LUT, single-cycle trig LUT, the M9
 # CORDIC atan table, anything future).
 foreach hdl_dir [list $hls_sim_wave_hdl $hls_scyc_hdl $hls_pq_hdl \
-                      $hls_flicker_hdl $hls_mains_signal_hdl \
-                      $hls_harmonic_hdl] {
+                      $hls_mains_signal_hdl $hls_harmonic_hdl] {
   foreach rom_image [glob -nocomplain -directory $hdl_dir *.dat] {
     file copy -force $rom_image $work_root
   }
@@ -146,7 +137,6 @@ puts [exec $xvhdl --2008 {*}$vhdl2008_sources 2>@1]
 puts [exec $xvlog -i $hls_sim_wave_hdl {*}$hls_sim_wave_verilog 2>@1]
 puts [exec $xvlog -i $hls_scyc_hdl {*}$hls_scyc_verilog 2>@1]
 puts [exec $xvlog -i $hls_pq_hdl {*}$hls_pq_verilog 2>@1]
-puts [exec $xvlog -i $hls_flicker_hdl {*}$hls_flicker_verilog 2>@1]
 puts [exec $xvlog -i $hls_mains_signal_hdl \
   {*}$hls_mains_signal_verilog 2>@1]
 puts [exec $xvlog -i $hls_harmonic_hdl {*}$hls_harmonic_verilog 2>@1]

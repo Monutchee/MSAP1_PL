@@ -42,10 +42,12 @@ package meter_r5_power_quality_protocol_pkg is
   constant R5_MCS_MAGIC : std_logic_vector(31 downto 0) := x"3153434D"; -- MCS1
   constant R5_M18_CONTRACT_REVISION : std_logic_vector(31 downto 0) :=
     x"00000001";
+  constant R5_FLK_CONTRACT_REVISION : std_logic_vector(31 downto 0) :=
+    x"00000002";
   constant R5_M18_HEADER_WORDS : positive := 4;
   constant R5_M18_CRC_WORDS : positive := 1;
   constant R5_PQE_PAYLOAD_WORDS : positive := 64;
-  constant R5_FLK_PAYLOAD_WORDS : positive := 64;
+  constant R5_FLK_PAYLOAD_WORDS : positive := 1294;
   constant R5_MCS_PAYLOAD_WORDS : positive := 20;
   constant R5_PQE_FRAME_WORDS : positive :=
     R5_M18_HEADER_WORDS + R5_PQE_PAYLOAD_WORDS + R5_M18_CRC_WORDS;
@@ -78,31 +80,39 @@ package meter_r5_power_quality_protocol_pkg is
   constant R5_PQE_HYSTERESIS_WORD        : natural := 28;
   constant R5_PQE_APPLY_WORD             : natural := 29;
 
-  -- FLK1 payload words. Histogram chunks carry 15 bins per phase from the
-  -- common base in word 8. Thirty-five ordered chunks reproduce all 512
-  -- classifier bins without loss; unused positions in the final chunk are
-  -- zero. Pinst and histogram counts are unsigned Q16 and u32 respectively.
+  -- FLK1 revision-2 payload words. PL tightly packs 256 consecutive converted
+  -- voltage frames into five 32-bit words each; R5C1 owns normalization,
+  -- decimation, IEC filtering, classification, Pst, and Plt. One payload is
+  -- 5,176 bytes and remains below the common 2,693-word transport-frame bound.
   constant R5_FLK_SEQUENCE_WORD          : natural := 0;
   constant R5_FLK_GENERATION_WORD        : natural := 1;
   constant R5_FLK_SAMPLE_RATE_WORD       : natural := 2;
-  constant R5_FLK_STATUS_WORD            : natural := 3;
+  constant R5_FLK_FRAME_CAPACITY_WORD    : natural := 3;
   constant R5_FLK_PHASE_MASK_WORD        : natural := 4;
-  constant R5_FLK_KIND_WORD              : natural := 5;
-  constant R5_FLK_MODEL_WORD             : natural := 6;
-  constant R5_FLK_TIMING_WORD            : natural := 7;
-  constant R5_FLK_HISTOGRAM_BASE_WORD    : natural := 8;
-  constant R5_FLK_VALID_COUNT_BASE_WORD  : natural := 9;
-  constant R5_FLK_FIRST_SAMPLE_LOW_WORD  : natural := 12;
-  constant R5_FLK_FIRST_SAMPLE_HIGH_WORD : natural := 13;
-  constant R5_FLK_LAST_SAMPLE_LOW_WORD   : natural := 14;
-  constant R5_FLK_LAST_SAMPLE_HIGH_WORD  : natural := 15;
-  constant R5_FLK_PINST_BASE_WORD        : natural := 16;
-  constant R5_FLK_HISTOGRAM_WORD         : natural := 19;
-  constant R5_FLK_BINS_PER_PACKET        : positive := 15;
-  constant R5_FLK_CLASSIFIER_BINS        : positive := 512;
-  constant R5_FLK_CLASSIFIER_CHUNKS      : positive := 35;
-  constant R5_FLK_KIND_LIVE              : natural := 0;
-  constant R5_FLK_KIND_HISTOGRAM         : natural := 1;
+  constant R5_FLK_MODEL_WORD             : natural := 5;
+  constant R5_FLK_TIMING_WORD            : natural := 6;
+  constant R5_FLK_REFERENCE_UV_WORD       : natural := 7;
+  constant R5_FLK_FIRST_SAMPLE_LOW_WORD  : natural := 8;
+  constant R5_FLK_FIRST_SAMPLE_HIGH_WORD : natural := 9;
+  constant R5_FLK_SAMPLE_BASE_WORD        : natural := 10;
+  constant R5_FLK_BATCH_FRAMES            : positive := 256;
+  constant R5_FLK_WORDS_PER_FRAME         : positive := 5;
+  constant R5_FLK_ACTUAL_COUNT_WORD       : natural := 1290;
+  constant R5_FLK_BATCH_STATUS_WORD       : natural := 1291;
+  constant R5_FLK_LAST_SAMPLE_LOW_WORD   : natural := 1292;
+  constant R5_FLK_LAST_SAMPLE_HIGH_WORD  : natural := 1293;
+
+  -- Packed-frame flags occupy payload frame word 4 bits 23:16.
+  constant R5_FLK_SAMPLE_VALID_A_BIT      : natural := 0;
+  constant R5_FLK_SAMPLE_VALID_B_BIT      : natural := 1;
+  constant R5_FLK_SAMPLE_VALID_C_BIT      : natural := 2;
+  constant R5_FLK_SAMPLE_MALFORMED_BIT    : natural := 3;
+  constant R5_FLK_SAMPLE_LOCKED_BIT       : natural := 4;
+  constant R5_FLK_SAMPLE_FALLBACK_BIT     : natural := 5;
+  constant R5_FLK_SAMPLE_SATURATED_BIT    : natural := 6;
+
+  constant R5_FLK_BATCH_DISCONTINUITY_BIT : natural := 0;
+  constant R5_FLK_BATCH_SOURCE_DROP_BIT   : natural := 1;
 
   -- MCS1 payload words. Frequencies and bandwidth are integer millihertz;
   -- per-phase carrier and adjacent-background magnitudes are integer
