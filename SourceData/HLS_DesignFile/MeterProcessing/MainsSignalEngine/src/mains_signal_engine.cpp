@@ -164,7 +164,7 @@ void hls_mains_signal_engine(hls::stream<mains_signal_input_beat_t> &s_frame,
     pending_discontinuity = 1;
 reset_apply_probes:
     for (int probe = 0; probe < MCS_PROBES; ++probe) {
-#pragma HLS UNROLL
+#pragma HLS PIPELINE off
       probe_phase[probe] = 0;
       probe_step[probe] = phase_step_q32(
           carrier_millihz, bandwidth_millihz,
