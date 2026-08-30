@@ -244,6 +244,7 @@ rotate_lanes:
   summary_sequence += 1;
   ap_uint<32> summary[PQE_PAYLOAD_WORDS];
 #pragma HLS ARRAY_PARTITION variable=summary cyclic factor=4
+#pragma HLS BIND_STORAGE variable=summary type=ram_2p impl=lutram
 clear_summary:
   for (int word = 0; word < PQE_PAYLOAD_WORDS; ++word) {
 #pragma HLS PIPELINE II=1
@@ -480,6 +481,7 @@ window_extremes:
       ap_uint<32>(arithmetic_overflow) | (ap_uint<32>(first_record) << 2);
 
   record_image_t image;
+#pragma HLS BIND_STORAGE variable=image.word type=ram_2p impl=lutram
   clear_record(image);
   fill_envelope(image, sequence, active_generation, active_sample_rate,
                 ap_uint<32>(sample_index - emit_first + 1),

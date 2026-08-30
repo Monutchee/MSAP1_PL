@@ -3,7 +3,7 @@
   "ip_inst": {
     "xci_name": "hls_harmonic_engine_ip",
     "component_reference": "monutchee:msap1:hls_harmonic_engine:1.0",
-    "ip_revision": "2114763373",
+    "ip_revision": "2114763424",
     "gen_directory": ".",
     "parameters": {
       "component_parameters": {
@@ -11,8 +11,8 @@
         "clk_period": [ { "value": "10", "enabled": false, "usage": "all" } ],
         "machine": [ { "value": "64", "enabled": false, "usage": "all" } ],
         "combinational": [ { "value": "0", "enabled": false, "usage": "all" } ],
-        "latency": [ { "value": "71848", "enabled": false, "usage": "all" } ],
-        "II": [ { "value": "71849 ~ 256003", "enabled": false, "usage": "all" } ]
+        "latency": [ { "value": "73150", "enabled": false, "usage": "all" } ],
+        "II": [ { "value": "73151 ~ 257305", "enabled": false, "usage": "all" } ]
       },
       "project_parameters": {
         "ARCHITECTURE": [ { "value": "zynquplus", "resolve_type": "generated", "usage": "all" } ],
@@ -29,7 +29,7 @@
       },
       "runtime_parameters": {
         "IPCONTEXT": [ { "value": "IP_Flow" } ],
-        "IPREVISION": [ { "value": "2114763373" } ],
+        "IPREVISION": [ { "value": "2114763424" } ],
         "MANAGED": [ { "value": "TRUE" } ],
         "OUTPUTDIR": [ { "value": "." } ],
         "SELECTEDSIMMODEL": [ { "value": "" } ],
@@ -171,5 +171,5 @@
       }
     }
   },
-  "checksum": "ead8a8f1"
+  "checksum": "dfbebdea"
 }

@@ -51,6 +51,12 @@ mains-signalling estimator. It serializes the unchanged Flicker-v1
 (`0x000E0001`) and Mains-Signal-v1 (`0x000F0001`) public records. The bitstream
 and R5C1 firmware are a co-release pair; there is no PL calculation fallback.
 
+HLS record images and finalized result arrays are deliberately bound to
+dual-port LUTRAM. They are shallow indexed scratch stores, and leaving them on
+automatic inference can consume one mostly empty BRAM primitive per array.
+Deep sample queues, spectral windows, and private packet stores remain mapped
+to BRAM or URAM; do not move those high-capacity buffers into distributed RAM.
+
 ## Grid-cycle timing
 
 `grid_cycle_timing` observes the frames accepted by the RMS engine and the

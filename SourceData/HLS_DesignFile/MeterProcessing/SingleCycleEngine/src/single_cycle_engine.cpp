@@ -279,6 +279,22 @@ finalize_fundamental:
   disc_timing = 0;
 
   single_cycle_result_t result;
+  // These arrays contain only three or seven words.  Leaving their storage
+  // implementation on AUTO lets downstream Vivado synthesis promote each
+  // wide, shallow array into several mostly-empty RAMB36s.  Distributed RAM
+  // is the intended implementation for this short-lived serialization image;
+  // the deep sample and packet FIFOs remain explicitly block/UltraRAM-backed.
+#pragma HLS BIND_STORAGE variable=result.sum type=ram_2p impl=lutram
+#pragma HLS BIND_STORAGE variable=result.square type=ram_2p impl=lutram
+#pragma HLS BIND_STORAGE variable=result.raw_sum type=ram_2p impl=lutram
+#pragma HLS BIND_STORAGE variable=result.raw_square type=ram_2p impl=lutram
+#pragma HLS BIND_STORAGE variable=result.minimum type=ram_2p impl=lutram
+#pragma HLS BIND_STORAGE variable=result.maximum type=ram_2p impl=lutram
+#pragma HLS BIND_STORAGE variable=result.vll_square type=ram_2p impl=lutram
+#pragma HLS BIND_STORAGE variable=result.vll_peak type=ram_2p impl=lutram
+#pragma HLS BIND_STORAGE variable=result.power_sum type=ram_2p impl=lutram
+#pragma HLS BIND_STORAGE variable=result.phasor_re type=ram_2p impl=lutram
+#pragma HLS BIND_STORAGE variable=result.phasor_im type=ram_2p impl=lutram
   result.sequence = sequence;
   result.generation = active_generation;
   result.first_sample = window_first_sample;
@@ -315,6 +331,7 @@ zero_phasor:
 
   // SCYC-v5 diagnostic record.
   record_image_t image;
+#pragma HLS BIND_STORAGE variable=image.word type=ram_2p impl=lutram
   clear_record(image);
   fill_envelope(image, sequence, active_generation, active_sample_rate,
                 count_now, result_mask, status, window_first_sample);
