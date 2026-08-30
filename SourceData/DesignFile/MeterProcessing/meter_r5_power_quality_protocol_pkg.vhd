@@ -38,23 +38,19 @@ package meter_r5_power_quality_protocol_pkg is
   constant M18_REG_CONFIG_STATUS : natural := 16#FC#;
 
   constant R5_PQE_MAGIC : std_logic_vector(31 downto 0) := x"31455150"; -- PQE1
-  constant R5_FLK_MAGIC : std_logic_vector(31 downto 0) := x"314B4C46"; -- FLK1
-  constant R5_MCS_MAGIC : std_logic_vector(31 downto 0) := x"3153434D"; -- MCS1
+  constant R5_VSB_MAGIC : std_logic_vector(31 downto 0) := x"31425356"; -- VSB1
   constant R5_M18_CONTRACT_REVISION : std_logic_vector(31 downto 0) :=
     x"00000001";
-  constant R5_FLK_CONTRACT_REVISION : std_logic_vector(31 downto 0) :=
-    x"00000002";
+  constant R5_VSB_CONTRACT_REVISION : std_logic_vector(31 downto 0) :=
+    x"00000001";
   constant R5_M18_HEADER_WORDS : positive := 4;
   constant R5_M18_CRC_WORDS : positive := 1;
   constant R5_PQE_PAYLOAD_WORDS : positive := 64;
-  constant R5_FLK_PAYLOAD_WORDS : positive := 1294;
-  constant R5_MCS_PAYLOAD_WORDS : positive := 20;
+  constant R5_VSB_PAYLOAD_WORDS : positive := 1038;
   constant R5_PQE_FRAME_WORDS : positive :=
     R5_M18_HEADER_WORDS + R5_PQE_PAYLOAD_WORDS + R5_M18_CRC_WORDS;
-  constant R5_FLK_FRAME_WORDS : positive :=
-    R5_M18_HEADER_WORDS + R5_FLK_PAYLOAD_WORDS + R5_M18_CRC_WORDS;
-  constant R5_MCS_FRAME_WORDS : positive :=
-    R5_M18_HEADER_WORDS + R5_MCS_PAYLOAD_WORDS + R5_M18_CRC_WORDS;
+  constant R5_VSB_FRAME_WORDS : positive :=
+    R5_M18_HEADER_WORDS + R5_VSB_PAYLOAD_WORDS + R5_M18_CRC_WORDS;
 
   -- PQE1 payload words. RMS values are unsigned Q16 micro-units; each u64 is
   -- low word first. Validity packs voltage A/B/C in bits 0..2 and current
@@ -80,59 +76,41 @@ package meter_r5_power_quality_protocol_pkg is
   constant R5_PQE_HYSTERESIS_WORD        : natural := 28;
   constant R5_PQE_APPLY_WORD             : natural := 29;
 
-  -- FLK1 revision-2 payload words. PL tightly packs 256 consecutive converted
-  -- voltage frames into five 32-bit words each; R5C1 owns normalization,
-  -- decimation, IEC filtering, classification, Pst, and Plt. One payload is
-  -- 5,176 bytes and remains below the common 2,693-word transport-frame bound.
-  constant R5_FLK_SEQUENCE_WORD          : natural := 0;
-  constant R5_FLK_GENERATION_WORD        : natural := 1;
-  constant R5_FLK_SAMPLE_RATE_WORD       : natural := 2;
-  constant R5_FLK_FRAME_CAPACITY_WORD    : natural := 3;
-  constant R5_FLK_PHASE_MASK_WORD        : natural := 4;
-  constant R5_FLK_MODEL_WORD             : natural := 5;
-  constant R5_FLK_TIMING_WORD            : natural := 6;
-  constant R5_FLK_REFERENCE_UV_WORD       : natural := 7;
-  constant R5_FLK_FIRST_SAMPLE_LOW_WORD  : natural := 8;
-  constant R5_FLK_FIRST_SAMPLE_HIGH_WORD : natural := 9;
-  constant R5_FLK_SAMPLE_BASE_WORD        : natural := 10;
-  constant R5_FLK_BATCH_FRAMES            : positive := 256;
-  constant R5_FLK_WORDS_PER_FRAME         : positive := 5;
-  constant R5_FLK_ACTUAL_COUNT_WORD       : natural := 1290;
-  constant R5_FLK_BATCH_STATUS_WORD       : natural := 1291;
-  constant R5_FLK_LAST_SAMPLE_LOW_WORD   : natural := 1292;
-  constant R5_FLK_LAST_SAMPLE_HIGH_WORD  : natural := 1293;
+  -- VSB1 payload words. PL transports one shared batch of 256 consecutive
+  -- voltage frames to R5C1 for both the flicker and mains-signalling engines.
+  -- Each frame is VA/VB/VC as signed integer microvolts followed by one flags
+  -- word. Flicker-specific profile metadata remains in the fixed header so the
+  -- flickermeter can validate its staged configuration; mains signalling uses
+  -- the same generation, sample-rate, phase availability, and raw samples.
+  constant R5_VSB_SEQUENCE_WORD          : natural := 0;
+  constant R5_VSB_GENERATION_WORD        : natural := 1;
+  constant R5_VSB_SAMPLE_RATE_WORD       : natural := 2;
+  constant R5_VSB_FRAME_CAPACITY_WORD    : natural := 3;
+  constant R5_VSB_PHASE_MASK_WORD        : natural := 4;
+  constant R5_VSB_MODEL_WORD             : natural := 5;
+  constant R5_VSB_TIMING_WORD            : natural := 6;
+  constant R5_VSB_REFERENCE_UV_WORD       : natural := 7;
+  constant R5_VSB_FIRST_SAMPLE_LOW_WORD  : natural := 8;
+  constant R5_VSB_FIRST_SAMPLE_HIGH_WORD : natural := 9;
+  constant R5_VSB_SAMPLE_BASE_WORD        : natural := 10;
+  constant R5_VSB_BATCH_FRAMES            : positive := 256;
+  constant R5_VSB_WORDS_PER_FRAME         : positive := 4;
+  constant R5_VSB_ACTUAL_COUNT_WORD       : natural := 1034;
+  constant R5_VSB_BATCH_STATUS_WORD       : natural := 1035;
+  constant R5_VSB_LAST_SAMPLE_LOW_WORD    : natural := 1036;
+  constant R5_VSB_LAST_SAMPLE_HIGH_WORD   : natural := 1037;
 
-  -- Packed-frame flags occupy payload frame word 4 bits 23:16.
-  constant R5_FLK_SAMPLE_VALID_A_BIT      : natural := 0;
-  constant R5_FLK_SAMPLE_VALID_B_BIT      : natural := 1;
-  constant R5_FLK_SAMPLE_VALID_C_BIT      : natural := 2;
-  constant R5_FLK_SAMPLE_MALFORMED_BIT    : natural := 3;
-  constant R5_FLK_SAMPLE_LOCKED_BIT       : natural := 4;
-  constant R5_FLK_SAMPLE_FALLBACK_BIT     : natural := 5;
-  constant R5_FLK_SAMPLE_SATURATED_BIT    : natural := 6;
+  -- Packed-frame flags occupy payload frame word 3 bits 6:0.
+  constant R5_VSB_SAMPLE_VALID_A_BIT      : natural := 0;
+  constant R5_VSB_SAMPLE_VALID_B_BIT      : natural := 1;
+  constant R5_VSB_SAMPLE_VALID_C_BIT      : natural := 2;
+  constant R5_VSB_SAMPLE_MALFORMED_BIT    : natural := 3;
+  constant R5_VSB_SAMPLE_LOCKED_BIT       : natural := 4;
+  constant R5_VSB_SAMPLE_FALLBACK_BIT     : natural := 5;
+  constant R5_VSB_SAMPLE_SATURATED_BIT    : natural := 6;
 
-  constant R5_FLK_BATCH_DISCONTINUITY_BIT : natural := 0;
-  constant R5_FLK_BATCH_SOURCE_DROP_BIT   : natural := 1;
-
-  -- MCS1 payload words. Frequencies and bandwidth are integer millihertz;
-  -- per-phase carrier and adjacent-background magnitudes are integer
-  -- microvolts. Phase validity occupies bits 0..2 and detections bits 8..10.
-  constant R5_MCS_SEQUENCE_WORD          : natural := 0;
-  constant R5_MCS_GENERATION_WORD        : natural := 1;
-  constant R5_MCS_SAMPLE_RATE_WORD       : natural := 2;
-  constant R5_MCS_STATUS_WORD            : natural := 3;
-  constant R5_MCS_PHASES_WORD            : natural := 4;
-  constant R5_MCS_CONFIGURED_WORD        : natural := 5;
-  constant R5_MCS_MEASURED_WORD          : natural := 6;
-  constant R5_MCS_BANDWIDTH_WORD         : natural := 7;
-  constant R5_MCS_OBSERVATION_WORD       : natural := 8;
-  constant R5_MCS_FIRST_SAMPLE_LOW_WORD  : natural := 9;
-  constant R5_MCS_FIRST_SAMPLE_HIGH_WORD : natural := 10;
-  constant R5_MCS_LAST_SAMPLE_LOW_WORD   : natural := 11;
-  constant R5_MCS_LAST_SAMPLE_HIGH_WORD  : natural := 12;
-  constant R5_MCS_MAGNITUDE_BASE_WORD    : natural := 13;
-  constant R5_MCS_BACKGROUND_BASE_WORD   : natural := 16;
-  constant R5_MCS_THRESHOLD_WORD         : natural := 19;
+  constant R5_VSB_BATCH_DISCONTINUITY_BIT : natural := 0;
+  constant R5_VSB_BATCH_SOURCE_DROP_BIT   : natural := 1;
 end package;
 
 package body meter_r5_power_quality_protocol_pkg is

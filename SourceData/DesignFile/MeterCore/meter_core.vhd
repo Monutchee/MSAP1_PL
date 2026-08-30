@@ -323,36 +323,21 @@ architecture structural of meter_core is
   signal r5_pqe_dropped_packets  : std_logic_vector(31 downto 0);
   signal r5_pqe_transmitted_packets : std_logic_vector(31 downto 0);
   signal r5_pqe_framing_errors   : std_logic_vector(31 downto 0);
-  signal flk_payload_axis_tdata   : std_logic_vector(31 downto 0);
-  signal flk_payload_axis_tkeep   : std_logic_vector(3 downto 0);
-  signal flk_payload_axis_tvalid  : std_logic;
-  signal flk_payload_axis_tready  : std_logic;
-  signal flk_payload_axis_tlast   : std_logic;
-  signal r5_flk_axis_tdata        : std_logic_vector(31 downto 0);
-  signal r5_flk_axis_tkeep        : std_logic_vector(3 downto 0);
-  signal r5_flk_axis_tvalid       : std_logic;
-  signal r5_flk_axis_tready       : std_logic;
-  signal r5_flk_axis_tlast        : std_logic;
-  signal r5_flk_accepted_packets  : std_logic_vector(31 downto 0);
-  signal r5_flk_dropped_packets   : std_logic_vector(31 downto 0);
-  signal r5_flk_transmitted_packets : std_logic_vector(31 downto 0);
-  signal r5_flk_framing_errors    : std_logic_vector(31 downto 0);
-  signal flicker_batch_drop_count : std_logic_vector(31 downto 0);
-  signal mcs_payload_axis_tdata   : std_logic_vector(31 downto 0);
-  signal mcs_payload_axis_tkeep   : std_logic_vector(3 downto 0);
-  signal mcs_payload_axis_tvalid  : std_logic;
-  signal mcs_payload_axis_tready  : std_logic;
-  signal mcs_payload_axis_tlast   : std_logic;
-  signal r5_mcs_axis_tdata        : std_logic_vector(31 downto 0);
-  signal r5_mcs_axis_tkeep        : std_logic_vector(3 downto 0);
-  signal r5_mcs_axis_tvalid       : std_logic;
-  signal r5_mcs_axis_tready       : std_logic;
-  signal r5_mcs_axis_tlast        : std_logic;
-  signal r5_mcs_accepted_packets  : std_logic_vector(31 downto 0);
-  signal r5_mcs_dropped_packets   : std_logic_vector(31 downto 0);
-  signal r5_mcs_transmitted_packets : std_logic_vector(31 downto 0);
-  signal r5_mcs_framing_errors    : std_logic_vector(31 downto 0);
-  signal mains_signal_shim_drop_count : std_logic_vector(31 downto 0);
+  signal vsb_payload_axis_tdata   : std_logic_vector(31 downto 0);
+  signal vsb_payload_axis_tkeep   : std_logic_vector(3 downto 0);
+  signal vsb_payload_axis_tvalid  : std_logic;
+  signal vsb_payload_axis_tready  : std_logic;
+  signal vsb_payload_axis_tlast   : std_logic;
+  signal r5_vsb_axis_tdata        : std_logic_vector(31 downto 0);
+  signal r5_vsb_axis_tkeep        : std_logic_vector(3 downto 0);
+  signal r5_vsb_axis_tvalid       : std_logic;
+  signal r5_vsb_axis_tready       : std_logic;
+  signal r5_vsb_axis_tlast        : std_logic;
+  signal r5_vsb_accepted_packets  : std_logic_vector(31 downto 0);
+  signal r5_vsb_dropped_packets   : std_logic_vector(31 downto 0);
+  signal r5_vsb_transmitted_packets : std_logic_vector(31 downto 0);
+  signal r5_vsb_framing_errors    : std_logic_vector(31 downto 0);
+  signal voltage_sample_batch_drop_count : std_logic_vector(31 downto 0);
   signal pq_shim_drop_count : std_logic_vector(31 downto 0);
   signal grid_half_boundary : std_logic;
   signal pq_shadow_reference : std_logic_vector(31 downto 0);
@@ -1062,8 +1047,9 @@ begin
       status_o => r5_agg_status
     );
 
-  -- Round-robin only at packet boundaries. AGG1, the three M18 families, and
-  -- HRM1 can never interleave and a continuously pending family cannot starve.
+  -- Round-robin only at packet boundaries. AGG1, PQE1, shared VSB1 samples,
+  -- and HRM1 can never interleave. Input three is retained as a constant-zero
+  -- compatibility port on the proven five-input arbiter and is optimized out.
   r5_input_arbiter : entity work.meter_axis_packet_arbiter_5to1
     port map (
       aclk => aclk,
@@ -1078,16 +1064,16 @@ begin
       s1_axis_tvalid => r5_pqe_axis_tvalid,
       s1_axis_tready => r5_pqe_axis_tready,
       s1_axis_tlast => r5_pqe_axis_tlast,
-      s2_axis_tdata => r5_flk_axis_tdata,
-      s2_axis_tkeep => r5_flk_axis_tkeep,
-      s2_axis_tvalid => r5_flk_axis_tvalid,
-      s2_axis_tready => r5_flk_axis_tready,
-      s2_axis_tlast => r5_flk_axis_tlast,
-      s3_axis_tdata => r5_mcs_axis_tdata,
-      s3_axis_tkeep => r5_mcs_axis_tkeep,
-      s3_axis_tvalid => r5_mcs_axis_tvalid,
-      s3_axis_tready => r5_mcs_axis_tready,
-      s3_axis_tlast => r5_mcs_axis_tlast,
+      s2_axis_tdata => r5_vsb_axis_tdata,
+      s2_axis_tkeep => r5_vsb_axis_tkeep,
+      s2_axis_tvalid => r5_vsb_axis_tvalid,
+      s2_axis_tready => r5_vsb_axis_tready,
+      s2_axis_tlast => r5_vsb_axis_tlast,
+      s3_axis_tdata => (others => '0'),
+      s3_axis_tkeep => (others => '0'),
+      s3_axis_tvalid => '0',
+      s3_axis_tready => open,
+      s3_axis_tlast => '0',
       s4_axis_tdata => r5_harmonic_axis_tdata,
       s4_axis_tkeep => r5_harmonic_axis_tkeep,
       s4_axis_tvalid => r5_harmonic_axis_tvalid,
@@ -1206,7 +1192,7 @@ begin
       framing_error_count_o => r5_pqe_framing_errors
     );
 
-  flicker_producer : entity work.meter_flicker_sample_batcher
+  voltage_sample_producer : entity work.meter_voltage_sample_batcher
     port map (
       aclk => aclk,
       aresetn => aresetn,
@@ -1220,22 +1206,22 @@ begin
       shadow_sample_rate_i => shadow_sample_rate,
       m18_shadow_words_i => m18_shadow_words,
       config_apply_toggle_i => apply_toggle,
-      m_axis_flk_tdata => flk_payload_axis_tdata,
-      m_axis_flk_tkeep => flk_payload_axis_tkeep,
-      m_axis_flk_tvalid => flk_payload_axis_tvalid,
-      m_axis_flk_tready => flk_payload_axis_tready,
-      m_axis_flk_tlast => flk_payload_axis_tlast,
-      drop_count_o => flicker_batch_drop_count
+      m_axis_vsb_tdata => vsb_payload_axis_tdata,
+      m_axis_vsb_tkeep => vsb_payload_axis_tkeep,
+      m_axis_vsb_tvalid => vsb_payload_axis_tvalid,
+      m_axis_vsb_tready => vsb_payload_axis_tready,
+      m_axis_vsb_tlast => vsb_payload_axis_tlast,
+      drop_count_o => voltage_sample_batch_drop_count
     );
 
   -- Six complete 256-frame batches fit in the private queue. At 128 kSPS this
-  -- is 12 ms of transport elasticity; IEC filtering and classification live
-  -- on R5C1, so PL carries only packed 32-bit raw-voltage words.
-  flicker_packetizer : entity work.meter_r5_fixed_packet_export
+  -- is 12 ms of transport elasticity. Both voltage-domain engines live on
+  -- R5C1, so PL carries one shared stream of signed integer-microvolt samples.
+  voltage_sample_packetizer : entity work.meter_r5_fixed_packet_export
     generic map (
-      G_MAGIC => R5_FLK_MAGIC,
-      G_CONTRACT_REVISION => R5_FLK_CONTRACT_REVISION,
-      G_PAYLOAD_WORDS => R5_FLK_PAYLOAD_WORDS,
+      G_MAGIC => R5_VSB_MAGIC,
+      G_CONTRACT_REVISION => R5_VSB_CONTRACT_REVISION,
+      G_PAYLOAD_WORDS => R5_VSB_PAYLOAD_WORDS,
       G_FIFO_DEPTH => 8192,
       G_FIFO_COUNT_WIDTH => 14,
       G_PACKET_SLOTS => 6
@@ -1243,71 +1229,20 @@ begin
     port map (
       aclk => aclk,
       aresetn => aresetn,
-      s_axis_tdata => flk_payload_axis_tdata,
-      s_axis_tkeep => flk_payload_axis_tkeep,
-      s_axis_tvalid => flk_payload_axis_tvalid,
-      s_axis_tready => flk_payload_axis_tready,
-      s_axis_tlast => flk_payload_axis_tlast,
-      m_axis_tdata => r5_flk_axis_tdata,
-      m_axis_tkeep => r5_flk_axis_tkeep,
-      m_axis_tvalid => r5_flk_axis_tvalid,
-      m_axis_tready => r5_flk_axis_tready,
-      m_axis_tlast => r5_flk_axis_tlast,
-      accepted_packet_count_o => r5_flk_accepted_packets,
-      dropped_packet_count_o => r5_flk_dropped_packets,
-      transmitted_packet_count_o => r5_flk_transmitted_packets,
-      framing_error_count_o => r5_flk_framing_errors
-    );
-
-  mains_signal_producer : entity work.meter_mains_signal_hls_shim
-    port map (
-      aclk => aclk,
-      aresetn => aresetn,
-      frame_accept_i => engine_valid,
-      frame_data_i => converted_fifo.data,
-      frame_keep_i => converted_fifo.keep,
-      frame_user_i => converted_fifo.user,
-      cycle_locked_i => grid_cycle_locked,
-      cycle_fallback_i => grid_cycle_fallback,
-      shadow_sample_rate_i => shadow_sample_rate,
-      m18_shadow_words_i => m18_shadow_words,
-      config_apply_toggle_i => apply_toggle,
-      m_axis_mcs_tdata => mcs_payload_axis_tdata,
-      m_axis_mcs_tkeep => mcs_payload_axis_tkeep,
-      m_axis_mcs_tvalid => mcs_payload_axis_tvalid,
-      m_axis_mcs_tready => mcs_payload_axis_tready,
-      m_axis_mcs_tlast => mcs_payload_axis_tlast,
-      drop_count_o => mains_signal_shim_drop_count
-    );
-
-  -- A 200 ms observation emits one small fixed packet. Eight packet slots
-  -- absorb transient AGG1/HRM1/PQE1/FLK1 arbitration without feeding
-  -- backpressure into the acquisition fan-out.
-  mains_signal_packetizer : entity work.meter_r5_fixed_packet_export
-    generic map (
-      G_MAGIC => R5_MCS_MAGIC,
-      G_PAYLOAD_WORDS => R5_MCS_PAYLOAD_WORDS,
-      G_FIFO_DEPTH => 256,
-      G_FIFO_COUNT_WIDTH => 9,
-      G_PACKET_SLOTS => 8
-    )
-    port map (
-      aclk => aclk,
-      aresetn => aresetn,
-      s_axis_tdata => mcs_payload_axis_tdata,
-      s_axis_tkeep => mcs_payload_axis_tkeep,
-      s_axis_tvalid => mcs_payload_axis_tvalid,
-      s_axis_tready => mcs_payload_axis_tready,
-      s_axis_tlast => mcs_payload_axis_tlast,
-      m_axis_tdata => r5_mcs_axis_tdata,
-      m_axis_tkeep => r5_mcs_axis_tkeep,
-      m_axis_tvalid => r5_mcs_axis_tvalid,
-      m_axis_tready => r5_mcs_axis_tready,
-      m_axis_tlast => r5_mcs_axis_tlast,
-      accepted_packet_count_o => r5_mcs_accepted_packets,
-      dropped_packet_count_o => r5_mcs_dropped_packets,
-      transmitted_packet_count_o => r5_mcs_transmitted_packets,
-      framing_error_count_o => r5_mcs_framing_errors
+      s_axis_tdata => vsb_payload_axis_tdata,
+      s_axis_tkeep => vsb_payload_axis_tkeep,
+      s_axis_tvalid => vsb_payload_axis_tvalid,
+      s_axis_tready => vsb_payload_axis_tready,
+      s_axis_tlast => vsb_payload_axis_tlast,
+      m_axis_tdata => r5_vsb_axis_tdata,
+      m_axis_tkeep => r5_vsb_axis_tkeep,
+      m_axis_tvalid => r5_vsb_axis_tvalid,
+      m_axis_tready => r5_vsb_axis_tready,
+      m_axis_tlast => r5_vsb_axis_tlast,
+      accepted_packet_count_o => r5_vsb_accepted_packets,
+      dropped_packet_count_o => r5_vsb_dropped_packets,
+      transmitted_packet_count_o => r5_vsb_transmitted_packets,
+      framing_error_count_o => r5_vsb_framing_errors
     );
 
   m_axis_pq_tdata <= pq_axis_tdata;

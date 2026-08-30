@@ -19,13 +19,16 @@ set vhdl_sources [list \
     [file join $processing_dir meter_r5_power_quality_protocol_pkg.vhd] \
     [file join $processing_dir meter_r5_fixed_packet_export.vhd] \
     [file join $processing_dir meter_axis_packet_arbiter_5to1.vhd] \
-    [file join $processing_dir meter_flicker_sample_batcher.vhd] \
-    [file join $processing_dir meter_mains_signal_hls_shim.vhd]]
+    [file join $processing_dir meter_voltage_sample_batcher.vhd]]
 
 set obsolete_sources [list \
     [file join $processing_dir meter_flicker_hls_shim.vhd] \
+    [file join $processing_dir meter_flicker_sample_batcher.vhd] \
+    [file join $processing_dir meter_mains_signal_hls_shim.vhd] \
     [file join $project_root SourceData IP hls_flicker_engine_ip \
-        hls_flicker_engine_ip.xci]]
+        hls_flicker_engine_ip.xci] \
+    [file join $project_root SourceData IP hls_mains_signal_engine_ip \
+        hls_mains_signal_engine_ip.xci]]
 foreach source $obsolete_sources {
     set registered [get_files -quiet -of_objects [get_filesets sources_1] \
         $source]
@@ -35,7 +38,7 @@ foreach source $obsolete_sources {
     }
     if {[llength $registered] != 0} {
         remove_files -fileset sources_1 $registered
-        puts "Removed retired Flicker HLS project input: $registered"
+        puts "Removed retired power-quality project input: $registered"
     }
 }
 

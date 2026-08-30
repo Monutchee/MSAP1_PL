@@ -1,7 +1,7 @@
 library ieee;
 use ieee.std_logic_1164.all;
 
--- Fair whole-packet arbiter for AGG1, PQE1, FLK1, MCS1, and HRM1. Selection
+-- Fair whole-packet arbiter for the private R5C1 packet families. Selection
 -- is round-robin only while idle; after the first accepted beat, ownership is
 -- immutable through TLAST. Thus packet types cannot interleave and every
 -- continuously pending family is selected within four packet boundaries.

@@ -24,11 +24,6 @@ set hls_pq_hdl [file join $project_root SourceData HLS_DesignFile \
 if {![file isdirectory $hls_pq_hdl]} {
   error "missing $hls_pq_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
 }
-set hls_mains_signal_hdl [file join $project_root SourceData HLS_DesignFile \
-  ip_repo MainsSignalEngine hdl verilog]
-if {![file isdirectory $hls_mains_signal_hdl]} {
-  error "missing $hls_mains_signal_hdl -- run 'mnc HLS build' or HLS_DesignFile/run_hls.sh first"
-}
 set hls_scyc_hdl [file join $project_root SourceData HLS_DesignFile \
   ip_repo SingleCycleEngine hdl verilog]
 if {![file isdirectory $hls_scyc_hdl]} {
@@ -79,19 +74,16 @@ read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_axis_packet_ar
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_r5_aggregation_export.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_single_cycle_hls_shim.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_sliding_rms_hls_shim.vhd]
-read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_flicker_sample_batcher.vhd]
-read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_mains_signal_hls_shim.vhd]
+read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_voltage_sample_batcher.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_spectral_conditioner.vhd]
 read_vhdl -vhdl2008 [file join $design_root MeterProcessing meter_spectral_frontend.vhd]
 read_verilog [lsort [glob -directory $hls_scyc_hdl *.v]]
 read_verilog [lsort [glob -directory $hls_pq_hdl *.v]]
-read_verilog [lsort [glob -directory $hls_mains_signal_hdl *.v]]
 read_verilog [lsort [glob -directory $hls_sim_wave_hdl *.v]]
 read_verilog [lsort [glob -directory $hls_harmonic_hdl *.v]]
 # Bind the IP-customization module names over the packaged RTL for this
 # non-project flow (the project gets the same modules from the XCIs).
 read_verilog [file join $design_root MeterProcessing tb hls_sliding_one_cycle_rms_engine_ip.v]
-read_verilog [file join $design_root MeterProcessing tb hls_mains_signal_engine_ip.v]
 read_verilog [file join $design_root MeterProcessing tb hls_single_cycle_engine_ip.v]
 read_verilog [file join $design_root MeterProcessing tb hls_harmonic_engine_ip.v]
 read_verilog [file join $design_root MeterCore tb hls_sim_wave_engine_ip.v]
@@ -118,7 +110,7 @@ if {$top_name eq "MeterCore_Wrapper"} {
   set ramb18_count [llength [get_cells -hier -filter {REF_NAME == RAMB18E2}]]
   set bram_tiles [expr {$ramb36_count + (0.5 * $ramb18_count)}]
   puts "MeterCore storage: BRAM tiles=$bram_tiles URAM=$uram_count"
-  if {$uram_count < 14} {
+  if {$uram_count < 12} {
     error "MeterCore packet/history storage did not map to the required K26 UltraRAMs"
   }
   if {$bram_tiles > 104.0} {

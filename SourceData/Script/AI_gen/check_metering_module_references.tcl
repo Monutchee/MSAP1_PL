@@ -37,8 +37,7 @@ set vhdl_2008_sources [list \
   [file join $design_root MeterProcessing meter_r5_fixed_packet_export.vhd] \
   [file join $design_root MeterProcessing meter_axis_packet_arbiter_5to1.vhd] \
   [file join $design_root MeterProcessing meter_r5_aggregation_export.vhd] \
-  [file join $design_root MeterProcessing meter_flicker_sample_batcher.vhd] \
-  [file join $design_root MeterProcessing meter_mains_signal_hls_shim.vhd] \
+  [file join $design_root MeterProcessing meter_voltage_sample_batcher.vhd] \
   [file join $design_root MeterCore adc_simulator_pkg.vhd] \
   [file join $design_root MeterCore adc_simulator.vhd] \
   [file join $design_root MeterCore adc_source_mux.vhd] \
