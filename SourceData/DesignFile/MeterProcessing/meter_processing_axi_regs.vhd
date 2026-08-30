@@ -71,7 +71,7 @@ entity meter_processing_axi_regs is
     pq_shadow_limits_o                 : out word32_t;
     pq_status_i                        : in  word32_t;
 
-    -- Indexed RPMsg-v9 M18 shadow image (F4=index, F8=data, FC=status).
+    -- Indexed RPMsg-v10 M18 shadow image (F4=index, F8=data, FC=status).
     -- The array is staging only; each engine snapshots it on shared APPLY.
     m18_shadow_words_o                 : out m18_config_words_t;
 

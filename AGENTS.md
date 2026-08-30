@@ -217,6 +217,7 @@ Run from the repository root, escalating only as the change requires:
 vivado -mode batch -source SourceData/Script/AI_gen/check_ad7771_capture.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_heartbeat.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_meter_core.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/check_meter_waveform.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_meter_frequency.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_r5_aggregation_export.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_metering_pipeline.tcl

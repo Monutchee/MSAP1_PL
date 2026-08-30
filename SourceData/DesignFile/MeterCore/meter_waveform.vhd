@@ -86,6 +86,7 @@ architecture rtl of meter_waveform is
   signal fifo_full        : std_logic;
   signal fifo_empty       : std_logic;
   signal fifo_reset_busy  : std_logic;
+  signal fifo_reset       : std_logic;
 
   signal header_index     : natural range 0 to C_HEADER_WORDS - 1 := 0;
   signal frame_index      : natural range 0 to G_FRAMES_PER_BLOCK - 1 := 0;
@@ -161,6 +162,11 @@ begin
                         m_axis_tready = '1' and
                         frame_word_index = C_FRAME_WORDS - 1 else '0';
 
+  -- ENABLE is a stream-epoch boundary, not only an input gate. Flush queued
+  -- frames and abandon any partial AXI packet while Linux tears DMA down so
+  -- the next open always begins with a complete WFM1 header/period.
+  fifo_reset <= (not aresetn) or (not enable_i);
+
   waveform_fifo : xpm_fifo_sync
     generic map (
       DOUT_RESET_VALUE    => "0",
@@ -182,7 +188,7 @@ begin
     )
     port map (
       sleep => '0',
-      rst => not aresetn,
+      rst => fifo_reset,
       wr_clk => aclk,
       wr_en => fifo_write,
       din => fifo_din,
@@ -258,15 +264,24 @@ begin
           drop_count <= (others => '0');
         end if;
 
+        -- Correlation follows the conversion-domain sample index even while
+        -- waveform persistence is disabled.
         if frame_accept_i = '1' then
-          -- The sample index arrives with the frame itself, so the value
-          -- latched here is exactly the index BASIC-v4 records reference.
           next_sequence := unsigned(sample_index_i);
           frame_sequence <= next_sequence;
-          if enable_i = '1' and fifo_full = '0' and fifo_reset_busy = '0' then
+        end if;
+
+        if enable_i = '0' then
+          state <= OUT_WAIT;
+          header_index <= 0;
+          frame_index <= 0;
+          frame_word_index <= 0;
+        else
+          if frame_accept_i = '1' and fifo_full = '0' and
+              fifo_reset_busy = '0' then
             fifo_din(C_RAW_MSB downto C_RAW_LSB) <= raw_frame_i;
             fifo_din(C_SEQ_MSB downto C_SEQ_LSB) <=
-              std_logic_vector(next_sequence);
+              sample_index_i;
             fifo_din(C_TICK_MSB downto C_TICK_LSB) <=
               std_logic_vector(tick_counter);
             fifo_din(C_GEN_MSB downto C_GEN_LSB) <= config_generation_i;
@@ -274,51 +289,51 @@ begin
               measured_frame_rate_hz_i;
             fifo_din(C_RATE_VALID) <= measured_frame_rate_valid_i;
             fifo_write <= '1';
-          elsif enable_i = '1' then
+          elsif frame_accept_i = '1' then
             drop_count <= drop_count + 1;
           end if;
-        end if;
 
-        case state is
-          when OUT_WAIT =>
-            if fifo_empty = '0' then
-              first_sequence <= fifo_dout(C_SEQ_MSB downto C_SEQ_LSB);
-              first_tick <= fifo_dout(C_TICK_MSB downto C_TICK_LSB);
-              first_generation <= fifo_dout(C_GEN_MSB downto C_GEN_LSB);
-              first_rate <= fifo_dout(C_RATE_MSB downto C_RATE_LSB);
-              first_rate_valid <= fifo_dout(C_RATE_VALID);
-              active_block_number <= block_count + 1;
-              header_index <= 0;
-              frame_index <= 0;
-              frame_word_index <= 0;
-              state <= OUT_HEADER;
-            end if;
-
-          when OUT_HEADER =>
-            if axis_valid = '1' and m_axis_tready = '1' then
-              if header_index = C_HEADER_WORDS - 1 then
-                state <= OUT_FRAMES;
+          case state is
+            when OUT_WAIT =>
+              if fifo_empty = '0' then
+                first_sequence <= fifo_dout(C_SEQ_MSB downto C_SEQ_LSB);
+                first_tick <= fifo_dout(C_TICK_MSB downto C_TICK_LSB);
+                first_generation <= fifo_dout(C_GEN_MSB downto C_GEN_LSB);
+                first_rate <= fifo_dout(C_RATE_MSB downto C_RATE_LSB);
+                first_rate_valid <= fifo_dout(C_RATE_VALID);
+                active_block_number <= block_count + 1;
+                header_index <= 0;
+                frame_index <= 0;
                 frame_word_index <= 0;
-              else
-                header_index <= header_index + 1;
+                state <= OUT_HEADER;
               end if;
-            end if;
 
-          when OUT_FRAMES =>
-            if axis_valid = '1' and m_axis_tready = '1' then
-              if frame_word_index = C_FRAME_WORDS - 1 then
-                frame_word_index <= 0;
-                if frame_index = G_FRAMES_PER_BLOCK - 1 then
-                  block_count <= block_count + 1;
-                  state <= OUT_WAIT;
+            when OUT_HEADER =>
+              if axis_valid = '1' and m_axis_tready = '1' then
+                if header_index = C_HEADER_WORDS - 1 then
+                  state <= OUT_FRAMES;
+                  frame_word_index <= 0;
                 else
-                  frame_index <= frame_index + 1;
+                  header_index <= header_index + 1;
                 end if;
-              else
-                frame_word_index <= frame_word_index + 1;
               end if;
-            end if;
-        end case;
+
+            when OUT_FRAMES =>
+              if axis_valid = '1' and m_axis_tready = '1' then
+                if frame_word_index = C_FRAME_WORDS - 1 then
+                  frame_word_index <= 0;
+                  if frame_index = G_FRAMES_PER_BLOCK - 1 then
+                    block_count <= block_count + 1;
+                    state <= OUT_WAIT;
+                  else
+                    frame_index <= frame_index + 1;
+                  end if;
+                else
+                  frame_word_index <= frame_word_index + 1;
+                end if;
+              end if;
+          end case;
+        end if;
       end if;
     end if;
   end process;

@@ -5,7 +5,7 @@ use ieee.std_logic_1164.all;
 -- the AGG1/HRM1 four-word header and CRC32C convention and are arbitrated only
 -- at TLAST boundaries.
 package meter_r5_power_quality_protocol_pkg is
-  -- Fixed RPMsg-v9 PL-facing power-quality configuration image. R5C0 writes it
+  -- Fixed RPMsg-v10 PL-facing power-quality configuration image. R5C0 writes it
   -- through the processing block's indexed F4/F8 window before toggling the
   -- shared APPLY bit. Engines sample it only on APPLY, so no measurement can
   -- observe a partially staged profile.

@@ -99,6 +99,8 @@ set spectral_testbench [file join $design_root MeterProcessing tb \
   meter_spectral_frontend_tb.sv]
 set conditioner_testbench [file join $design_root MeterProcessing tb \
   meter_spectral_conditioner_tb.sv]
+set conditioner_context_snapshot_testbench [file join $design_root \
+  MeterProcessing tb meter_spectral_context_snapshot_tb.sv]
 set conditioner_profiles_testbench [file join $design_root MeterProcessing tb \
   meter_spectral_profiles_tb.sv]
 set conditioner_coefficients [file join $design_root MeterProcessing \
@@ -134,6 +136,7 @@ puts [exec $xvhdl $boundary_wrapper 2>@1]
 puts [exec $xvlog [file join $vivado_root data verilog src glbl.v] 2>@1]
 puts [exec $xvlog --sv $simulator_testbench 2>@1]
 puts [exec $xvlog --sv $spectral_testbench $conditioner_testbench \
+  $conditioner_context_snapshot_testbench \
   $conditioner_profiles_testbench 2>@1]
 puts [exec $xelab -a --mt off adc_simulator_tb \
   -s adc_simulator_tb_sim 2>@1]
@@ -169,6 +172,20 @@ puts $conditioner_log
 if {[string match "*FAIL:*" $conditioner_log] ||
     ![string match "*meter_spectral_conditioner PASS*" $conditioner_log]} {
   error "M16 spectral conditioner simulation did not report PASS"
+}
+puts [exec $xelab -a --mt off -L xpm \
+  meter_spectral_context_snapshot_tb \
+  -s meter_spectral_context_snapshot_tb_sim 2>@1]
+set conditioner_context_snapshot_axsim [file join $work_root xsim.dir \
+  meter_spectral_context_snapshot_tb_sim axsim]
+set conditioner_context_snapshot_log \
+  [exec env "LD_LIBRARY_PATH=$simulator_libraries" \
+    $conditioner_context_snapshot_axsim 2>@1]
+puts $conditioner_context_snapshot_log
+if {[string match "*FAIL:*" $conditioner_context_snapshot_log] ||
+    ![string match "*meter_spectral_context_snapshot PASS*" \
+      $conditioner_context_snapshot_log]} {
+  error "spectral context snapshot simulation did not report PASS"
 }
 
 puts [exec $xelab -a --mt off -L xpm meter_spectral_profiles_tb \
