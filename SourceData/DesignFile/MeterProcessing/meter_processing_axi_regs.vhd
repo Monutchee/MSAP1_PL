@@ -8,6 +8,7 @@ use work.grid_timing_pkg.all;
 use work.pq_event_pkg.all;
 use work.measurement_record_bus_pkg.all;
 use work.metering_pkg.all;
+use work.meter_r5_power_quality_protocol_pkg.all;
 
 entity meter_processing_axi_regs is
   port (
@@ -69,6 +70,10 @@ entity meter_processing_axi_regs is
     pq_shadow_threshold_o              : out word32_t;
     pq_shadow_limits_o                 : out word32_t;
     pq_status_i                        : in  word32_t;
+
+    -- Indexed RPMsg-v10 M18 shadow image (F4=index, F8=data, FC=status).
+    -- The array is staging only; each engine snapshots it on shared APPLY.
+    m18_shadow_words_o                 : out m18_config_words_t;
 
     -- 150/180-cycle aggregation health (read-only).
     agg_status_i                       : in  word32_t;
@@ -139,6 +144,9 @@ architecture rtl of meter_processing_axi_regs is
   signal pq_shadow_threshold   : word32_t := PQ_THRESHOLD_DEFAULT;
   signal pq_shadow_limits      : word32_t := PQ_LIMITS_DEFAULT;
   signal apply_toggle          : std_logic := '0';
+  signal m18_shadow_words      : m18_config_words_t := (others =>
+                                                        (others => '0'));
+  signal m18_config_index      : natural range 0 to M18_CONFIG_WORDS - 1 := 0;
   signal bvalid                : std_logic := '0';
   signal rvalid                : std_logic := '0';
   signal rdata                 : word32_t := (others => '0');
@@ -172,6 +180,7 @@ begin
   pq_shadow_reference_o <= pq_shadow_reference;
   pq_shadow_threshold_o <= pq_shadow_threshold;
   pq_shadow_limits_o <= pq_shadow_limits;
+  m18_shadow_words_o <= m18_shadow_words;
 
   process (aclk)
     variable address_word : natural range 0 to 63;
@@ -202,6 +211,8 @@ begin
         pq_shadow_reference <= (others => '0');
         pq_shadow_threshold <= PQ_THRESHOLD_DEFAULT;
         pq_shadow_limits <= PQ_LIMITS_DEFAULT;
+        m18_shadow_words <= (others => (others => '0'));
+        m18_config_index <= 0;
         apply_toggle <= '0';
         bvalid <= '0';
         rvalid <= '0';
@@ -265,6 +276,17 @@ begin
             when PQ_REG_SHADOW_LIMITS / 4 =>
               pq_shadow_limits <= apply_write_strobes(
                 pq_shadow_limits, s_axi_wdata, s_axi_wstrb);
+            when M18_REG_CONFIG_INDEX / 4 =>
+              updated_word := apply_write_strobes(
+                std_logic_vector(to_unsigned(m18_config_index, 32)),
+                s_axi_wdata, s_axi_wstrb);
+              if unsigned(updated_word) < M18_CONFIG_WORDS then
+                m18_config_index <= to_integer(unsigned(updated_word));
+              end if;
+            when M18_REG_CONFIG_DATA / 4 =>
+              m18_shadow_words(m18_config_index) <= apply_write_strobes(
+                m18_shadow_words(m18_config_index), s_axi_wdata,
+                s_axi_wstrb);
             when others => null;
           end case;
           bvalid <= '1';
@@ -375,6 +397,13 @@ begin
               rdata <= harmonic_xfft_data_out_halts_i;
             when HARMONIC_REG_XFFT_STATUS_HALTS / 4 =>
               rdata <= harmonic_xfft_status_halts_i;
+            when M18_REG_CONFIG_INDEX / 4 =>
+              rdata <= std_logic_vector(to_unsigned(m18_config_index, 32));
+            when M18_REG_CONFIG_DATA / 4 =>
+              rdata <= m18_shadow_words(m18_config_index);
+            when M18_REG_CONFIG_STATUS / 4 =>
+              rdata <= std_logic_vector(to_unsigned(M18_CONFIG_WORDS, 16)) &
+                       std_logic_vector(to_unsigned(m18_config_index, 16));
             when others => rdata <= (others => '0');
           end case;
           rvalid <= '1';

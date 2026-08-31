@@ -40,15 +40,39 @@ static_assert(AGGB_SUM_LSB == 512 && AGGB_SQUARE_LSB == 1408 &&
 static_assert(MREC_WORDS == 64 && MREC_BYTES == 256, "DMA framing contract");
 static_assert(MREC_WORDS * 4 == MREC_BYTES, "words/bytes coherence");
 
+// M18 record allocation: pin the M15 preview migration and the three public
+// M18 identities before any new producer is allowed to use them.
+static_assert(MREC_FORMAT_OPEN_TEN_MINUTE_V1 == 0x00200001u &&
+                  MREC_FORMAT_OPEN_TEN_MINUTE_POWER_V1 == 0x00210001u &&
+                  MREC_FORMAT_OPEN_TEN_MINUTE_PHASOR_V2 == 0x00220002u &&
+                  MREC_FORMAT_OPEN_TEN_MINUTE_UNBAL_V2 == 0x00230002u,
+              "M18 open ten-minute record allocation");
+static_assert(MREC_FORMAT_OPEN_TWO_HOUR_V1 == 0x00240001u &&
+                  MREC_FORMAT_OPEN_TWO_HOUR_POWER_V1 == 0x00250001u &&
+                  MREC_FORMAT_OPEN_TWO_HOUR_PHASOR_V2 == 0x00260002u &&
+                  MREC_FORMAT_OPEN_TWO_HOUR_UNBAL_V2 == 0x00270002u,
+              "M18 open two-hour record allocation");
+static_assert(MREC_FORMAT_PQ_EVENT_V1 == 0x00060001u &&
+                  MREC_FORMAT_FLICKER_V1 == 0x000E0001u &&
+                  MREC_FORMAT_MAINS_SIGNAL_V1 == 0x000F0001u,
+              "M18 public record allocation");
+static_assert(MREC_FORMAT_PQ_EVENT_V1 != MREC_FORMAT_PQEVT_V1 &&
+                  MREC_FORMAT_FLICKER_V1 !=
+                      MREC_FORMAT_OPEN_TEN_MINUTE_V1 &&
+                  MREC_FORMAT_MAINS_SIGNAL_V1 !=
+                      MREC_FORMAT_OPEN_TWO_HOUR_V1,
+              "M18 record identities must not collide with diagnostics or previews");
+
 // Interior maps must stay inside the record and clear of each other.
-static_assert(MTR1_CH_BASE_WORD + MET_CHANNEL_LANES * MTR1_CH_STRIDE_WORDS ==
-                  MTR1_FREQUENCY_VALUE_WORD,
-              "MTR1 channel block must abut the frequency block");
-static_assert(MTR1_ADC_ALERTS_WORD == MREC_WORDS - 1, "MTR1 map fills the record");
-static_assert(MTR2_CH_BASE_WORD + MET_CHANNEL_LANES * MTR2_CH_STRIDE_WORDS ==
-                  MTR2_FREQUENCY_WORD,
-              "MTR2 channel block must abut the frequency word");
-static_assert(MTR2_CONTINUITY_COUNT_WORD < MREC_WORDS, "MTR2 map in bounds");
+static_assert(BASIC_CH_BASE_WORD + MET_CHANNEL_LANES * BASIC_CH_STRIDE_WORDS ==
+                  BASIC_FREQUENCY_VALUE_WORD,
+              "Basic channel block must abut the frequency block");
+static_assert(BASIC_ADC_ALERTS_WORD == MREC_WORDS - 1, "Basic map fills the record");
+static_assert(AGGREGATE_CH_BASE_WORD + MET_CHANNEL_LANES * AGGREGATE_CH_STRIDE_WORDS ==
+                  AGGREGATE_FREQUENCY_WORD,
+              "aggregate channel block must abut the frequency word");
+static_assert(AGGREGATE_CONTINUITY_COUNT_WORD < MREC_WORDS,
+              "aggregate map in bounds");
 static_assert(MREC_FORMAT_HEADER_WORD > MREC_RESULT_DROPS_WORD &&
                   MREC_PAYLOAD_WORD > MREC_FORMAT_HEADER_WORD,
               "envelope / format header / payload ordering");
@@ -155,9 +179,9 @@ static void test_serialize_record_framing() {
   image.word[MREC_FORMAT_WORD] = 0xBADBAD01;
   image.word[MREC_SIZE_WORD] = 0xBADBAD02;
   image.word[MREC_SEQUENCE_WORD] = 1053;
-  image.word[MTR1_TIMING_WORD] =
-      (50u << MTR1_TIMING_NOMINAL_LSB) | (10u << MTR1_TIMING_CYCLES_LSB) |
-      (1u << (MTR1_TIMING_FLAGS_LSB + MET_FLAG_LOCKED));
+  image.word[BASIC_TIMING_WORD] =
+      (50u << BASIC_TIMING_NOMINAL_LSB) | (10u << BASIC_TIMING_CYCLES_LSB) |
+      (1u << (BASIC_TIMING_FLAGS_LSB + MET_FLAG_LOCKED));
   for (int w = MREC_PAYLOAD_WORD; w < MREC_WORDS; ++w)
     image.word[w] = 0xA0000000u + w;
 
@@ -172,7 +196,7 @@ static void test_serialize_record_framing() {
           "TLAST on beat 63 only");
     if (beats == MREC_MAGIC_WORD) CHECK(beat.data == MREC_MAGIC, "magic stamped");
     if (beats == MREC_FORMAT_WORD)
-      CHECK(beat.data == MREC_FORMAT_MTR1_V3, "format stamped from template");
+      CHECK(beat.data == MREC_FORMAT_BASIC_V3, "format stamped from template");
     if (beats == MREC_SIZE_WORD) CHECK(beat.data == MREC_BYTES, "size stamped");
     if (beats == MREC_SEQUENCE_WORD) CHECK(beat.data == 1053, "sequence carried");
     if (beats >= MREC_PAYLOAD_WORD)

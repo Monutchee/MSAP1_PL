@@ -71,10 +71,12 @@ begin
   input_accept <= s_axis_tvalid and s_axis_tready;
   fifo_write <= input_accept;
 
+  -- One symmetric 32-bit K26 UltraRAM retains the complete-family depth while
+  -- avoiding four BRAM tiles in the private HRM1 path.
   family_words : xpm_fifo_sync
     generic map (
       DOUT_RESET_VALUE    => "0", ECC_MODE => "no_ecc",
-      FIFO_MEMORY_TYPE    => "block", FIFO_READ_LATENCY => 0,
+      FIFO_MEMORY_TYPE    => "ultra", FIFO_READ_LATENCY => 0,
       FIFO_WRITE_DEPTH    => 4096, FULL_RESET_VALUE => 0,
       PROG_EMPTY_THRESH   => 10, PROG_FULL_THRESH => 4000,
       RD_DATA_COUNT_WIDTH => 13, READ_DATA_WIDTH => 32,

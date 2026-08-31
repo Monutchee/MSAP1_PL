@@ -268,10 +268,12 @@ begin
 
   -- A complete-family packet FIFO (4096 words > 42 records x 64 words)
   -- absorbs record-switch arbitration without stalling the HLS finalizer.
+  -- Its symmetric 32-bit geometry uses one K26 UltraRAM to preserve BRAM
+  -- headroom without reducing the complete-family capacity.
   record_fifo : xpm_fifo_axis
     generic map (
       CLOCKING_MODE        => "common_clock",
-      FIFO_MEMORY_TYPE     => "block",
+      FIFO_MEMORY_TYPE     => "ultra",
       CASCADE_HEIGHT       => 0,
       PACKET_FIFO          => "true",
       FIFO_DEPTH           => 4096,

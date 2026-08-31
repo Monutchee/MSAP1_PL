@@ -285,6 +285,7 @@ emit_channels:
   emit_chunks:
     for (int chunk = 0; chunk < HARMONIC_CHUNKS_PER_CHANNEL_V1; ++chunk) {
       record_image_t image;
+#pragma HLS BIND_STORAGE variable=image.word type=ram_2p impl=lutram
       clear_record(image);
 
       const int first_order = chunk * HARMONIC_ORDERS_PER_RECORD + 1;

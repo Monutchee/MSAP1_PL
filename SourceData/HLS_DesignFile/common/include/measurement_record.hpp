@@ -13,7 +13,7 @@
 // The measurement record: the one wire format every metrology producer
 // emits and the APU decodes.
 //
-// >>> STATUS: the common envelope (words 0..12) and the MTR1-v3 / MTR2-v2
+// >>> STATUS: the common envelope (words 0..12) and the BASIC-v3 / AGG-v2
 // >>> interior maps below are the PROPOSED cleaned layouts of the HLS
 // >>> rewrite (plan §13 Q4). They must be reviewed against the APU
 // >>> decoder (MSAP1_APU common/msap1/meter/meter_record.hpp) and both
@@ -40,20 +40,28 @@ static const int MREC_BYTES = 256;
 //
 // Reservation table — allocate here, never ad hoc, and mirror in the APU's
 // meter_record.hpp so PL and software can never race for a format word:
-//   0x0001 basic (MTR1)      0x0004 demand
-//   0x0002 aggregate (MTR2)  0x0005 harmonics
-//   0x0003 energy            0x0006 PQ event
+//   0x0001 basic             0x0004 demand
+//   0x0002 aggregate         0x0005 harmonics
+//   0x0003 energy            0x0006 PQ event lifecycle
 //   0x0007 power             0x000A single-cycle diagnostic
-//   0x0008 phasor            0x000B sliding RMS / PQ trigger
-//   0x0009 unbalance         0x000C..0x000F 10-min/2-h/flicker/mains
-//   0x0010 aggregate power   0x0012 aggregate unbalance
-//   0x0011 aggregate phasor
+//   0x0008 phasor            0x000B sliding RMS / PQ trigger diagnostic
+//   0x0009 unbalance         0x000C ten-minute
+//   0x000D two-hour          0x000E flicker
+//   0x000F mains signalling  0x0010 aggregate power
+//   0x0011 aggregate phasor  0x0012 aggregate unbalance
+//   0x0013..0x0018 completed long-period companion records
+//   0x001F aggregate harmonics
+//   0x0020..0x0023 open ten-minute preview family
+//   0x0024..0x0027 open two-hour preview family
 // ---------------------------------------------------------------------------
 // Plain integer constants so they can parameterize serialize_record<>.
-static const uint32_t MREC_MAGIC = 0x3152544Du;  // ASCII "MTR1", little-endian
+// Preserve the deployed legacy little-endian signature while using semantic
+// Basic/aggregate names everywhere else.
+static const uint32_t MREC_MAGIC = 0x3152544Du;
 
-static const uint32_t MREC_FORMAT_MTR1_V3 = 0x00010003u;  // proposed (deployed: v2 0x00010002)
-static const uint32_t MREC_FORMAT_MTR2_V2 = 0x00020002u;  // proposed (deployed: v1 0x00020001)
+static const uint32_t MREC_FORMAT_BASIC_V3 = 0x00010003u;  // proposed (deployed: v2 0x00010002)
+static const uint32_t MREC_FORMAT_AGGREGATE_V2 =
+    0x00020002u;  // proposed (deployed: v1 0x00020001)
 static const uint32_t MREC_FORMAT_SCYC_V4 = 0x000A0004u;  // single-cycle diagnostic
 // v5 (M6): status-word bits 2..4 gain meaning (first-after-gap and its
 // causes) and every emitted result is a whole cycle (partial windows
@@ -74,11 +82,11 @@ static const uint32_t MREC_FORMAT_ENERGY_V1 = 0x00030001u;
 static const uint32_t MREC_FORMAT_DEMAND_V1 = 0x00040001u;
 // BASIC v4 (M7): the 10/12-cycle tier record emitted by
 // Agg10_12MeasurementEngine, which merges SingleCycleResults and retires
-// Mtr1Engine. Interior identical to MTR1-v3 for the envelope, timing
-// word, the 7 active per-lane slots, and words 56..63 (the retirement
-// proof); the differences are additive:
+// the earlier Basic interval engine. Interior identical to BASIC-v3 for the
+// envelope, timing word, the 7 active per-lane slots, and words 56..63 (the
+// retirement proof); the differences are additive:
 //   words 14/15      : block last-sample index (low/high) -- the tier's
-//                      own measurement-span anchor (was zero in MTR1-v3)
+//                      own measurement-span anchor (was zero in BASIC-v3)
 //   words 51/52/53   : VAB/VBC/VCA RMS, micro-units, 32-bit (the unused
 //                      lane-7 slot; line-line stats merge from the
 //                      single-cycle difference accumulators)
@@ -131,13 +139,13 @@ static const uint32_t MREC_FORMAT_PHASOR_V2 = 0x00080002u;  // 10/12-cycle phaso
 static const uint32_t MREC_FORMAT_UNBAL_V2 = 0x00090002u;  // 10/12-cycle unbalance
 // AGG v3 (M11): the 150/180-cycle tier record emitted by
 // Agg150_180CycleEngine, which merges Agg10_12Result block accumulators
-// and retires Mtr2Engine + the 808-bit basic_result_beat. Interior keeps
-// the MTR2-v2 map (shape word 13, folded-sequence range 14/15, per-lane
+// and retires the earlier standalone aggregate engine and 808-bit result beat.
+// Its interior keeps the AGG-v2 map (shape word 13, folded-sequence range 14/15, per-lane
 // RMS 16..31, mean frequency 32, diagnostics 33..35) with additive
 // changes:
 //   words 36/37 : the interval's last-sample index (low/high)
 //   words 38..40: VAB/VBC/VCA aggregate RMS, micro-units, 32-bit
-// SEMANTIC upgrade vs MTR2-v2 (pre-production, no compat): per-lane RMS
+// SEMANTIC upgrade vs AGG-v2 (pre-production, no compat): per-lane RMS
 // is finalized from the summed RAW accumulators over the whole interval
 // (mean-corrected under the committed dc_remove, sample-weighted) — no
 // longer sqrt(mean of the 15 block-RMS squares). Golden equivalence, not
@@ -148,7 +156,7 @@ static const uint32_t MREC_FORMAT_AGG_V3 = 0x00020003u;  // 150/180-cycle basic
 // the same sequence/anchors/status. Their PAYLOAD word maps are
 // IDENTICAL to the basic-period POWER-v1 / PHASOR-v1 / UNBAL-v1 maps
 // (words 16+); the format-header extension differs: word 13 carries the
-// MTR2 shape word and words 14/15 the folded basic-sequence range,
+// aggregate shape word and words 14/15 the folded basic-sequence range,
 // mirroring AGG-v3. Only the format word tells the periods apart — the
 // records interleave on ONE DMA stream.
 static const uint32_t MREC_FORMAT_AGG_POWER_V1  = 0x00100001u;
@@ -177,15 +185,18 @@ static const uint32_t MREC_FORMAT_TWO_HOUR_UNBAL_V2  = 0x00180002u;
 // accumulator images, not normative IEC interval results. Their layouts are
 // identical to the completed long-period families so consumers can share the
 // decoder, while the distinct format IDs and status flags prevent an open
-// result from replacing or masquerading as a completed result.
-static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_V1        = 0x000E0001u;
-static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_POWER_V1  = 0x00190001u;
-static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_PHASOR_V2 = 0x001A0002u;
-static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_UNBAL_V2  = 0x001B0002u;
-static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_V1        = 0x000F0001u;
-static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_POWER_V1  = 0x001C0001u;
-static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_PHASOR_V2 = 0x001D0002u;
-static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_UNBAL_V2  = 0x001E0002u;
+// result from replacing or masquerading as a completed result. M18 moved the
+// pre-production IDs out of 0x000E/0x000F before those types were assigned to
+// flicker and mains signalling. No compatibility decoder is provided for the
+// old volatile preview IDs.
+static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_V1        = 0x00200001u;
+static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_POWER_V1  = 0x00210001u;
+static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_PHASOR_V2 = 0x00220002u;
+static const uint32_t MREC_FORMAT_OPEN_TEN_MINUTE_UNBAL_V2  = 0x00230002u;
+static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_V1        = 0x00240001u;
+static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_POWER_V1  = 0x00250001u;
+static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_PHASOR_V2 = 0x00260002u;
+static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_UNBAL_V2  = 0x00270002u;
 // HARMONIC v1 (M16): one complete 10/12-cycle spectrum is a family of
 // channel/chunk records with one shared sequence and common envelope.  Each
 // record carries up to 24 consecutive orders as packed 64-bit entries.  The
@@ -205,6 +216,82 @@ static const uint32_t MREC_FORMAT_HARMONIC_AGG_V1 = 0x001F0001u;
 // the polyphase begin/end rule, severity, and residual/peak selection —
 // are normative in metering_types.hpp.
 static const uint32_t MREC_FORMAT_PQEVT_V1 = 0x000B0001u;
+
+// M18 public record allocations. These constants reserve the final S02
+// record identities before the payload contracts and producers are enabled.
+// PQ_EVENT is the durable R5C1 lifecycle product; PQEVT above remains the
+// low-level PL Urms(1/2) diagnostic and trigger record on S01.
+static const uint32_t MREC_FORMAT_PQ_EVENT_V1    = 0x00060001u;
+static const uint32_t MREC_FORMAT_FLICKER_V1     = 0x000E0001u;
+static const uint32_t MREC_FORMAT_MAINS_SIGNAL_V1 = 0x000F0001u;
+
+// PQ-EVENT-v1 lifecycle record (R5C1 -> S02).
+static const int PQ_EVENT_LIFECYCLE_START = 0;
+static const int PQ_EVENT_LIFECYCLE_UPDATE = 1;
+static const int PQ_EVENT_LIFECYCLE_END = 2;
+static const int PQ_EVENT_LIFECYCLE_ABORT = 3;
+static const int PQ_EVENT_HEADER_LIFECYCLE_LSB = 0;
+static const int PQ_EVENT_HEADER_TYPE_LSB = 4;
+static const int PQ_EVENT_HEADER_PHASES_LSB = 8;
+static const int PQ_EVENT_HEADER_TRIGGER_LSB = 16;
+static const int PQ_EVENT_LAST_SAMPLE_LOW_WORD = 14;
+static const int PQ_EVENT_LAST_SAMPLE_HIGH_WORD = 15;
+static const int PQ_EVENT_ID_BASE_WORD = 16; // four words, stable UUID
+static const int PQ_EVENT_PROFILE_GENERATION_WORD = 20;
+static const int PQ_EVENT_THRESHOLD_E4_WORD = 21;
+static const int PQ_EVENT_HYSTERESIS_E4_WORD = 22;
+static const int PQ_EVENT_WAVEFORM_POLICY_WORD = 23;
+static const int PQ_EVENT_WAVEFORM_PRE_MS_WORD = 24;
+static const int PQ_EVENT_WAVEFORM_POST_MS_WORD = 25;
+static const int PQ_EVENT_REFERENCE_LOW_WORD = 26;
+static const int PQ_EVENT_REFERENCE_HIGH_WORD = 27;
+static const int PQ_EVENT_MINIMUM_BASE_WORD = 28; // A/B/C, micro-units
+static const int PQ_EVENT_MAXIMUM_BASE_WORD = 31; // A/B/C, micro-units
+static const int PQ_EVENT_CURRENT_BASE_WORD = 34; // A/B/C, micro-units
+static const int PQ_EVENT_DURATION_LOW_WORD = 37;
+static const int PQ_EVENT_DURATION_HIGH_WORD = 38;
+static const int PQ_EVENT_TRIGGER_SAMPLE_LOW_WORD = 39;
+static const int PQ_EVENT_TRIGGER_SAMPLE_HIGH_WORD = 40;
+static const int PQ_EVENT_START_UTC_NS_LOW_WORD = 41;
+static const int PQ_EVENT_START_UTC_NS_HIGH_WORD = 42;
+static const int PQ_EVENT_LAST_UTC_NS_LOW_WORD = 43;
+static const int PQ_EVENT_LAST_UTC_NS_HIGH_WORD = 44;
+static const int PQ_EVENT_TIME_QUALITY_WORD = 45;
+static const int PQ_EVENT_DISCONTINUITY_WORD = 46;
+static const int PQ_EVENT_SETTINGS_DIGEST_BASE_WORD = 48; // 128-bit prefix
+
+// FLICKER-v1 record kinds and fixed payload map.
+static const int FLICKER_KIND_LIVE = 0;
+static const int FLICKER_KIND_PST = 1;
+static const int FLICKER_KIND_PLT = 2;
+static const int FLICKER_HEADER_KIND_LSB = 0;
+static const int FLICKER_HEADER_PHASES_LSB = 8;
+static const int FLICKER_LAST_SAMPLE_LOW_WORD = 14;
+static const int FLICKER_LAST_SAMPLE_HIGH_WORD = 15;
+static const int FLICKER_PINST_BASE_WORD = 16; // three Q16 values
+static const int FLICKER_PST_BASE_WORD = 19;   // three Q16 values
+static const int FLICKER_PLT_BASE_WORD = 22;   // three Q16 values
+static const int FLICKER_VALID_COUNT_BASE_WORD = 25;
+static const int FLICKER_INTERVAL_SECONDS_WORD = 28;
+static const int FLICKER_PROFILE_GENERATION_WORD = 29;
+static const int FLICKER_MODEL_WORD = 30;
+static const int FLICKER_SOURCE_STATUS_WORD = 31;
+static const int FLICKER_INTERVAL_FIRST_LOW_WORD = 32;
+static const int FLICKER_INTERVAL_FIRST_HIGH_WORD = 33;
+
+// MAINS-SIGNAL-v1 fixed payload map.
+static const int MAINS_SIGNAL_HEADER_PHASES_LSB = 0;
+static const int MAINS_SIGNAL_HEADER_VALID_LSB = 8;
+static const int MAINS_SIGNAL_LAST_SAMPLE_LOW_WORD = 14;
+static const int MAINS_SIGNAL_LAST_SAMPLE_HIGH_WORD = 15;
+static const int MAINS_SIGNAL_CONFIGURED_MILLIHZ_WORD = 16;
+static const int MAINS_SIGNAL_MEASURED_MILLIHZ_WORD = 17;
+static const int MAINS_SIGNAL_MAGNITUDE_BASE_WORD = 18;
+static const int MAINS_SIGNAL_BACKGROUND_BASE_WORD = 21;
+static const int MAINS_SIGNAL_BANDWIDTH_MILLIHZ_WORD = 24;
+static const int MAINS_SIGNAL_OBSERVATION_MS_WORD = 25;
+static const int MAINS_SIGNAL_PROFILE_GENERATION_WORD = 26;
+static const int MAINS_SIGNAL_SOURCE_STATUS_WORD = 27;
 
 // ---------------------------------------------------------------------------
 // Common envelope — words 0..12 mean the same thing in EVERY format, so
@@ -357,35 +444,35 @@ static const int HARMONIC_STATUS_FIRST_AFTER_DISCONTINUITY_BIT = 6;
 static const int HARMONIC_STATUS_RATE_LIMITED_BIT = 7;
 
 // ---------------------------------------------------------------------------
-// MTR1-v3 interior: per-channel basic measurements, frequency block,
+// BASIC-v3 interior: per-channel basic measurements, frequency block,
 // capture diagnostics.
 // ---------------------------------------------------------------------------
 
 // Word 13: basic-block timing/provenance word.
-static const int MTR1_TIMING_WORD        = 13;
-static const int MTR1_TIMING_NOMINAL_LSB = 0;   // [7:0]  declared nominal Hz
-static const int MTR1_TIMING_CYCLES_LSB  = 8;   // [15:8] complete cycles in block
-static const int MTR1_TIMING_FLAGS_LSB   = 16;  // [18:16] MET_FLAG_* (locked/fallback/first)
+static const int BASIC_TIMING_WORD        = 13;
+static const int BASIC_TIMING_NOMINAL_LSB = 0;   // [7:0]  declared nominal Hz
+static const int BASIC_TIMING_CYCLES_LSB  = 8;   // [15:8] complete cycles in block
+static const int BASIC_TIMING_FLAGS_LSB   = 16;  // [18:16] MET_FLAG_* (locked/fallback/first)
 // Additive M15 provenance.  The format IDs stay unchanged: older readers
 // already ignore the formerly-reserved upper timing bits.
-static const int MTR1_TIMING_UTC_RESYNCHRONIZED_BIT = 19;
+static const int BASIC_TIMING_UTC_RESYNCHRONIZED_BIT = 19;
 
 // Words 16..55: MET_CHANNEL_LANES x 5 words per channel.
-static const int MTR1_CH_BASE_WORD    = MREC_PAYLOAD_WORD;
-static const int MTR1_CH_STRIDE_WORDS = 5;
-static const int MTR1_CH_MEAN_LOW     = 0;  // signed mean micro-units, low word
-static const int MTR1_CH_MEAN_HIGH    = 1;  //   high word
-static const int MTR1_CH_RMS_COUNT    = 2;  // unsigned raw ADC RMS counts
-static const int MTR1_CH_RMS_LOW      = 3;  // signed RMS micro-units, low word
-static const int MTR1_CH_RMS_HIGH     = 4;  //   high word
+static const int BASIC_CH_BASE_WORD    = MREC_PAYLOAD_WORD;
+static const int BASIC_CH_STRIDE_WORDS = 5;
+static const int BASIC_CH_MEAN_LOW     = 0;  // signed mean micro-units, low word
+static const int BASIC_CH_MEAN_HIGH    = 1;  //   high word
+static const int BASIC_CH_RMS_COUNT    = 2;  // unsigned raw ADC RMS counts
+static const int BASIC_CH_RMS_LOW      = 3;  // signed RMS micro-units, low word
+static const int BASIC_CH_RMS_HIGH     = 4;  //   high word
 
 // Words 56..59: VLA frequency block, sampled at the result event. Bit
 // layouts of the status word belong to meter_frequency (FREQUENCY_STATUS
 // register) and are not restated here.
-static const int MTR1_FREQUENCY_VALUE_WORD    = 56;  // millihertz
-static const int MTR1_FREQUENCY_STATUS_WORD   = 57;
-static const int MTR1_FREQUENCY_PERIOD_WORD   = 58;  // averaged Q16 period
-static const int MTR1_FREQUENCY_SEQUENCE_WORD = 59;  // measurement sequence
+static const int BASIC_FREQUENCY_VALUE_WORD    = 56;  // millihertz
+static const int BASIC_FREQUENCY_STATUS_WORD   = 57;
+static const int BASIC_FREQUENCY_PERIOD_WORD   = 58;  // averaged Q16 period
+static const int BASIC_FREQUENCY_SEQUENCE_WORD = 59;  // measurement sequence
 
 // Words 60..63: capture diagnostics, latched at block close.
 // POWER-v1 interior (envelope words 0..12 shared; timing word 13 and the
@@ -404,7 +491,7 @@ static const int POWER_TOTAL_S_HIGH_WORD = 34;
 static const int POWER_TOTAL_PF_WORD     = 35;
 static const int POWER_CREST_BASE_WORD   = 36;  // 7 x u32, crest x 1e4
 
-// BASIC-v4 additions on top of the MTR1 map (see the format note above).
+// BASIC-v4 additions on top of the BASIC-v3 map (see the format note above).
 static const int BASIC_LAST_SAMPLE_LOW_WORD  = 14;
 static const int BASIC_LAST_SAMPLE_HIGH_WORD = 15;
 static const int BASIC_VLL_BASE_WORD         = 51;  // 3 x 32-bit micro-units
@@ -498,51 +585,52 @@ static const int PQ_HYSTERESIS_WORD          = 36;
 // Words 37..63 reserved zero.
 
 
-static const int MTR1_CAPTURE_FRAMES_WORD  = 60;
-static const int MTR1_HEADER_ERRORS_WORD   = 61;
-static const int MTR1_FIFO_OVERFLOWS_WORD  = 62;
-static const int MTR1_ADC_ALERTS_WORD      = 63;
+static const int BASIC_CAPTURE_FRAMES_WORD  = 60;
+static const int BASIC_HEADER_ERRORS_WORD   = 61;
+static const int BASIC_FIFO_OVERFLOWS_WORD  = 62;
+static const int BASIC_ADC_ALERTS_WORD      = 63;
 
 // ---------------------------------------------------------------------------
-// MTR2-v2 interior: the 150/180-cycle fundamental aggregate.
+// AGG-v2 interior: the 150/180-cycle fundamental aggregate.
 // ---------------------------------------------------------------------------
 
 // Word 13: interval shape.
-static const int MTR2_SHAPE_WORD        = 13;
-static const int MTR2_SHAPE_BLOCKS_LSB  = 0;   // [7:0]  basic blocks folded (15)
-static const int MTR2_SHAPE_NOMINAL_LSB = 8;   // [15:8] nominal Hz
-static const int MTR2_SHAPE_CYCLES_LSB  = 16;  // [31:16] total cycles (150/180)
+static const int AGGREGATE_SHAPE_WORD        = 13;
+static const int AGGREGATE_SHAPE_BLOCKS_LSB  = 0;   // [7:0]  basic blocks folded (15)
+static const int AGGREGATE_SHAPE_NOMINAL_LSB = 8;   // [15:8] nominal Hz
+static const int AGGREGATE_SHAPE_CYCLES_LSB  = 16;  // [31:16] total cycles (150/180)
 
-// Words 14/15: the folded basic-sequence range, making the MTR1/MTR2
+// Words 14/15: the folded basic-sequence range, making the Basic/aggregate
 // stream relationship explicit.
-static const int MTR2_FIRST_BASIC_SEQ_WORD = 14;
-static const int MTR2_LAST_BASIC_SEQ_WORD  = 15;
+static const int AGGREGATE_FIRST_BASIC_SEQ_WORD = 14;
+static const int AGGREGATE_LAST_BASIC_SEQ_WORD  = 15;
 
 // Words 16..31: MET_CHANNEL_LANES x 2 words of aggregate RMS in signed
 // 64-bit micro-units.
-static const int MTR2_CH_BASE_WORD    = MREC_PAYLOAD_WORD;
-static const int MTR2_CH_STRIDE_WORDS = 2;
+static const int AGGREGATE_CH_BASE_WORD    = MREC_PAYLOAD_WORD;
+static const int AGGREGATE_CH_STRIDE_WORDS = 2;
 
 // Word 32: arithmetic mean of the 15 sampled frequencies, millihertz
 // (diagnostic only — the Class A frequency product has its own interval
 // and is not implemented in this tier).
-static const int MTR2_FREQUENCY_WORD = 32;
+static const int AGGREGATE_FREQUENCY_WORD = 32;
 
 // Both channel blocks span exactly the eight record lanes.
-static_assert(MTR1_CH_BASE_WORD + MET_CHANNEL_LANES * MTR1_CH_STRIDE_WORDS ==
-                  MTR1_FREQUENCY_VALUE_WORD,
-              "MTR1 channel block must abut the frequency block");
-static_assert(MTR2_CH_BASE_WORD + MET_CHANNEL_LANES * MTR2_CH_STRIDE_WORDS ==
-                  MTR2_FREQUENCY_WORD,
-              "MTR2 channel block must abut the frequency word");
+static_assert(BASIC_CH_BASE_WORD + MET_CHANNEL_LANES * BASIC_CH_STRIDE_WORDS ==
+                  BASIC_FREQUENCY_VALUE_WORD,
+              "Basic channel block must abut the frequency block");
+static_assert(AGGREGATE_CH_BASE_WORD +
+                      MET_CHANNEL_LANES * AGGREGATE_CH_STRIDE_WORDS ==
+                  AGGREGATE_FREQUENCY_WORD,
+              "aggregate channel block must abut the frequency word");
 
 // Words 33..35: engine diagnostics as of this emit (the counters that
 // also back the AGG_* AXI-Lite registers).
-static const int MTR2_RESET_COUNT_WORD      = 33;  // partial aggregates discarded
-static const int MTR2_INELIGIBLE_COUNT_WORD = 34;  // basic inputs rejected
-static const int MTR2_CONTINUITY_COUNT_WORD = 35;
+static const int AGGREGATE_RESET_COUNT_WORD      = 33;  // partial aggregates discarded
+static const int AGGREGATE_INELIGIBLE_COUNT_WORD = 34;  // basic inputs rejected
+static const int AGGREGATE_CONTINUITY_COUNT_WORD = 35;
 
-// AGG-v3 additions on top of the MTR2 map (see the format note above).
+// AGG-v3 additions on top of the AGG-v2 map (see the format note above).
 static const int AGG_LAST_SAMPLE_LOW_WORD  = 36;
 static const int AGG_LAST_SAMPLE_HIGH_WORD = 37;
 static const int AGG_VLL_BASE_WORD         = 38;  // 3 x 32-bit micro-units
@@ -585,7 +673,7 @@ static const int TEN_MINUTE_STATUS_NON_NORMATIVE_BIT   = 6;
 // result beats. Envelope words 0..12 as always (first-sample timestamp
 // in 9/10). v2 (M3) added the diagnostic one-cycle readings: per-lane
 // mean-corrected-per-config RMS and line-line RMS, in the same
-// micro-unit convention as the MTR1 record (Q16 >> 16). These are
+// micro-unit convention as the Basic record (Q16 >> 16). These are
 // DIAGNOSTIC readings (handover §10): the authoritative outputs remain
 // the mergeable statistics on the result beat.
 // ---------------------------------------------------------------------------
@@ -614,14 +702,14 @@ static const int SCYC_POWER_BASE_WORD = 44;
 // Status bit 1: phasor invalid this cycle (frequency reference unusable).
 static const int SCYC_FUND_BASE_WORD = 50;  // sequence/sample-range breaks
 
-// MTR2 status bits (word 8), beyond the common arithmetic bit.
-static const int MTR2_STATUS_COMPLETE_BIT  = 1;  // always set — only complete aggregates emit
-static const int MTR2_STATUS_FREQUENCY_BIT = 2;  // all 15 frequency inputs were valid
+// Aggregate status bits (word 8), beyond the common arithmetic bit.
+static const int AGGREGATE_STATUS_COMPLETE_BIT  = 1;  // always set — only complete aggregates emit
+static const int AGGREGATE_STATUS_FREQUENCY_BIT = 2;  // all 15 frequency inputs were valid
 // The continuing pre-boundary interval and the new UTC-synchronized interval
 // deliberately overlap.  These additive bits make that standards-defined
 // transition distinguishable from a duplicated/corrupt record.
-static const int MTR2_STATUS_UTC_OVERLAP_BIT = 3;
-static const int MTR2_STATUS_UTC_RESYNCHRONIZED_BIT = 4;
+static const int AGGREGATE_STATUS_UTC_OVERLAP_BIT = 3;
+static const int AGGREGATE_STATUS_UTC_RESYNCHRONIZED_BIT = 4;
 
 // ---------------------------------------------------------------------------
 // Record image and AXIS serialization.

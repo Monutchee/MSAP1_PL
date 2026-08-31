@@ -76,7 +76,42 @@ static const int PQ_PHASES = 3;
 // threshold.
 static const int PQ_PERIODIC_UPDATES = 100;
 
+// M18 PQE1 payload emitted at every qualified half-cycle boundary. The PL
+// packetizer adds the four-word private header and CRC32C; R5C1 validates this
+// exact sufficient-statistic image before running the durable lifecycle state
+// machines. All unused words are zero and therefore reserved.
+static const int PQE_PAYLOAD_WORDS = 64;
+static const int PQE_SEQUENCE_WORD = 0;
+static const int PQE_GENERATION_WORD = 1;
+static const int PQE_SAMPLE_RATE_WORD = 2;
+static const int PQE_STATUS_WORD = 3;
+static const int PQE_VALID_PHASES_WORD = 4;
+static const int PQE_WINDOW_SAMPLES_WORD = 5;
+static const int PQE_FIRST_SAMPLE_LOW_WORD = 6;
+static const int PQE_FIRST_SAMPLE_HIGH_WORD = 7;
+static const int PQE_LAST_SAMPLE_LOW_WORD = 8;
+static const int PQE_LAST_SAMPLE_HIGH_WORD = 9;
+static const int PQE_PL_TICK_LOW_WORD = 10;
+static const int PQE_PL_TICK_HIGH_WORD = 11;
+static const int PQE_URMS_Q16_BASE_WORD = 12; // three little-endian u64 values
+static const int PQE_IRMS_Q16_BASE_WORD = 18; // three little-endian u64 values
+static const int PQE_REFERENCE_WORD = 24;
+static const int PQE_SAG_THRESHOLD_WORD = 25;
+static const int PQE_SWELL_THRESHOLD_WORD = 26;
+static const int PQE_INTERRUPT_THRESHOLD_WORD = 27;
+static const int PQE_HYSTERESIS_WORD = 28;
+static const int PQE_APPLY_WORD = 29;
+
+static const int PQE_STATUS_LOCKED_BIT = 0;
+static const int PQE_STATUS_FALLBACK_BIT = 1;
+static const int PQE_STATUS_DISCONTINUITY_BIT = 2;
+static const int PQE_STATUS_ARITHMETIC_BIT = 3;
+static const int PQE_STATUS_ENABLED_BIT = 4;
+static const int PQE_VALID_VOLTAGE_LSB = 0;
+static const int PQE_VALID_CURRENT_LSB = 8;
+
 void hls_sliding_one_cycle_rms_engine(hls::stream<pq_input_beat_t> &s_frame,
-                                      hls::stream<record_axis_t> &m_axis);
+                                      hls::stream<record_axis_t> &m_axis,
+                                      hls::stream<record_axis_t> &m_pqe);
 
 #endif  // SLIDING_ONE_CYCLE_RMS_ENGINE_HPP

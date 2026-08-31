@@ -21,6 +21,7 @@ pl_build_open_project
 # focused synthesis rerun must not depend on that earlier stage having been
 # run in the same workspace.
 source [file join $pl_build_script_dir register_m16_harmonic_sources.tcl]
+source [file join $pl_build_script_dir register_power_quality_sources.tcl]
 
 set jobs [pl_build_jobs]
 puts "PL_BUILD_STAGE=synth"

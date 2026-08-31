@@ -94,6 +94,10 @@ module meter_single_cycle_diag_isolation_tb;
   end
 
   task automatic send_frame(input bit closes_cycle);
+    // Drive mixed-language DUT inputs away from the VHDL rising-edge sample.
+    // Assigning immediately after @(posedge clock) races the VHDL process and
+    // can make an accepted frame disappear under a different simulator order.
+    @(negedge clock);
     frame_user[31:0] = sample_index[31:0];
     frame_user[105:74] = sample_index[63:32];
     sample_index = sample_index + 1;
@@ -101,6 +105,7 @@ module meter_single_cycle_diag_isolation_tb;
 
     frame_accept = 1'b1;
     @(posedge clock);
+    @(negedge clock);
     frame_accept = 1'b0;
 
     // grid_cycle_timing registers the close indication one cycle after the
@@ -110,6 +115,7 @@ module meter_single_cycle_diag_isolation_tb;
     if (closes_cycle)
       cycle_sequence = cycle_sequence + 1;
     @(posedge clock);
+    @(negedge clock);
     cycle_boundary = 1'b0;
     repeat (FRAME_GAP - 2) @(posedge clock);
   endtask
@@ -122,8 +128,9 @@ module meter_single_cycle_diag_isolation_tb;
     end
     assert (result_packets >= expected_packets)
       else $fatal(1,
-        "authoritative result stalled at packet %0d while diagnostic TREADY was low",
-        expected_packets);
+        "authoritative result stalled at packet %0d: completed=%0d words=%0d diagnostic_valid=%0b input_drops=%0d",
+        expected_packets, result_packets, result_word, diagnostic_tvalid,
+        drop_count);
   endtask
 
   initial begin
@@ -135,6 +142,7 @@ module meter_single_cycle_diag_isolation_tb;
     frame_user[71:64] = 8'h7F;
 
     repeat (8) @(posedge clock);
+    @(negedge clock);
     resetn = 1'b1;
     repeat (8) @(posedge clock);
 

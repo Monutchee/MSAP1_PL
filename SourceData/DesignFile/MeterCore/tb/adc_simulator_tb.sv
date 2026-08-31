@@ -230,7 +230,7 @@ module adc_simulator_tb;
     read_reg(12'h000, value);
     assert (value == 32'h5349_4d31) else $fatal(1, "bad simulator identifier");
     read_reg(12'h004, value);
-    assert (value == 32'h0001_0004) else $fatal(1, "bad simulator version");
+    assert (value == 32'h0001_0005) else $fatal(1, "bad simulator version");
 
     // --- Cardinal sine values, banking, framing, backpressure. ----------
     // CH0 is a 1000-count sine; phase advances by 90 degrees per frame.
@@ -359,6 +359,42 @@ module adc_simulator_tb;
         else $fatal(1, "active harmonic word %0d mismatch", harmonic_word);
       write_reg(12'h200 + harmonic_word * 4, 32'd0);
     end
+    write_reg(12'h01c, 32'h0000_0001);
+
+    // --- M18 simulator bank geometry and absolute-phase advancement. ---
+    // Commit all ten words and prove that the active bank is disjoint from
+    // both the harmonic and event ranges. AM uses a quarter-turn phase step;
+    // after the first quiet frame its +50% envelope raises frame 1.
+    stop_and_apply_idle;
+    for (harmonic_word = 0; harmonic_word < 10; harmonic_word++)
+      write_reg(12'h280 + harmonic_word * 4,
+                32'h6100_0000 + harmonic_word);
+    write_reg(12'h01c, 32'h0000_0001);
+    for (harmonic_word = 0; harmonic_word < 10; harmonic_word++) begin
+      read_reg(12'h280 + harmonic_word * 4, value);
+      assert (value == 32'h6100_0000 + harmonic_word)
+        else $fatal(1, "shadow M18 word %0d mismatch", harmonic_word);
+      read_reg(12'h2c0 + harmonic_word * 4, value);
+      assert (value == 32'h6100_0000 + harmonic_word)
+        else $fatal(1, "active M18 word %0d mismatch", harmonic_word);
+      write_reg(12'h280 + harmonic_word * 4, 32'd0);
+    end
+    // AM step/depth/mask, with carrier/adjacent disabled.
+    write_reg(12'h280, 32'h4000_0000);
+    write_reg(12'h284, 32'h0000_8000);
+    write_reg(12'h288, 32'h0000_0001);
+    write_reg(12'h040, 32'd1000);
+    write_reg(12'h060, 32'h4000_0000);
+    write_reg(12'h080, 32'h0000_0000);
+    write_reg(12'h008, 32'h0000_0003);
+    axis_ready = 1'b0;
+    write_reg(12'h01c, 32'h0000_0001);
+    consume_frame(999, 2, 1'b0);
+    consume_frame(1499, 3, 1'b1);
+    stop_and_apply_idle;
+    write_reg(12'h280, 32'd0);
+    write_reg(12'h284, 32'd0);
+    write_reg(12'h288, 32'd0);
     write_reg(12'h01c, 32'h0000_0001);
 
     // --- Harmonic slot: shadow/APPLY banking and the sample changes. -----
@@ -538,10 +574,17 @@ module adc_simulator_tb;
       else $fatal(1, "exactly one burst should have completed, status %08x", value);
 
     // --- CANCEL drops the envelope and does not count a burst. ----------
+    // A request already accepted by the HLS engine is an immutable frame
+    // snapshot, so cancellation may leave that one frame enveloped. The
+    // first request formed after the write must be clear.
     write_reg(12'h30c, 32'h0000_0002);
     consume_frame_pair(event_ch0, event_ch1, 1'b1);
-    assert (near(event_ch0, expected_sine(1000, 0.875), 2))
-      else $fatal(1, "cancel did not restore amplitude: %0d", event_ch0);
+    assert (near(event_ch0, expected_sine(1000, 0.875), 2) ||
+            near(event_ch0, expected_sine(500, 0.875), 2))
+      else $fatal(1, "cancel boundary returned an invalid amplitude: %0d", event_ch0);
+    consume_frame_pair(event_ch0, event_ch1, 1'b0);
+    assert (near(event_ch0, expected_sine(1000, 0.125), 2))
+      else $fatal(1, "cancel did not restore the following frame: %0d", event_ch0);
     read_reg(12'h310, value);
     assert (value[2:0] == 3'b000 && value[31:16] == 16'd1)
       else $fatal(1, "cancel must not complete a burst, status %08x", value);

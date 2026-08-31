@@ -8,7 +8,7 @@ use work.measurement_record_bus_pkg.all;
 -- Observational tap on one producer's 32-bit AXIS record stream.
 --
 -- The HLS engines carry their health counters INSIDE their records
--- (envelope words 3/8/11/12 plus the MTR2 diagnostics at 33..35 —
+-- (envelope words 3/8/11/12 plus the aggregate diagnostics at 33..35 —
 -- normative map: HLS_DesignFile/common/include/measurement_record.hpp).
 -- This tap watches the beats of every accepted packet and republishes
 -- those words to the AXI-Lite register file, so the registers read "as of
@@ -63,7 +63,7 @@ entity record_word_tap is
     status_o       : out std_logic_vector(31 downto 0);  -- word 8
     emit_drops_o   : out std_logic_vector(31 downto 0);  -- word 11
     result_drops_o : out std_logic_vector(31 downto 0);  -- word 12
-    -- MTR2 diagnostics (words 33..35); zero for producers that leave the
+    -- Aggregate diagnostics (words 33..35); zero for producers that leave the
     -- words reserved.
     reset_count_o      : out std_logic_vector(31 downto 0);
     ineligible_count_o : out std_logic_vector(31 downto 0);

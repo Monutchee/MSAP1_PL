@@ -38,11 +38,13 @@ inline ap_uint<96> pq_level(const ap_uint<64> reference_q16,
 }  // namespace
 
 void hls_sliding_one_cycle_rms_engine(hls::stream<pq_input_beat_t> &s_frame,
-                                      hls::stream<record_axis_t> &m_axis) {
+                                      hls::stream<record_axis_t> &m_axis,
+                                      hls::stream<record_axis_t> &m_pqe) {
   // s_frame unregistered (the shim registers its side); the exported
   // record stream keeps its boundary register toward the block design.
 #pragma HLS INTERFACE mode=axis port=s_frame register_mode=off
 #pragma HLS INTERFACE mode=axis port=m_axis
+#pragma HLS INTERFACE mode=axis port=m_pqe
 #pragma HLS INTERFACE mode=ap_ctrl_none port=return
 
   // Committed configuration; syn.rtl.reset=state re-zeroes these on
@@ -59,7 +61,11 @@ void hls_sliding_one_cycle_rms_engine(hls::stream<pq_input_beat_t> &s_frame,
   static ap_uint<16> active_hysteresis = 200;
   static ap_uint<1> arithmetic_overflow = 0;
   static ap_uint<1> disc_pending = 1;
+  static ap_uint<1> summary_disc_pending = 1;
   static ap_uint<32> sequence = 0;
+  static ap_uint<32> summary_sequence = 0;
+  static ap_uint<64> last_input_sample = 0;
+  static ap_uint<1> have_last_input_sample = 0;
 
   // Sliding window: the half being filled and the previous half. Widths
   // match every other engine's square accumulator (u128, saturating with
@@ -127,6 +133,8 @@ void hls_sliding_one_cycle_rms_engine(hls::stream<pq_input_beat_t> &s_frame,
     win_seeded = 0;
     event_active = 0;
     disc_pending = 1;
+    summary_disc_pending = 1;
+    have_last_input_sample = 0;
   }
 
   if (active_enable == 0) {
@@ -140,11 +148,28 @@ void hls_sliding_one_cycle_rms_engine(hls::stream<pq_input_beat_t> &s_frame,
     prev_count = 0;
     window_primed = 0;
     disc_pending = 1;
+    summary_disc_pending = 1;
+    have_last_input_sample = 0;
     return;
   }
 
   const ap_uint<64> sample_index =
       beat.range(PQIN_SAMPLE_IDX_LSB + 63, PQIN_SAMPLE_IDX_LSB);
+  if (have_last_input_sample == 1 &&
+      sample_index != ap_uint<64>(last_input_sample + 1)) {
+    // The observer shim is deliberately nonblocking. If it had to discard a
+    // converted frame, abandon both half accumulators instead of biasing the
+    // next root, and mark the first recovered summary discontinuous.
+    curr_count = 0;
+    prev_count = 0;
+    window_primed = 0;
+    win_seeded = 0;
+    event_active = 0;
+    disc_pending = 1;
+    summary_disc_pending = 1;
+  }
+  last_input_sample = sample_index;
+  have_last_input_sample = 1;
 
   // ---- Per-frame accumulation ------------------------------------------
   // The house square-accumulator idiom: seed in place on the half's first
@@ -211,6 +236,80 @@ rotate_lanes:
   const ap_uint<1> locked = beat.bit(PQIN_LOCKED_BIT);
   const ap_uint<1> fallback = beat.bit(PQIN_FALLBACK_BIT);
   const ap_uint<1> armed = (active_reference != 0) ? 1 : 0;
+
+  // ---- M18 half-cycle sufficient statistic -----------------------------
+  // This is the only M18 input derived from RMS. It deliberately comes from
+  // the already-computed M12 Urms(1/2) values rather than duplicating square
+  // accumulators in another engine. R5C1 owns classification and lifecycle.
+  summary_sequence += 1;
+  ap_uint<32> summary[PQE_PAYLOAD_WORDS];
+#pragma HLS ARRAY_PARTITION variable=summary cyclic factor=4
+#pragma HLS BIND_STORAGE variable=summary type=ram_2p impl=lutram
+clear_summary:
+  for (int word = 0; word < PQE_PAYLOAD_WORDS; ++word) {
+#pragma HLS PIPELINE II=1
+    summary[word] = 0;
+  }
+  const ap_uint<64> first_sample =
+      sample_index - ap_uint<64>(window_samples) + 1;
+  const ap_uint<64> pl_tick =
+      beat.range(PQIN_PL_TICK_LSB + 63, PQIN_PL_TICK_LSB);
+  ap_uint<32> phase_validity = 0;
+summary_validity:
+  for (int phase = 0; phase < PQ_PHASES; ++phase) {
+#pragma HLS UNROLL
+    phase_validity[PQE_VALID_VOLTAGE_LSB + phase] =
+        active_valid_mask[pq_lane[phase]];
+    phase_validity[PQE_VALID_CURRENT_LSB + phase] =
+        active_valid_mask[pq_lane[PQ_PHASES + phase]];
+  }
+  summary[PQE_SEQUENCE_WORD] = summary_sequence;
+  summary[PQE_GENERATION_WORD] = active_generation;
+  summary[PQE_SAMPLE_RATE_WORD] = active_sample_rate;
+  summary[PQE_STATUS_WORD] =
+      (ap_uint<32>(locked) << PQE_STATUS_LOCKED_BIT) |
+      (ap_uint<32>(fallback) << PQE_STATUS_FALLBACK_BIT) |
+      (ap_uint<32>(summary_disc_pending) << PQE_STATUS_DISCONTINUITY_BIT) |
+      (ap_uint<32>(arithmetic_overflow) << PQE_STATUS_ARITHMETIC_BIT) |
+      (ap_uint<32>(active_enable) << PQE_STATUS_ENABLED_BIT);
+  summary[PQE_VALID_PHASES_WORD] = phase_validity;
+  summary[PQE_WINDOW_SAMPLES_WORD] = window_samples;
+  summary[PQE_FIRST_SAMPLE_LOW_WORD] = first_sample.range(31, 0);
+  summary[PQE_FIRST_SAMPLE_HIGH_WORD] = first_sample.range(63, 32);
+  summary[PQE_LAST_SAMPLE_LOW_WORD] = sample_index.range(31, 0);
+  summary[PQE_LAST_SAMPLE_HIGH_WORD] = sample_index.range(63, 32);
+  summary[PQE_PL_TICK_LOW_WORD] = pl_tick.range(31, 0);
+  summary[PQE_PL_TICK_HIGH_WORD] = pl_tick.range(63, 32);
+summary_rms:
+  for (int phase = 0; phase < PQ_PHASES; ++phase) {
+#pragma HLS UNROLL
+    summary[PQE_URMS_Q16_BASE_WORD + phase * 2] =
+        urms_q16[phase].range(31, 0);
+    summary[PQE_URMS_Q16_BASE_WORD + phase * 2 + 1] =
+        urms_q16[phase].range(63, 32);
+    summary[PQE_IRMS_Q16_BASE_WORD + phase * 2] =
+        irms_q16[phase].range(31, 0);
+    summary[PQE_IRMS_Q16_BASE_WORD + phase * 2 + 1] =
+        irms_q16[phase].range(63, 32);
+  }
+  summary[PQE_REFERENCE_WORD] = active_reference;
+  summary[PQE_SAG_THRESHOLD_WORD] = active_sag;
+  summary[PQE_SWELL_THRESHOLD_WORD] = active_swell;
+  summary[PQE_INTERRUPT_THRESHOLD_WORD] = active_interrupt;
+  summary[PQE_HYSTERESIS_WORD] = active_hysteresis;
+  summary[PQE_APPLY_WORD] = ap_uint<32>(apply_seen);
+emit_summary:
+  for (int word = 0; word < PQE_PAYLOAD_WORDS; ++word) {
+#pragma HLS PIPELINE II=1
+    record_axis_t output{};
+    output.data = summary[word];
+    output.keep = MREC_KEEP_ALL;
+    output.strb = MREC_KEEP_ALL;
+    output.last = (word == PQE_PAYLOAD_WORDS - 1) ? ap_uint<1>(1) :
+                                                    ap_uint<1>(0);
+    m_pqe.write(output);
+  }
+  summary_disc_pending = 0;
 
   // Window extremes (periodic heartbeat span).
   if (win_seeded == 0) {
@@ -382,6 +481,7 @@ window_extremes:
       ap_uint<32>(arithmetic_overflow) | (ap_uint<32>(first_record) << 2);
 
   record_image_t image;
+#pragma HLS BIND_STORAGE variable=image.word type=ram_2p impl=lutram
   clear_record(image);
   fill_envelope(image, sequence, active_generation, active_sample_rate,
                 ap_uint<32>(sample_index - emit_first + 1),

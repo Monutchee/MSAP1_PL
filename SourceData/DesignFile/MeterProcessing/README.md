@@ -14,8 +14,8 @@ the free-run fallback window used while the voltage reference is unusable
 programs it to the nominal block length, 6,400 frames at 32 kSPS.
 
 The numerics are a Vitis HLS engine
-(`SourceData/HLS_DesignFile/MeterProcessing/Mtr1Engine`;
-`mtr1_engine.hpp/.cpp` are the normative sources — the hand-written
+(`SourceData/HLS_DesignFile/MeterProcessing/SingleCycleEngine`;
+`single_cycle_engine.hpp/.cpp` are the normative sources — the hand-written
 `meter_rms`/`MeterResultHub` pair it replaced lives in git history).
 Mean-corrected AC RMS uses
 
@@ -29,9 +29,33 @@ accumulators, serial restoring division, and an exact restoring integer
 square root; zero-referenced total RMS uses `sqrt(sum(x^2) / N)`; all
 rounding is floor/truncation as pinned in the engine header. The engine
 finalizes each closed block inline (~15 us) while
-`meter_mtr1_hls_shim`'s 8-deep beat FIFO absorbs incoming frames, so
+`meter_single_cycle_hls_shim`'s 8-deep beat FIFO absorbs incoming frames, so
 measurement is never backpressured and any overflow is a counted fault,
 never silent.
+
+## Voltage-domain engine offload
+
+`meter_voltage_sample_batcher` is the shared PL boundary for Flicker and mains
+signalling. It observes converted VA/VB/VC samples and emits one CRC32C-
+protected VSB1 packet for every 256 input frames whenever either engine is
+enabled. Each sample occupies four ordered 32-bit words: signed integer-
+microvolt VA/VB/VC and one flags word. No wide HLS sample or result bus
+remains. The batcher never backpressures the metrology stream. When the
+private FIFO cannot retain a complete packet, it drops that packet as a unit
+and carries the loss into the next packet's discontinuity/source-drop status.
+
+R5C1 owns all IEC 61000-4-15 processing after this boundary—reference
+normalization, 2 kHz decimation, lamp-model filters, instantaneous flicker,
+the 600-second classifier, Pst, and Plt—and also owns the seven-probe 200 ms
+mains-signalling estimator. It serializes the unchanged Flicker-v1
+(`0x000E0001`) and Mains-Signal-v1 (`0x000F0001`) public records. The bitstream
+and R5C1 firmware are a co-release pair; there is no PL calculation fallback.
+
+HLS record images and finalized result arrays are deliberately bound to
+dual-port LUTRAM. They are shallow indexed scratch stores, and leaving them on
+automatic inference can consume one mostly empty BRAM primitive per array.
+Deep sample queues, spectral windows, and private packet stores remain mapped
+to BRAM or URAM; do not move those high-capacity buffers into distributed RAM.
 
 ## Grid-cycle timing
 
@@ -108,7 +132,7 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
   exact 200 ms source block to 4,096 frames at 20.48 kSPS. The 32/64/128 kSPS
   profiles use a 1,025-tap Kaiser prototype; lower rates use a compact
   endpoint-inclusive 129-row fractional-delay table with carried-remainder
-  interpolation and exact Q20 unity gain. A 512-frame BRAM history ring and
+  interpolation and exact Q20 unity gain. A 512-frame K26 URAM history ring and
   16-entry marker queue decouple source capture from the time-shared MAC, so
   even 128 kSPS is lossless. A qualified boundary may select either adjacent
   ADC frame because a continuous crossing is discretized at the accepted-frame
@@ -126,12 +150,14 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
   overload.
 - `meter_harmonic_hls_shim`: owns the frontend, packaged HarmonicEngine,
   forward-XFFT configuration handshake, sticky XFFT family-fault injection,
-  and a 4,096-word packet-mode record FIFO. Only the XFFT itself crosses the
-  MeterCore boundary; records leave on `M_AXIS_HARMONIC`.
-- `meter_mtr1_hls_shim`: packs one 1264-bit sample beat per accepted
-  converted frame (layout mirrors `mtr1_engine.hpp` MTR1_IN_*, kept in
+  and a 4,096-word URAM packet-mode record FIFO. Only the XFFT itself crosses
+  the MeterCore boundary; records leave on `M_AXIS_HARMONIC`. The matching
+  private HRM1 and R5 aggregation packet stores also retain their full depth
+  in symmetric URAM FIFOs so the design preserves K26 BRAM headroom.
+- `meter_single_cycle_hls_shim`: packs one 1,024-bit logical frame per accepted
+  converted frame (layout mirrors `single_cycle_engine.hpp` SCYC_IN_*, kept in
   lock step), buffers up to eight beats, hosts the packaged
-  `hls_mtr1_engine_ip`, and mirrors the APPLY commit for the register
+  `hls_single_cycle_engine_ip`, and mirrors the APPLY commit for the register
   file. Deliberately contains NO level-to-event conversion — the
   2026-08-13..16 record-duplication incident was localized to exactly
   that pattern in the retired aggregator shim.
@@ -153,9 +179,9 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
 | `0x18` | `SHADOW_WINDOW_SAMPLES` | samples in each RMS result |
 | `0x1c` | `SHADOW_VALID_MASK` | valid converted channels |
 | `0x20` | `ACTIVE_GENERATION` | committed generation |
-| `0x24` | `RESULT_SEQUENCE` | MTR1 record sequence, as of the last emitted record (tap on word 3) |
-| `0x28` | `RESULT_DROP_COUNT` | MTR1 record word 12 (`result_drops`, constant 0: every close is finalized) |
-| `0x2c` | `PACKET_DROP_COUNT` | MTR1 record word 11 (`emit_drops`, constant 0: emission is blocking) |
+| `0x24` | `RESULT_SEQUENCE` | Basic-record sequence, as of the last emitted record (tap on word 3) |
+| `0x28` | `RESULT_DROP_COUNT` | Basic-record word 12 (`result_drops`, constant 0: every close is finalized) |
+| `0x2c` | `PACKET_DROP_COUNT` | Basic-record word 11 (`emit_drops`, constant 0: emission is blocking) |
 | `0x30` | `FREQUENCY_SHADOW_CONTROL` | enable, mode, CH6, cycle count |
 | `0x34` | `FREQUENCY_SHADOW_WINDOW_SAMPLES` | rolling-time target |
 | `0x38` | `FREQUENCY_SHADOW_MIN_MILLIHZ` | accepted lower limit |
@@ -222,7 +248,7 @@ is pinned by `meter_r5_aggregation_pkg.vhd` and
 R5C1 owns Basic, 150/180-cycle, UTC 10-minute, and 2-hour aggregation and
 record serialization. It returns one complete 256-byte record through the
 AXI FIFO TX channel into `MTR_AXI_Switch/S02_AXIS`. The retired duplicate
-`M_AXIS_MTR1` and `M_AXIS_MTR2` wrapper interfaces are removed. Every returned
+The duplicate legacy basic/aggregate wrapper interfaces are removed. Every returned
 record is 64 x 32-bit beats with TLAST on beat 63 before it joins the Linux
 meter-DMA path. The other compact switch inputs are S00 SingleCycle, S01 PQ,
 and S03 harmonics. RPMsg remains control-plane only.

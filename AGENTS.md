@@ -21,18 +21,20 @@
   record-stream register taps (`MeterProcessing/record_word_tap.vhd`). The
   single-cycle metering numerics are implemented by Vitis HLS inside this
   hierarchy. In the production configuration R5C1 owns interval aggregation
-  and returns finished 256-byte MTR1/MTR2 records through the bidirectional
-  AXI FIFO MM-S into `MTR_AXI_Switch/S02_AXIS` in `TopDesign.bd`. The retired
-  duplicate `M_AXIS_MTR1` and `M_AXIS_MTR2` wrapper interfaces do not exist.
+  and returns finished 256-byte 10/12-cycle Basic and 150/180-cycle aggregate
+  records through the bidirectional AXI FIFO MM-S into
+  `MTR_AXI_Switch/S02_AXIS` in `TopDesign.bd`. The retired duplicate
+  basic/aggregate wrapper interfaces do not exist.
   The compact record-switch order is S00 SingleCycle, S01 PQ, S02 R5C1
   return, and S03 harmonics.
 - M16 harmonic acquisition is also owned inside `MeterCore_Wrapper`: the
   VHDL-2008 adaptive L/25 polyphase conditioner for every selectable
-  1--128 kSPS rate, VHDL-2008 URAM-backed 4,096-frame ping/pong frontend,
+  1--128 kSPS rate with a 512-frame URAM history, VHDL-2008 URAM-backed
+  4,096-frame ping/pong frontend,
   packaged
   `hls_harmonic_engine_ip`, XFFT fault handling, and
-  4,096-word record FIFO are one hierarchy. Each exact 42-record base family
-  is losslessly forked into that public FIFO and a private
+  4,096-word URAM record FIFO are one hierarchy. Each exact 42-record base
+  family is losslessly forked into that public FIFO and a private
   `meter_r5_harmonic_export` packetizer. The packetizer emits one 2,693-word
   CRC32C-protected HRM1 packet; a whole-packet arbiter gives AGG1 priority and
   multiplexes both private contracts onto `M_AXIS_R5_AGG_INPUT`. Never
@@ -55,7 +57,7 @@
 - The conversion stage owns the 64-bit free-running sample index (low word in
   `TUSER[31:0]`, high word in `TUSER[105:74]`). It is the measurement
   timebase: never reset it on configuration apply and never step it for time
-  synchronization. MTR1 format `0x00010002` references it in words 60/61 and
+  synchronization. BASIC-v2 format `0x00010002` references it in words 60/61 and
   the waveform correlation block latches it for Linux UTC mapping (the
   BASIC-v4 record keeps those words).
 - Grid-cycle timing registers live in the processing block: `GRID_SHADOW_CONFIG`
@@ -111,8 +113,10 @@
   integrity header, the exact 234-word aggregation input, and a CRC32C word.
   It is a private PL/R5C1 co-release contract: the fixed contract
   word detects a mixed bitstream/firmware image, but there is no negotiation,
-  legacy decoder, or compatibility fallback. The exporter uses AMD XPM FIFOs
-  and uses an explicit complete-packet credit before retaining word 0. When
+  legacy decoder, or compatibility fallback. The symmetric 32-bit record and
+  private-packet stores use K26 UltraRAM without reducing their complete-family
+  depths; the exporter uses an explicit complete-packet credit before retaining
+  word 0. When
   private-link storage is unavailable it still consumes the complete
   SingleCycle packet, discards that packet as one unit, and increments the
   sticky drop diagnostic. It must never deassert the upstream READY signal or
@@ -120,6 +124,18 @@
   256-byte record through the FIFO TX AXI stream into
   `MTR_AXI_Switch/S02_AXIS`. There is intentionally no PL runtime fallback
   when the co-released R5 image or FIFO path is unavailable.
+- R5C1 is the sole IEC 61000-4-15 Flicker and mains-signalling computation
+  authority. PL `meter_voltage_sample_batcher` observes converted VA/VB/VC
+  frames without backpressure and emits one shared VSB1 packet for each
+  256-frame batch. Its payload contains ten metadata words, four 32-bit words
+  per frame (signed integer-microvolt VA/VB/VC plus flags), and four trailer
+  words. R5C1 owns flicker normalization, 2 kHz decimation, filtering,
+  classification, Pst/Plt, and the seven-probe 200 ms mains estimator; the
+  public `0x000E0001` and `0x000F0001` records are unchanged. Keep the batcher
+  bounded and nonblocking, preserve discontinuity/source-drop provenance, and
+  do not restore either retired HLS engine or a wide parallel sample/result
+  boundary. VSB1 is an exact co-release private contract and remains below the
+  existing 2,693-word transport maximum.
 - `SourceData/HLS_DesignFile/` holds Vitis HLS components: C++ sources are
   the design input; the shared `HLS_DesignFile/run_hls.sh [component]`
   verifies one component (csim + C/RTL cosim), packages the IP, and unpacks
@@ -201,6 +217,7 @@ Run from the repository root, escalating only as the change requires:
 vivado -mode batch -source SourceData/Script/AI_gen/check_ad7771_capture.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_heartbeat.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_meter_core.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/check_meter_waveform.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_meter_frequency.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_r5_aggregation_export.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_metering_pipeline.tcl

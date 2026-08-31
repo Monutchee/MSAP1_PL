@@ -8,7 +8,7 @@
 -- becomes exactly 4,096 simultaneous seven-channel samples for the external
 -- 4K XFFT.
 --
--- Source capture is independent of the time-shared MAC.  A block-RAM history
+-- Source capture is independent of the time-shared MAC.  An UltraRAM history
 -- ring and a 16-entry source-token queue preserve every accepted ADC frame
 -- while one multiplier evaluates the active phase over all seven lanes.  The
 -- worst profile (128 kSPS, 257 taps) takes about 3,600 clocks per output,
@@ -36,7 +36,7 @@ entity meter_spectral_conditioner is
     OUTPUT_FRAMES          : positive := 4096;
     SOURCE_RATE_HZ         : positive := 32000;
     COEFFICIENT_MEMORY_PRIMITIVE : string := "block";
-    HISTORY_MEMORY_PRIMITIVE     : string := "block"
+    HISTORY_MEMORY_PRIMITIVE     : string := "ultra"
   );
   port (
     aclk    : in std_logic;
@@ -702,7 +702,6 @@ begin
               if current_delayed_start = '1' and spectral_synced = '1' then
                 if m_axis_context_tvalid = '0' then
                   context_value := pending_start_context;
-                  context_value(104) := grid_locked_i;
                   context_value(105) := pending_start_profile_valid;
                   context_value(106) := first_after_discontinuity;
                   if qualified_max_order(
@@ -1013,7 +1012,7 @@ begin
 
           -- Source capture runs regardless of MAC or AXIS state.  The token
           -- FIFO contains only the history pointer plus delayed block markers;
-          -- the wide seven-lane sample remains in the block-RAM history ring.
+          -- the wide seven-lane sample remains in the UltraRAM history ring.
           if frame_accept_i = '1' and active_profile /= 0 then
             start_now := source_start_pending;
             profile_now := profile_is_qualified(
@@ -1076,6 +1075,15 @@ begin
                 profile_expected_frames(active_profile), 32));
               context_value(103 downto 96) := frame_user_i(71 downto 64);
               context_value(111 downto 104) := (others => '0');
+              -- Every provenance field must describe the same source-window
+              -- boundary.  In particular, do not pair a frequency captured
+              -- here with a newer grid-lock state when the delayed context is
+              -- emitted.  A zero/invalid frequency can never be grid locked.
+              if grid_locked_i = '1' and frequency_valid_i = '1' and
+                 unsigned(frequency_millihz_i) /= to_unsigned(
+                   0, frequency_millihz_i'length) then
+                context_value(104) := '1';
+              end if;
               context_value(119 downto 112) := grid_nominal_hz_i;
               context_value(127 downto 120) := grid_cycle_count_i;
               context_value(135 downto 128) := std_logic_vector(to_unsigned(
