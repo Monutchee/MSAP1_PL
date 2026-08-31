@@ -43,10 +43,11 @@ simulator adds one RPU-owned interface:
 All repository-owned harmonic logic is inside `MeterCore_Wrapper`. The
 conditioner observes preserved signed 24-bit raw lanes CH0--CH6. On APPLY it
 selects one exact `L/25` conversion, where `L = 512000/Fs`, for every supported
-1, 2, 4, 8, 16, 32, 64, or 128 kSPS rate. The measured rate must agree with
-the selected rate and the source interval must be one exact 10-cycle/50 Hz or
-12-cycle/60 Hz basic block; every valid profile produces 4,096 samples at
-20.48 kSPS. The 32/64/128 kSPS profiles use a 1,025-tap Kaiser prototype;
+1, 2, 4, 8, 16, 32, 64, or 128 kSPS rate. The measured rate must remain within
+1% plus 2 Hz of the selected rate, matching ADC health policy, and the source
+interval must be one exact 10-cycle/50 Hz or 12-cycle/60 Hz basic block within
+the one-frame endpoint allowance; every valid profile produces 4,096 samples
+at 20.48 kSPS. The 32/64/128 kSPS profiles use a 1,025-tap Kaiser prototype;
 lower rates use a compact 129-row fractional-delay table with exact-unity
 carried-remainder interpolation. Characterized ripple is at most 0.001688 dB,
 with high-rate stopbands below -79.65 dBFS and low-rate image bounds below

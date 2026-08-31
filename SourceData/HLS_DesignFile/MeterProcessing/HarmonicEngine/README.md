@@ -78,8 +78,9 @@ low-rate image bounds below -88.18 dBFS.
 
 The first complete block after reset or APPLY primes history and marker
 alignment. `conditioner_valid` is set only for a locked 50 Hz/10-cycle or
-60 Hz/12-cycle block with valid frequency, a measured rate equal to the
-selected profile, and that profile's exact source-frame count. APPLY flushes
+60 Hz/12-cycle block with valid frequency, a measured rate within the ADC
+health tolerance of the selected profile (1% plus 2 Hz), and that profile's
+exact source-frame count within the one-frame endpoint allowance. APPLY flushes
 the conditioner token/history transaction and any incomplete frontend capture
 as one boundary. Unsupported rates or malformed geometry are structurally
 invalidated; the conditioner selects among the eight characterized profiles

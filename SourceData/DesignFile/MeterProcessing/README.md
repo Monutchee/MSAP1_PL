@@ -140,8 +140,11 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
   while retaining the exact nominal `L/25` lattice, and rejects every larger
   geometry error. The frozen ROM check measures at most 0.001688 dB
   ripple; high-rate stopbands are below -79.65 dBFS and low-rate image bounds
-  are below -88.18 dBFS. Unsupported rates, measured/configured-rate mismatch,
-  or malformed block geometry are explicitly invalid.
+  are below -88.18 dBFS. The one-second DRDY estimate may differ from the
+  configured rate by up to 1% plus 2 Hz, matching ADC health policy; exact
+  source-block geometry remains mandatory. Unsupported rates, larger
+  measured/configured-rate mismatches, or malformed block geometry are
+  explicitly invalid.
 - `meter_spectral_frontend`: M16's VHDL-2008 two-bank 4,096-frame spectral
   buffer and CH0-through-CH6 XFFT scheduler. It is instantiated
   inside MeterCore, maps its two wide banks to six K26 URAMs to preserve BRAM

@@ -41,6 +41,7 @@ module meter_spectral_conditioner_tb;
     int context_count = 0;
     int output_count = 0;
     int expected_first_sample = 101;
+    bit expected_profile_qualified = 1'b1;
 
     meter_spectral_conditioner #(
         .EXPECTED_SOURCE_FRAMES(SOURCE_FRAMES),
@@ -99,7 +100,7 @@ module meter_spectral_conditioner_tb;
                 fail("conditioner context/provenance mismatch");
             end
             if (!m_axis_context_tdata[104] ||
-                !m_axis_context_tdata[105] ||
+                m_axis_context_tdata[105] !== expected_profile_qualified ||
                 !m_axis_context_tdata[106])
                 fail("qualified first-family flags mismatch");
         end
@@ -153,6 +154,46 @@ module meter_spectral_conditioner_tb;
             invalid_blocks_o != invalid_before ||
             service_overruns_o != 0)
             fail("endpoint-quantized block was not normalized");
+    endtask
+
+    task automatic run_rate_qualification_block(
+        input int measured_rate,
+        input bit expect_qualified
+    );
+        int context_before;
+        int output_before;
+        int completed_before;
+        int invalid_before;
+        context_before = context_count;
+        output_before = output_count;
+        completed_before = completed_blocks_o;
+        invalid_before = invalid_blocks_o;
+
+        @(negedge aclk);
+        expected_profile_qualified = expect_qualified;
+        source_frame_rate_i = measured_rate;
+        grid_locked_i = 1'b1;
+        config_apply_toggle_i = ~config_apply_toggle_i;
+        repeat (3) @(posedge aclk);
+
+        // Prime one block, publish the next, and flush profile 1's group
+        // delay. Qualification changes only the context validity bit; exact
+        // block geometry and the conditioned output remain structural.
+        for (int sample = 0; sample < SOURCE_FRAMES; sample++)
+            send_source_frame(sample == SOURCE_FRAMES - 1);
+        expected_first_sample = source_index + 1;
+        for (int sample = 0; sample < SOURCE_FRAMES; sample++)
+            send_source_frame(sample == SOURCE_FRAMES - 1);
+        for (int sample = 0; sample < 32; sample++)
+            send_source_frame(1'b0);
+
+        wait (completed_blocks_o == completed_before + 1);
+        repeat (10) @(posedge aclk);
+        if (context_count != context_before + 1 ||
+            output_count != output_before + OUTPUT_FRAMES ||
+            invalid_blocks_o != invalid_before ||
+            service_overruns_o != 0)
+            fail("rate-qualification block geometry mismatch");
     endtask
 
     initial begin
@@ -221,12 +262,21 @@ module meter_spectral_conditioner_tb;
             output_count != 3 * OUTPUT_FRAMES || invalid_blocks_o != 0)
             fail("endpoint-quantization regression counter mismatch");
 
+        // The 32 kSPS production tolerance is 1% + 2 Hz = 322 Hz. A
+        // one-count DRDY measurement difference is valid; the first value
+        // beyond the upper bound remains explicitly unqualified.
+        run_rate_qualification_block(32001, 1'b1);
+        run_rate_qualification_block(32323, 1'b0);
+        if (completed_blocks_o != 5 || context_count != 5 ||
+            output_count != 5 * OUTPUT_FRAMES || invalid_blocks_o != 0)
+            fail("rate-tolerance regression counter mismatch");
+
         $display("meter_spectral_conditioner PASS");
         $finish;
     end
 
     initial begin
-        repeat (1000000) @(posedge aclk);
+        repeat (1600000) @(posedge aclk);
         fail("timeout");
     end
 endmodule
