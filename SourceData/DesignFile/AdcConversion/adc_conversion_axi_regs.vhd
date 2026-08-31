@@ -32,25 +32,30 @@ entity adc_conversion_axi_regs is
     shadow_valid_mask_o  : out std_logic_vector(7 downto 0);
     shadow_enable_o      : out std_logic;
     shadow_scale_q16_o   : out std_logic_vector(255 downto 0);
+    shadow_current_wiring_o : out word32_t;
     apply_toggle_o       : out std_logic;
 
     active_generation_i  : in  word32_t;
     active_valid_mask_i  : in  std_logic_vector(7 downto 0);
     active_enable_i      : in  std_logic;
+    active_current_wiring_i : in word32_t;
     apply_pending_i      : in  std_logic;
     saturation_seen_i    : in  std_logic;
+    current_wiring_error_i : in std_logic;
     sample_sequence_i    : in  word32_t
   );
 end entity;
 
 architecture rtl of adc_conversion_axi_regs is
-  constant VERSION_VALUE    : word32_t := x"00010000";
+  constant VERSION_VALUE    : word32_t := x"00010001";
   constant IDENTIFIER_VALUE : word32_t := x"41435631"; -- "ACV1"
+  constant DEFAULT_CURRENT_WIRING : word32_t := x"000000E4";
 
   signal shadow_generation : word32_t := (others => '0');
   signal shadow_valid_mask : std_logic_vector(7 downto 0) := (others => '0');
   signal shadow_enable     : std_logic := '0';
   signal shadow_scale      : word32_array_t(0 to 7) := (others => (others => '0'));
+  signal shadow_current_wiring : word32_t := DEFAULT_CURRENT_WIRING;
   signal apply_toggle      : std_logic := '0';
 
   signal bvalid            : std_logic := '0';
@@ -75,6 +80,7 @@ begin
   shadow_generation_o <= shadow_generation;
   shadow_valid_mask_o <= shadow_valid_mask;
   shadow_enable_o <= shadow_enable;
+  shadow_current_wiring_o <= shadow_current_wiring;
   apply_toggle_o <= apply_toggle;
 
   generate_scale_output : for channel_index in 0 to 7 generate
@@ -93,6 +99,7 @@ begin
         shadow_valid_mask <= (others => '0');
         shadow_enable <= '0';
         shadow_scale <= (others => (others => '0'));
+        shadow_current_wiring <= DEFAULT_CURRENT_WIRING;
         apply_toggle <= '0';
         bvalid <= '0';
         rvalid <= '0';
@@ -124,6 +131,10 @@ begin
             when 6 to 13 =>
               shadow_scale(address_word - 6) <= apply_write_strobes(
                 shadow_scale(address_word - 6), s_axi_wdata, s_axi_wstrb);
+            when 17 =>
+              updated_word := apply_write_strobes(
+                shadow_current_wiring, s_axi_wdata, s_axi_wstrb);
+              shadow_current_wiring <= updated_word;
             when others =>
               null;
           end case;
@@ -140,6 +151,7 @@ begin
           status_value(0) := active_enable_i;
           status_value(1) := apply_pending_i;
           status_value(2) := saturation_seen_i;
+          status_value(3) := current_wiring_error_i;
 
           case address_word is
             when 0 => rdata <= VERSION_VALUE;
@@ -153,6 +165,8 @@ begin
             when 14 => rdata <= active_generation_i;
             when 15 => rdata <= x"000000" & active_valid_mask_i;
             when 16 => rdata <= sample_sequence_i;
+            when 17 => rdata <= shadow_current_wiring;
+            when 18 => rdata <= active_current_wiring_i;
             when others => rdata <= (others => '0');
           end case;
           rvalid <= '1';

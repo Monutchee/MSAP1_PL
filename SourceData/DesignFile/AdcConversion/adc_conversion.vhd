@@ -53,12 +53,15 @@ architecture rtl of adc_conversion is
   signal shadow_valid_mask : std_logic_vector(7 downto 0);
   signal shadow_enable     : std_logic;
   signal shadow_scale_flat : std_logic_vector(255 downto 0);
+  signal shadow_current_wiring : word32_t;
   signal apply_toggle      : std_logic;
 
   signal active_generation : word32_t := (others => '0');
   signal active_valid_mask : std_logic_vector(7 downto 0) := (others => '0');
   signal active_enable     : std_logic := '0';
   signal active_scale      : word32_array_t(0 to 7) := (others => (others => '0'));
+  signal logical_scale     : word32_array_t(0 to 7) := (others => (others => '0'));
+  signal active_current_wiring : word32_t := x"000000E4";
   signal apply_seen        : std_logic := '0';
 
   signal channel_index     : natural range 0 to 7 := 0;
@@ -74,12 +77,47 @@ architecture rtl of adc_conversion is
   -- product lifetime; the AXI register keeps exposing the low 32 bits.
   signal sample_sequence   : unsigned(63 downto 0) := (others => '0');
   signal saturation_seen   : std_logic := '0';
+  signal current_wiring_error : std_logic := '0';
   signal apply_waiting     : std_logic;
   signal can_accept        : std_logic;
+
+  function current_wiring_valid(value : word32_t) return boolean is
+    variable seen : std_logic_vector(3 downto 0) := (others => '0');
+    variable phase_index : natural range 0 to 3;
+  begin
+    if value(31 downto 12) /= x"00000" then
+      return false;
+    end if;
+    for adc_channel in 0 to 3 loop
+      phase_index := to_integer(unsigned(
+        value((adc_channel * 2) + 1 downto adc_channel * 2)));
+      if seen(phase_index) = '1' then
+        return false;
+      end if;
+      seen(phase_index) := '1';
+    end loop;
+    return seen = "1111";
+  end function;
 begin
+  -- Physical calibration stays attached to its ADC input. Export gains in
+  -- the same logical order as the normalized raw lanes so spectral and
+  -- waveform provenance always follows the corresponding sample.
+  remap_active_scale : process (all)
+    variable remapped : word32_array_t(0 to 7);
+    variable destination : natural range 0 to 7;
+  begin
+    remapped := active_scale;
+    for adc_channel in 0 to 3 loop
+      destination := to_integer(unsigned(active_current_wiring(
+        (adc_channel * 2) + 1 downto adc_channel * 2)));
+      remapped(destination) := active_scale(adc_channel);
+    end loop;
+    logical_scale <= remapped;
+  end process;
+
   active_scale_export : for index in 0 to 7 generate
     active_scale_q16_o((index * 32) + 31 downto index * 32) <=
-      active_scale(index);
+      logical_scale(index);
   end generate;
 
   register_bank : entity work.adc_conversion_axi_regs
@@ -107,12 +145,15 @@ begin
       shadow_valid_mask_o => shadow_valid_mask,
       shadow_enable_o => shadow_enable,
       shadow_scale_q16_o => shadow_scale_flat,
+      shadow_current_wiring_o => shadow_current_wiring,
       apply_toggle_o => apply_toggle,
       active_generation_i => active_generation,
       active_valid_mask_i => active_valid_mask,
       active_enable_i => active_enable,
+      active_current_wiring_i => active_current_wiring,
       apply_pending_i => apply_waiting,
       saturation_seen_i => saturation_seen,
+      current_wiring_error_i => current_wiring_error,
       sample_sequence_i => std_logic_vector(sample_sequence(31 downto 0))
     );
 
@@ -131,11 +172,14 @@ begin
     variable scale_value     : signed(32 downto 0);
     variable product_value   : signed(65 downto 0);
     variable converted_value : sword48_t;
+    variable corrected_raw    : signed(31 downto 0);
     variable next_frame      : std_logic_vector(METER_CONVERTED_FRAME_BITS - 1 downto 0);
     variable next_raw_frame  : std_logic_vector(255 downto 0);
     variable next_user       : std_logic_vector(383 downto 0);
     variable next_sequence   : unsigned(63 downto 0);
     variable saturated       : std_logic;
+    variable destination_index : natural range 0 to 7;
+    variable invert_current  : boolean;
   begin
     if rising_edge(aclk) then
       if aresetn = '0' then
@@ -143,6 +187,7 @@ begin
         active_valid_mask <= (others => '0');
         active_enable <= '0';
         active_scale <= (others => (others => '0'));
+        active_current_wiring <= x"000000E4";
         apply_seen <= '0';
         channel_index <= 0;
         frame_buffer <= (others => '0');
@@ -152,27 +197,44 @@ begin
         output_valid <= '0';
         sample_sequence <= (others => '0');
         saturation_seen <= '0';
+        current_wiring_error <= '0';
       else
         if output_valid = '1' and m_axis_tready = '1' then
           output_valid <= '0';
         end if;
 
         if apply_waiting = '1' and channel_index = 0 then
-          active_generation <= shadow_generation;
-          active_valid_mask <= shadow_valid_mask;
-          active_enable <= shadow_enable;
-          for index in 0 to 7 loop
-            active_scale(index) <= shadow_scale_flat((index * 32) + 31 downto index * 32);
-          end loop;
+          if current_wiring_valid(shadow_current_wiring) then
+            active_generation <= shadow_generation;
+            active_valid_mask <= shadow_valid_mask;
+            active_enable <= shadow_enable;
+            active_current_wiring <= shadow_current_wiring;
+            for index in 0 to 7 loop
+              active_scale(index) <= shadow_scale_flat((index * 32) + 31 downto index * 32);
+            end loop;
+            current_wiring_error <= '0';
+          else
+            current_wiring_error <= '1';
+          end if;
           apply_seen <= apply_toggle;
           frame_buffer <= (others => '0');
           raw_frame_buffer <= (others => '0');
           saturation_seen <= '0';
         elsif s_axis_tvalid = '1' and s_axis_tready = '1' then
-          raw_value := resize(signed(s_axis_tdata), raw_value'length);
+          -- AD7771 values are signed 24-bit samples carried in 32-bit beats.
+          raw_value := resize(signed(s_axis_tdata(23 downto 0)), raw_value'length);
           scale_value := signed('0' & active_scale(channel_index));
           product_value := raw_value * scale_value;
           converted_value := saturate_signed_66_to_48(product_value);
+          corrected_raw := resize(signed(s_axis_tdata(23 downto 0)), 32);
+
+          destination_index := channel_index;
+          invert_current := false;
+          if channel_index < 4 then
+            destination_index := to_integer(unsigned(active_current_wiring(
+              (channel_index * 2) + 1 downto channel_index * 2)));
+            invert_current := active_current_wiring(8 + channel_index) = '1';
+          end if;
 
           saturated := '0';
           if resize(converted_value, product_value'length) /= product_value then
@@ -180,19 +242,36 @@ begin
             saturation_seen <= '1';
           end if;
 
-          if active_enable = '0' or active_valid_mask(channel_index) = '0' or
+          if invert_current then
+            if corrected_raw = to_signed(-(2 ** 23), corrected_raw'length) then
+              corrected_raw := to_signed((2 ** 23) - 1, corrected_raw'length);
+              saturated := '1';
+              saturation_seen <= '1';
+            else
+              corrected_raw := -corrected_raw;
+            end if;
+            if converted_value = signed'(x"800000000000") then
+              converted_value := signed'(x"7FFFFFFFFFFF");
+              saturated := '1';
+              saturation_seen <= '1';
+            else
+              converted_value := -converted_value;
+            end if;
+          end if;
+
+          if active_enable = '0' or active_valid_mask(destination_index) = '0' or
              s_axis_tkeep /= "1111" then
             converted_value := (others => '0');
           end if;
 
           next_frame := frame_buffer;
           next_raw_frame := raw_frame_buffer;
-          next_frame((channel_index * METER_CONVERTED_LANE_BITS) +
+          next_frame((destination_index * METER_CONVERTED_LANE_BITS) +
                      METER_CONVERTED_LANE_BITS - 1 downto
-                     channel_index * METER_CONVERTED_LANE_BITS) :=
+                     destination_index * METER_CONVERTED_LANE_BITS) :=
             std_logic_vector(converted_value);
-          next_raw_frame((channel_index * 32) + 31 downto channel_index * 32) :=
-            s_axis_tdata;
+          next_raw_frame((destination_index * 32) + 31 downto destination_index * 32) :=
+            std_logic_vector(corrected_raw);
           frame_buffer <= next_frame;
           raw_frame_buffer <= next_raw_frame;
 

@@ -62,6 +62,11 @@
   synchronization. BASIC-v2 format `0x00010002` references it in words 60/61 and
   the waveform correlation block latches it for Linux UTC mapping (the
   BASIC-v4 record keeps those words).
+- The conversion stage also owns current-input normalization. Physical ADC
+  CH0--CH3 retain their own scale calibration and polarity, then one atomically
+  applied permutation routes them to logical Ia/Ib/Ic/In. Both converted data
+  and preserved raw TUSER lanes leave conversion in logical order; downstream
+  metrology must never apply another wiring correction.
 - Grid-cycle timing registers live in the processing block: `GRID_SHADOW_CONFIG`
   `0x6C`, `GRID_ACTIVE_CONFIG` `0x70`, `GRID_STATUS` `0x74` (RPU-owned,
   committed by the shared `CONTROL.APPLY` toggle). Like the frequency and
