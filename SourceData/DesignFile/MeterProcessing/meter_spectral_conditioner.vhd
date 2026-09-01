@@ -109,6 +109,14 @@ architecture rtl of meter_spectral_conditioner is
 
   constant C_U32_MAX : unsigned(31 downto 0) := (others => '1');
 
+  -- The physical DRDY counter uses a one-second observation window, so its
+  -- integer result can differ slightly from the configured nominal rate even
+  -- when the ADC is operating correctly.  Match the R5C0 ADC-health policy:
+  -- accept one percent plus two hertz here, then retain the much stricter
+  -- exact-block geometry check below before qualifying spectral data.
+  constant C_RATE_TOLERANCE_DIVISOR : positive := 100;
+  constant C_RATE_TOLERANCE_FLOOR_HZ : natural := 2;
+
   -- A continuous crossing is represented by one accepted ADC frame.  At an
   -- otherwise exact nominal 10/12-cycle boundary, interpolation and input
   -- noise may therefore select either adjacent frame.  The resampling lattice
@@ -229,6 +237,45 @@ architecture rtl of meter_spectral_conditioner is
       return 8;
     end if;
     return 0;
+  end function;
+
+  function profile_rate_tolerance(profile : natural) return natural is
+  begin
+    case profile is
+      when 1 => return SOURCE_RATE_HZ / C_RATE_TOLERANCE_DIVISOR +
+                       C_RATE_TOLERANCE_FLOOR_HZ;
+      when 2 => return 64000 / C_RATE_TOLERANCE_DIVISOR +
+                       C_RATE_TOLERANCE_FLOOR_HZ;
+      when 3 => return 128000 / C_RATE_TOLERANCE_DIVISOR +
+                       C_RATE_TOLERANCE_FLOOR_HZ;
+      when 4 => return 16000 / C_RATE_TOLERANCE_DIVISOR +
+                       C_RATE_TOLERANCE_FLOOR_HZ;
+      when 5 => return 8000 / C_RATE_TOLERANCE_DIVISOR +
+                       C_RATE_TOLERANCE_FLOOR_HZ;
+      when 6 => return 4000 / C_RATE_TOLERANCE_DIVISOR +
+                       C_RATE_TOLERANCE_FLOOR_HZ;
+      when 7 => return 2000 / C_RATE_TOLERANCE_DIVISOR +
+                       C_RATE_TOLERANCE_FLOOR_HZ;
+      when 8 => return 1000 / C_RATE_TOLERANCE_DIVISOR +
+                       C_RATE_TOLERANCE_FLOOR_HZ;
+      when others => return 0;
+    end case;
+  end function;
+
+  function frame_rate_matches(
+    profile         : natural;
+    configured_rate : std_logic_vector(31 downto 0);
+    measured_rate   : std_logic_vector(31 downto 0))
+    return boolean is
+  variable difference : u32_t;
+  begin
+    if unsigned(measured_rate) >= unsigned(configured_rate) then
+      difference := unsigned(measured_rate) - unsigned(configured_rate);
+    else
+      difference := unsigned(configured_rate) - unsigned(measured_rate);
+    end if;
+    return difference <= to_unsigned(
+      profile_rate_tolerance(profile), difference'length);
   end function;
 
   function profile_taps(profile : natural) return positive is
@@ -393,7 +440,7 @@ architecture rtl of meter_spectral_conditioner is
     if profile /= 0 and enabled = '1' and locked = '1' and
        frame_rate_valid = '1' and frequency_valid = '1' and
        profile_for_rate(configured_rate) = profile and
-       unsigned(measured_rate) = unsigned(configured_rate) and
+       frame_rate_matches(profile, configured_rate, measured_rate) and
        ((unsigned(nominal) = to_unsigned(50, nominal'length) and
          unsigned(cycles) = to_unsigned(10, cycles'length)) or
         (unsigned(nominal) = to_unsigned(60, nominal'length) and

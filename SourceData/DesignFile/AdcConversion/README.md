@@ -27,14 +27,17 @@ stays in `TUSER[31:0]` for existing consumers; the high word rides in
 exposing the low 32 bits.
 
 The stage contains no board constants. Software writes unsigned Q16.16
-micro-unit-per-count coefficients to shadow registers, then commits them with
-`CONTROL.APPLY`. A commit takes effect only between frames.
+micro-unit-per-count coefficients and the current-input wiring to shadow
+registers, then commits them with `CONTROL.APPLY`. A commit takes effect only
+between frames. Current coefficients remain indexed by physical ADC channel;
+CH0--CH3 are then routed to logical Ia/Ib/Ic/In and optionally inverted. The
+raw TUSER lanes and exported scale provenance use that same logical order.
 
 ## AXI-Lite registers
 
 | Offset | Name | Description |
 | --- | --- | --- |
-| `0x00` | `VERSION` | `0x00010000` |
+| `0x00` | `VERSION` | `0x00010001` |
 | `0x04` | `IDENTIFIER` | ASCII `ACV1` |
 | `0x08` | `CONTROL` | bit 0 write-one `APPLY`; bit 1 shadow enable |
 | `0x0c` | `STATUS` | active, apply-pending, saturation-seen |
@@ -44,6 +47,14 @@ micro-unit-per-count coefficients to shadow registers, then commits them with
 | `0x38` | `ACTIVE_GENERATION` | committed generation |
 | `0x3c` | `ACTIVE_VALID_MASK` | committed channel mask |
 | `0x40` | `SAMPLE_SEQUENCE` | completed converted frames |
+| `0x44` | `SHADOW_CURRENT_WIRING` | CH0..3 phase map in bits 0..7; CH0..3 inversion in bits 8..11 |
+| `0x48` | `ACTIVE_CURRENT_WIRING` | committed current wiring |
+
+Each two-bit phase code is `0=A`, `1=B`, `2=C`, or `3=N`, indexed by physical
+ADC channel. The four codes must form a permutation. The reset value is
+`0x000000e4` (CH0=A, CH1=B, CH2=C, CH3=N, all normal). An invalid shadow map
+does not commit and sets STATUS bit 3. STATUS bit 2 is also asserted when
+reversing the signed-24-bit minimum requires clamping to the positive rail.
 
 `MeterCore` buffers this stream with AMD `xpm_fifo_axis` in the same clock
 domain. The FIFO is configured for 384-bit `TDATA`, 384-bit `TUSER`, `TKEEP`,
