@@ -134,11 +134,11 @@ measurement states; divide/overflow failures set the arithmetic-error flag.
   endpoint-inclusive 129-row fractional-delay table with carried-remainder
   interpolation and exact Q20 unity gain. A 512-frame K26 URAM history ring and
   16-entry marker queue decouple source capture from the time-shared MAC, so
-  even 128 kSPS is lossless. A qualified boundary may select either adjacent
+  even 128 kSPS is lossless. Each qualified boundary may select an adjacent
   ADC frame because a continuous crossing is discretized at the accepted-frame
-  interface; the conditioner normalizes that bounded +/-1 endpoint choice
-  while retaining the exact nominal `L/25` lattice, and rejects every larger
-  geometry error. The frozen ROM check measures at most 0.001688 dB
+  interface; the conditioner therefore normalizes the resulting bounded +/-2
+  interval span while retaining the exact nominal `L/25` lattice, and rejects
+  every larger geometry error. The frozen ROM check measures at most 0.001688 dB
   ripple; high-rate stopbands are below -79.65 dBFS and low-rate image bounds
   are below -88.18 dBFS. The one-second DRDY estimate may differ from the
   configured rate by up to 1% plus 2 Hz, matching ADC health policy; exact

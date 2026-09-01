@@ -117,12 +117,13 @@ architecture rtl of meter_spectral_conditioner is
   constant C_RATE_TOLERANCE_DIVISOR : positive := 100;
   constant C_RATE_TOLERANCE_FLOOR_HZ : natural := 2;
 
-  -- A continuous crossing is represented by one accepted ADC frame.  At an
-  -- otherwise exact nominal 10/12-cycle boundary, interpolation and input
-  -- noise may therefore select either adjacent frame.  The resampling lattice
-  -- remains the exact profile L/25 lattice; this tolerance normalizes only
-  -- that discrete endpoint choice and is not a general geometry allowance.
-  constant C_ENDPOINT_QUANTIZATION_FRAMES : natural := 1;
+  -- Each continuous block endpoint is represented by one accepted ADC frame.
+  -- At an otherwise exact nominal 10/12-cycle boundary, interpolation and
+  -- input noise may move each independently quantized endpoint by one frame,
+  -- so their interval span can differ by two.  The resampling lattice remains
+  -- the exact profile L/25 lattice; this tolerance normalizes only those two
+  -- endpoint choices and is not a general geometry allowance.
+  constant C_ENDPOINT_QUANTIZATION_FRAMES : natural := 2;
 
   subtype u32_t is unsigned(31 downto 0);
   subtype history_pointer_t is unsigned(C_HISTORY_ADDR_BITS-1 downto 0);
@@ -852,6 +853,23 @@ begin
                 -- progress and make the complete family structurally invalid.
                 block_service_fault <= '1';
                 produced_count <= produced_count + 1;
+              elsif current_delayed_close = '1' and
+                    produced_count < to_unsigned(
+                      OUTPUT_FRAMES, produced_count'length) and
+                    target_input_index > input_index and
+                    target_input_index <= input_index + to_unsigned(
+                      profile_delay(active_profile), input_index'length) then
+                -- A short, endpoint-quantized source interval can close just
+                -- before the last point(s) of the exact L/25 output lattice.
+                -- The centered-filter marker delay guarantees that these
+                -- following source samples are already present in history.
+                -- Borrow only that delayed tail to finish the fixed lattice;
+                -- the independent source-count check below still accepts no
+                -- more than the explicit +/-2-frame geometry tolerance.
+                current_pointer <= current_pointer + resize(
+                  target_input_index - input_index,
+                  current_pointer'length);
+                input_index <= target_input_index;
               elsif current_delayed_close = '1' then
                 close_geometry_valid :=
                   endpoint_count_matches(

@@ -50,7 +50,7 @@
   `M_AXIS_PQ`. The conditioner selects `L = 512000/Fs` on APPLY, requires
   the measured rate to remain within the ADC-health tolerance of that selected
   profile (1% plus 2 Hz), and converts each exact 10/12-cycle source block to
-  4,096 frames at 20.48 kSPS. The one-frame endpoint allowance remains the
+  4,096 frames at 20.48 kSPS. The two-frame interval-span allowance remains the
   final geometry guard. Unsupported rates or malformed block geometry emit no
   valid spectral window. Its read-only health
   window is `0xCC`--`0xF0` in `S_AXI_PROCESSING`. XFFT TLAST errors invalidate
