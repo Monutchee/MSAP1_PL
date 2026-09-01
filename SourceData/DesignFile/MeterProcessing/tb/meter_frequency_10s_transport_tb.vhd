@@ -187,6 +187,23 @@ begin
     wait until falling_edge(aclk);
     clear_stats <= '0';
 
+    -- A coordinated capture stop cancels software-owned tuples; it must not
+    -- manufacture an invalid FRQ1 interval or increment loss accounting.
+    boundary.start_sample <= std_logic_vector(to_unsigned(100, 64));
+    boundary.end_sample <= std_logic_vector(to_unsigned(200, 64));
+    boundary.control <= x"00000001";
+    wait until falling_edge(aclk);
+    boundary_update <= not boundary_update;
+    wait until falling_edge(aclk);
+    boundary.control <= x"00000008";
+    boundary_update <= not boundary_update;
+    wait until rising_edge(aclk);
+    wait until rising_edge(aclk);
+    assert observer_status(2 downto 0) = "000" and
+           completed_count = x"00000000" and dropped_count = x"00000000"
+      report "frequency ten-second cancel retained or serialized a tuple"
+      severity failure;
+
     boundary.start_sample <= std_logic_vector(
       to_unsigned(C_INTERVAL_START, 64));
     boundary.end_sample <= std_logic_vector(to_unsigned(C_INTERVAL_END, 64));

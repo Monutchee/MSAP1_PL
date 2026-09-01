@@ -202,7 +202,9 @@
   The raw ADC simulator/source-selection register block is `0xB0080000`.
   Linux writes the coherent M20 ten-second boundary tuple and reads observer
   health through the waveform-control window at offsets `0x50`--`0x98`;
-  `0x84[2]` toggles UPDATE while bits 0/1 carry valid/time-synchronized.
+  `0x84[2]` toggles UPDATE, bits 0/1 carry valid/time-synchronized, and the
+  momentary bit 3 cancels active/queued tuples during an orderly stop without
+  creating a measurement record.
   Address-map changes require a new XSA and coordinated Linux/device-tree
   updates; changes to RPU-owned segments also require coordinated RPU updates.
 - The physical receiver and simulator both feed the raw 32-bit AXI4-Stream

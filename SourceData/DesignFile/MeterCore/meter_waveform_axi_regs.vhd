@@ -231,7 +231,9 @@ begin
             control_word := apply_write_strobes(
               frequency_10s_boundary.control, s_axi_wdata, s_axi_wstrb);
             frequency_10s_boundary.control <=
-              (31 downto 2 => '0') & control_word(1 downto 0);
+              (31 downto 4 => '0') &
+              control_word(FREQUENCY_10S_CONTROL_CANCEL_BIT) & '0' &
+              control_word(1 downto 0);
             if control_word(2) = '1' then
               frequency_10s_boundary_update <=
                 not frequency_10s_boundary_update;
@@ -294,7 +296,9 @@ begin
               rdata <= frequency_10s_boundary.profile;
             when FREQUENCY_10S_REG_CONTROL / 4 =>
               rdata <= (31 downto 9 => '0') & frequency_10s_boundary_update &
-                       (7 downto 2 => '0') &
+                       (7 downto 4 => '0') &
+                       frequency_10s_boundary.control(
+                         FREQUENCY_10S_CONTROL_CANCEL_BIT) & '0' &
                        frequency_10s_boundary.control(1 downto 0);
             when FREQUENCY_10S_REG_OBSERVER_STATUS / 4 =>
               rdata <= frequency_10s_status_i;

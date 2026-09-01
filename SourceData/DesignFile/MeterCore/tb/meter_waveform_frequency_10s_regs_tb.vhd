@@ -173,6 +173,12 @@ begin
       report "frequency ten-second coherent boundary handoff is incorrect"
       severity failure;
 
+    axi_write(FREQUENCY_10S_REG_CONTROL, x"0000000C");
+    axi_read(FREQUENCY_10S_REG_CONTROL, x"00000008");
+    assert boundary.control = x"00000008" and boundary_update = '0'
+      report "frequency ten-second cancellation handoff is incorrect"
+      severity failure;
+
     report "PASS: meter_waveform_frequency_10s_regs_tb" severity note;
     std.env.finish;
     wait;

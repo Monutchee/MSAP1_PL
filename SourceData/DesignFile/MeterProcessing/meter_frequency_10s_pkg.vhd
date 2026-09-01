@@ -25,6 +25,9 @@ package meter_frequency_10s_pkg is
 
   constant FREQUENCY_10S_CONTROL_VALID_BIT : natural := 0;
   constant FREQUENCY_10S_CONTROL_TIME_SYNCHRONIZED_BIT : natural := 1;
+  -- Momentary software command. UPDATE commits the shadow tuple; CANCEL drops
+  -- active/queued tuples without manufacturing an invalid measurement record.
+  constant FREQUENCY_10S_CONTROL_CANCEL_BIT : natural := 3;
 
   constant FREQUENCY_10S_STATUS_BOUNDARY_VALID_BIT : natural := 0;
   constant FREQUENCY_10S_STATUS_TIME_SYNCHRONIZED_BIT : natural := 1;

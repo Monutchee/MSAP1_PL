@@ -388,12 +388,15 @@ begin
     variable crossing_write_address : natural range 0 to
       2 * FREQUENCY_10S_CROSSING_CAPACITY - 1;
     variable crossing_write_data : std_logic_vector(63 downto 0);
+    variable cancel_update : boolean;
   begin
     if rising_edge(aclk) then
       divider_start <= '0';
       crossing_write := false;
       crossing_write_address := 0;
       crossing_write_data := (others => '0');
+      cancel_update := boundary_update_i /= boundary_update_seen and
+        boundary_i.control(FREQUENCY_10S_CONTROL_CANCEL_BIT) = '1';
 
       if aresetn = '0' then
         previous_valid <= '0';
@@ -465,12 +468,24 @@ begin
 
         if boundary_update_i /= boundary_update_seen then
           boundary_update_seen <= boundary_update_i;
-          if queued_boundary_valid = '1' then
-            dropped_count <= saturating_increment(dropped_count);
-            queued_drop_pending <= '1';
+          if boundary_i.control(FREQUENCY_10S_CONTROL_CANCEL_BIT) = '1' then
+            -- Capture/configuration shutdown is not a metrology interval. Drop
+            -- both software-owned tuples silently so neither can be revived
+            -- as a stale invalid record when conversions resume.
+            queued_boundary_valid <= '0';
+            queued_drop_pending <= '0';
+            active_interval <= '0';
+            end_seen <= '0';
+            finalize_pending <= '0';
+            crossing_count <= 0;
+          else
+            if queued_boundary_valid = '1' then
+              dropped_count <= saturating_increment(dropped_count);
+              queued_drop_pending <= '1';
+            end if;
+            queued_boundary <= boundary_i;
+            queued_boundary_valid <= '1';
           end if;
-          queued_boundary <= boundary_i;
-          queued_boundary_valid <= '1';
         end if;
 
         if conditioner_discontinuity = '1' then
@@ -488,7 +503,7 @@ begin
           end if;
         end if;
 
-        if conditioned_valid = '1' then
+        if conditioned_valid = '1' and not cancel_update then
           if conditioned_sample <= -to_signed(G_HYSTERESIS_MICROVOLTS, 32) then
             crossing_armed <= '1';
           end if;
@@ -650,7 +665,7 @@ begin
           end if;
         end if;
 
-        if divider_done = '1' then
+        if divider_done = '1' and not cancel_update then
           if divider_zero = '1' then
             dropped_count <= saturating_increment(dropped_count);
             if active_interval = '1' then
@@ -712,13 +727,13 @@ begin
           end if;
         end if;
 
-        if active_interval = '1' and end_seen = '1' and
+        if not cancel_update and active_interval = '1' and end_seen = '1' and
            divider_busy = '0' and divider_done = '0' and
            divider_start = '0' then
           finalize_pending <= '1';
         end if;
 
-        if finalize_pending = '1' then
+        if finalize_pending = '1' and not cancel_update then
           finalize_pending <= '0';
           active_interval <= '0';
           end_seen <= '0';
