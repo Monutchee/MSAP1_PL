@@ -59,6 +59,7 @@ set vhdl2008_sources [list \
   [file join $design_root MeterCommon pq_event_pkg.vhd] \
   [file join $design_root MeterCommon measurement_record_bus_pkg.vhd] \
   [file join $design_root MeterProcessing meter_r5_power_quality_protocol_pkg.vhd] \
+  [file join $design_root MeterProcessing meter_frequency_10s_pkg.vhd] \
   [file join $design_root Ad7771Capture ad7771_receiver.vhd] \
   [file join $design_root Ad7771Capture ad7771_axi_regs.vhd] \
   [file join $design_root Ad7771Capture ad7771_dclk_meter.vhd] \
@@ -74,6 +75,8 @@ set vhdl2008_sources [list \
   [file join $design_root MeterProcessing grid_cycle_timing.vhd] \
   [file join $design_root MeterProcessing record_word_tap.vhd] \
   [file join $design_root MeterProcessing meter_r5_aggregation_pkg.vhd] \
+  [file join $design_root MeterProcessing meter_frequency_10s_conditioner.vhd] \
+  [file join $design_root MeterProcessing meter_frequency_10s_observer.vhd] \
   [file join $design_root MeterProcessing meter_r5_harmonic_pkg.vhd] \
   [file join $design_root MeterProcessing meter_r5_harmonic_export.vhd] \
   [file join $design_root MeterProcessing meter_axis_packet_arbiter_2to1.vhd] \

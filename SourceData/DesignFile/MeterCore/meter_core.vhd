@@ -5,6 +5,7 @@ use ieee.numeric_std.all;
 use work.metering_pkg.all;
 use work.pq_event_pkg.all;
 use work.meter_r5_power_quality_protocol_pkg.all;
+use work.meter_frequency_10s_pkg.all;
 
 library xpm;
 use xpm.vcomponents.all;
@@ -302,6 +303,15 @@ architecture structural of meter_core is
   signal r5_harmonic_axis_tvalid  : std_logic;
   signal r5_harmonic_axis_tready  : std_logic;
   signal r5_harmonic_axis_tlast   : std_logic;
+  signal r5_frequency_axis_tdata  : std_logic_vector(31 downto 0);
+  signal r5_frequency_axis_tkeep  : std_logic_vector(3 downto 0);
+  signal r5_frequency_axis_tvalid : std_logic;
+  signal r5_frequency_axis_tready : std_logic;
+  signal r5_frequency_axis_tlast  : std_logic;
+  signal r5_frequency_accepted_packets : std_logic_vector(31 downto 0);
+  signal r5_frequency_dropped_packets : std_logic_vector(31 downto 0);
+  signal r5_frequency_transmitted_packets : std_logic_vector(31 downto 0);
+  signal r5_frequency_framing_errors : std_logic_vector(31 downto 0);
 
   -- Sliding Urms(1/2) / PQ event producer (M12). Its shim observes the
   -- same accepted-frame fan-out the single-cycle shim does.
@@ -358,6 +368,18 @@ architecture structural of meter_core is
   signal ten_minute_target_sample : std_logic_vector(63 downto 0);
   signal ten_minute_target_valid  : std_logic;
   signal ten_minute_target_update : std_logic;
+  signal frequency_10s_boundary : frequency_10s_boundary_t;
+  signal frequency_10s_boundary_update : std_logic;
+  signal frequency_10s_status : std_logic_vector(31 downto 0);
+  signal frequency_10s_completed_count : std_logic_vector(31 downto 0);
+  signal frequency_10s_dropped_count : std_logic_vector(31 downto 0);
+  signal frequency_10s_overflow_count : std_logic_vector(31 downto 0);
+  signal frequency_10s_discontinuity_count : std_logic_vector(31 downto 0);
+  signal frequency_10s_payload_axis_tdata : std_logic_vector(31 downto 0);
+  signal frequency_10s_payload_axis_tkeep : std_logic_vector(3 downto 0);
+  signal frequency_10s_payload_axis_tvalid : std_logic;
+  signal frequency_10s_payload_axis_tready : std_logic;
+  signal frequency_10s_payload_axis_tlast : std_logic;
   signal conversion_frame_accept : std_logic;
   signal waveform_sample_index   : std_logic_vector(63 downto 0);
 
@@ -649,7 +671,15 @@ begin
       clear_stats_o => waveform_clear_stats,
       ten_minute_target_sample_o => ten_minute_target_sample,
       ten_minute_target_valid_o => ten_minute_target_valid,
-      ten_minute_target_update_o => ten_minute_target_update
+      ten_minute_target_update_o => ten_minute_target_update,
+      frequency_10s_boundary_o => frequency_10s_boundary,
+      frequency_10s_boundary_update_o => frequency_10s_boundary_update,
+      frequency_10s_status_i => frequency_10s_status,
+      frequency_10s_completed_count_i => frequency_10s_completed_count,
+      frequency_10s_dropped_count_i => frequency_10s_dropped_count,
+      frequency_10s_overflow_count_i => frequency_10s_overflow_count,
+      frequency_10s_discontinuity_count_i =>
+        frequency_10s_discontinuity_count
     );
 
   waveform_stream : entity work.meter_waveform
@@ -872,6 +902,67 @@ begin
       reference_valid_now_o => reference_valid_now
     );
 
+  -- Dedicated Class-A ten-second observer. It conditions the configured
+  -- voltage reference independently of the live-frequency detector and emits
+  -- crossing positions only; R5C1 remains the interval-arithmetic authority.
+  frequency_10s_observer : entity work.meter_frequency_10s_observer
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      frame_accept_i => engine_valid,
+      frame_data_i => converted_fifo.data,
+      frame_keep_i => converted_fifo.keep,
+      frame_user_i => converted_fifo.user,
+      config_generation_i => shadow_generation,
+      configured_sample_rate_hz_i => shadow_sample_rate,
+      measured_frame_rate_hz_i => capture_frame_rate,
+      measured_frame_rate_valid_i => capture_frame_rate_valid,
+      config_apply_toggle_i => apply_toggle,
+      boundary_i => frequency_10s_boundary,
+      boundary_update_i => frequency_10s_boundary_update,
+      clear_stats_i => waveform_clear_stats,
+      m_axis_payload_tdata => frequency_10s_payload_axis_tdata,
+      m_axis_payload_tkeep => frequency_10s_payload_axis_tkeep,
+      m_axis_payload_tvalid => frequency_10s_payload_axis_tvalid,
+      m_axis_payload_tready => frequency_10s_payload_axis_tready,
+      m_axis_payload_tlast => frequency_10s_payload_axis_tlast,
+      status_o => frequency_10s_status,
+      completed_count_o => frequency_10s_completed_count,
+      dropped_count_o => frequency_10s_dropped_count,
+      overflow_count_o => frequency_10s_overflow_count,
+      discontinuity_count_o => frequency_10s_discontinuity_count
+    );
+
+  -- Reserve complete FRQ1 payloads before capture. A congested R5 link can
+  -- discard only whole records, and the embedded sequence exposes every gap.
+  frequency_10s_packetizer : entity work.meter_r5_fixed_packet_export
+    generic map (
+      G_MAGIC => FREQUENCY_10S_MAGIC,
+      G_CONTRACT_REVISION => FREQUENCY_10S_CONTRACT_REVISION,
+      G_PAYLOAD_WORDS => FREQUENCY_10S_PAYLOAD_WORDS,
+      G_FIFO_DEPTH => 8192,
+      G_FIFO_COUNT_WIDTH => 14,
+      G_PACKET_SLOTS => 3
+    )
+    port map (
+      aclk => aclk,
+      aresetn => aresetn,
+      s_axis_tdata => frequency_10s_payload_axis_tdata,
+      s_axis_tkeep => frequency_10s_payload_axis_tkeep,
+      s_axis_tvalid => frequency_10s_payload_axis_tvalid,
+      s_axis_tready => frequency_10s_payload_axis_tready,
+      s_axis_tlast => frequency_10s_payload_axis_tlast,
+      m_axis_tdata => r5_frequency_axis_tdata,
+      m_axis_tkeep => r5_frequency_axis_tkeep,
+      m_axis_tvalid => r5_frequency_axis_tvalid,
+      m_axis_tready => r5_frequency_axis_tready,
+      m_axis_tlast => r5_frequency_axis_tlast,
+      accepted_packet_count_o => r5_frequency_accepted_packets,
+      dropped_packet_count_o => r5_frequency_dropped_packets,
+      transmitted_packet_count_o => r5_frequency_transmitted_packets,
+      framing_error_count_o => r5_frequency_framing_errors
+    );
+
   -- Grid-cycle timing derives IEC 61000-4-30 basic-block boundaries from the
   -- same qualified zero crossings the frequency engine uses. Like the
   -- frequency and waveform branches it only observes accepted frames and can
@@ -1048,8 +1139,7 @@ begin
     );
 
   -- Round-robin only at packet boundaries. AGG1, PQE1, shared VSB1 samples,
-  -- and HRM1 can never interleave. Input three is retained as a constant-zero
-  -- compatibility port on the proven five-input arbiter and is optimized out.
+  -- FRQ1 observations, and HRM1 can never interleave.
   r5_input_arbiter : entity work.meter_axis_packet_arbiter_5to1
     port map (
       aclk => aclk,
@@ -1069,11 +1159,11 @@ begin
       s2_axis_tvalid => r5_vsb_axis_tvalid,
       s2_axis_tready => r5_vsb_axis_tready,
       s2_axis_tlast => r5_vsb_axis_tlast,
-      s3_axis_tdata => (others => '0'),
-      s3_axis_tkeep => (others => '0'),
-      s3_axis_tvalid => '0',
-      s3_axis_tready => open,
-      s3_axis_tlast => '0',
+      s3_axis_tdata => r5_frequency_axis_tdata,
+      s3_axis_tkeep => r5_frequency_axis_tkeep,
+      s3_axis_tvalid => r5_frequency_axis_tvalid,
+      s3_axis_tready => r5_frequency_axis_tready,
+      s3_axis_tlast => r5_frequency_axis_tlast,
       s4_axis_tdata => r5_harmonic_axis_tdata,
       s4_axis_tkeep => r5_harmonic_axis_tkeep,
       s4_axis_tvalid => r5_harmonic_axis_tvalid,

@@ -27,6 +27,18 @@
   basic/aggregate wrapper interfaces do not exist.
   The compact record-switch order is S00 SingleCycle, S01 PQ, S02 R5C1
   return, and S03 harmonics.
+- M20 Class-A ten-second frequency observation is a dedicated nonblocking
+  branch inside `MeterCore`. `meter_frequency_10s_conditioner.vhd` applies the
+  fixed third-order CIC-by-128 and symmetric 21-tap linear-phase FIR to the
+  factory voltage reference at 128 kSPS; corrected Q16 crossing timestamps
+  and one Linux-owned UTC boundary tuple are serialized by
+  `meter_frequency_10s_observer.vhd` into the fixed 2,077-word `FRQ1`
+  co-release packet. PL must not calculate the interval frequency. R5C1 alone
+  selects complete cycles, performs the arithmetic, and emits
+  FREQUENCY-10S-v1 (`0x00280001`). FRQ1 occupies input S3 of the five-source
+  private packet arbiter; its complete-payload FIFO must never backpressure
+  conversion or another metrology observer. The legacy rolling live-frequency
+  path remains independent and unchanged.
 - M16 harmonic acquisition is also owned inside `MeterCore_Wrapper`: the
   VHDL-2008 adaptive L/25 polyphase conditioner for every selectable
   1--128 kSPS rate with a 512-frame URAM history, VHDL-2008 URAM-backed
@@ -188,6 +200,9 @@
   meter DMA `0xB0030000`, conversion `0xB0040000`, processing `0xB0050000`,
   waveform DMA `0xB0060000`, and waveform control `0xB0070000`. Address-map
   The raw ADC simulator/source-selection register block is `0xB0080000`.
+  Linux writes the coherent M20 ten-second boundary tuple and reads observer
+  health through the waveform-control window at offsets `0x50`--`0x98`;
+  `0x84[2]` toggles UPDATE while bits 0/1 carry valid/time-synchronized.
   Address-map changes require a new XSA and coordinated Linux/device-tree
   updates; changes to RPU-owned segments also require coordinated RPU updates.
 - The physical receiver and simulator both feed the raw 32-bit AXI4-Stream
@@ -226,6 +241,7 @@ vivado -mode batch -source SourceData/Script/AI_gen/check_heartbeat.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_meter_core.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_meter_waveform.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_meter_frequency.tcl
+vivado -mode batch -source SourceData/Script/AI_gen/check_frequency_10s_transport.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_r5_aggregation_export.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_metering_pipeline.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/check_metering_module_references.tcl
@@ -237,9 +253,10 @@ vivado -mode batch -source SourceData/Script/AI_gen/synth_ad7771_design.tcl
 vivado -mode batch -source SourceData/Script/AI_gen/implement_ad7771_design.tcl
 ```
 
-For a project created before M16, run `register_hls_components.tcl` and then
-`register_m16_harmonic_sources.tcl` once before the PL build so both the
-packaged HarmonicEngine IP and its maintained RTL boundary are in `sources_1`.
+For a project created before M16/M20, run `register_hls_components.tcl`,
+`register_m16_harmonic_sources.tcl`, and
+`register_frequency_10s_sources.tcl` once before the PL build so packaged HLS
+IP and both maintained RTL boundaries are in `sources_1`.
 
 - Run the focused capture check for RTL changes and BD verification for any
   integration change. Run synthesis for interface, clock, reset, or constraint

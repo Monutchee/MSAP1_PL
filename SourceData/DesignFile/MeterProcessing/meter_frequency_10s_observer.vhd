@@ -51,7 +51,10 @@ entity meter_frequency_10s_observer is
 end entity;
 
 architecture rtl of meter_frequency_10s_observer is
-  type crossing_bank_t is array (0 to 1) of frequency_10s_crossing_memory_t;
+  type crossing_storage_t is array (
+    0 to 2 * FREQUENCY_10S_CROSSING_CAPACITY - 1) of
+    std_logic_vector(63 downto 0);
+  attribute ram_style : string;
 
   function relative_crossing_q16(
     sample_index : unsigned(63 downto 0);
@@ -139,7 +142,10 @@ architecture rtl of meter_frequency_10s_observer is
     end if;
     configured := unsigned(configured_rate);
     measured := unsigned(measured_rate);
-    tolerance_hz := shift_right(configured, 7) + 2;
+    -- 1/128 + 1/512 + 1/1024 = 0.9765625%, then add the established
+    -- two-hertz quantization allowance used by the other observers.
+    tolerance_hz := shift_right(configured, 7) +
+      shift_right(configured, 9) + shift_right(configured, 10) + 2;
     if measured >= configured then
       rate_difference := measured - configured;
     else
@@ -195,6 +201,8 @@ architecture rtl of meter_frequency_10s_observer is
   signal active_interval : std_logic := '0';
   signal active_configuration_generation : std_logic_vector(31 downto 0) :=
     (others => '0');
+  signal active_configured_sample_rate : std_logic_vector(31 downto 0) :=
+    (others => '0');
   signal active_status : std_logic_vector(31 downto 0) := (others => '0');
   signal active_reason : std_logic_vector(31 downto 0) := (others => '0');
   signal active_guard_flags : std_logic_vector(31 downto 0) := (others => '0');
@@ -202,8 +210,17 @@ architecture rtl of meter_frequency_10s_observer is
   signal end_seen : std_logic := '0';
   signal finalize_pending : std_logic := '0';
 
-  signal crossing_memory : crossing_bank_t :=
-    (others => (others => (others => '0')));
+  -- One write port and one synchronous read port infer a compact block RAM.
+  -- Do not reset this storage: frozen_crossing_count masks every unwritten
+  -- entry, and a reset loop would force both banks into flip-flops.
+  signal crossing_storage : crossing_storage_t;
+  attribute ram_style of crossing_storage : signal is "block";
+  signal crossing_read_address : natural range 0 to
+    2 * FREQUENCY_10S_CROSSING_CAPACITY - 1 := 0;
+  signal crossing_read_data : std_logic_vector(63 downto 0) :=
+    (others => '0');
+  signal crossing_high_word_data : std_logic_vector(63 downto 0) :=
+    (others => '0');
   signal write_bank : natural range 0 to 1 := 0;
   signal crossing_count : natural range 0 to FREQUENCY_10S_CROSSING_CAPACITY := 0;
 
@@ -215,6 +232,8 @@ architecture rtl of meter_frequency_10s_observer is
     FREQUENCY_10S_CROSSING_CAPACITY := 0;
   signal frozen_sequence : std_logic_vector(31 downto 0) := (others => '0');
   signal frozen_configuration_generation : std_logic_vector(31 downto 0) :=
+    (others => '0');
+  signal frozen_configured_sample_rate : std_logic_vector(31 downto 0) :=
     (others => '0');
   signal frozen_boundary : frequency_10s_boundary_t :=
     FREQUENCY_10S_BOUNDARY_RESET;
@@ -279,15 +298,41 @@ begin
     conditioner_reference_valid & conditioner_ready & packet_pending &
     active_interval & queued_boundary_valid;
 
+  crossing_read_address_select : process (all)
+    variable crossing_index_v : natural range 0 to
+      FREQUENCY_10S_CROSSING_CAPACITY - 1;
+  begin
+    crossing_read_address <= frozen_bank * FREQUENCY_10S_CROSSING_CAPACITY;
+    if packet_pending = '1' and
+       payload_index >= FREQUENCY_10S_METADATA_WORDS then
+      crossing_index_v :=
+        (payload_index - FREQUENCY_10S_METADATA_WORDS) / 2;
+      -- During the held high word, prefetch the next crossing. The current
+      -- high half is retained separately, so arbitrary AXIS stalls are safe.
+      if ((payload_index - FREQUENCY_10S_METADATA_WORDS) mod 2) = 1 and
+         crossing_index_v < FREQUENCY_10S_CROSSING_CAPACITY - 1 then
+        crossing_index_v := crossing_index_v + 1;
+      end if;
+      crossing_read_address <=
+        frozen_bank * FREQUENCY_10S_CROSSING_CAPACITY + crossing_index_v;
+    end if;
+  end process;
+
+  crossing_read_port : process (aclk)
+  begin
+    if rising_edge(aclk) then
+      crossing_read_data <= crossing_storage(crossing_read_address);
+    end if;
+  end process;
+
   payload_mux : process (all)
     variable crossing_index_v : natural;
-    variable crossing_value : signed(63 downto 0);
   begin
     payload_word <= (others => '0');
     case payload_index is
       when 0 => payload_word <= frozen_sequence;
       when 1 => payload_word <= frozen_configuration_generation;
-      when 2 => payload_word <= configured_sample_rate_hz_i;
+      when 2 => payload_word <= frozen_configured_sample_rate;
       when 3 => payload_word <= frozen_boundary.measured_sample_rate_millihz;
       when 4 => payload_word <= x"000000" & frozen_boundary.profile(7 downto 0);
       when 5 => payload_word <= x"00" & frozen_boundary.profile(31 downto 8);
@@ -312,11 +357,10 @@ begin
       when others =>
         crossing_index_v := (payload_index - FREQUENCY_10S_METADATA_WORDS) / 2;
         if crossing_index_v < frozen_crossing_count then
-          crossing_value := crossing_memory(frozen_bank)(crossing_index_v);
           if ((payload_index - FREQUENCY_10S_METADATA_WORDS) mod 2) = 0 then
-            payload_word <= std_logic_vector(crossing_value(31 downto 0));
+            payload_word <= crossing_read_data(31 downto 0);
           else
-            payload_word <= std_logic_vector(crossing_value(63 downto 32));
+            payload_word <= crossing_high_word_data(63 downto 32);
           end if;
         end if;
     end case;
@@ -340,9 +384,16 @@ begin
     variable start_reason : std_logic_vector(31 downto 0);
     variable start_drops : unsigned(31 downto 0);
     variable latest_relative : signed(63 downto 0);
+    variable crossing_write : boolean;
+    variable crossing_write_address : natural range 0 to
+      2 * FREQUENCY_10S_CROSSING_CAPACITY - 1;
+    variable crossing_write_data : std_logic_vector(63 downto 0);
   begin
     if rising_edge(aclk) then
       divider_start <= '0';
+      crossing_write := false;
+      crossing_write_address := 0;
+      crossing_write_data := (others => '0');
 
       if aresetn = '0' then
         previous_valid <= '0';
@@ -364,6 +415,7 @@ begin
         active_boundary <= FREQUENCY_10S_BOUNDARY_RESET;
         active_interval <= '0';
         active_configuration_generation <= (others => '0');
+        active_configured_sample_rate <= (others => '0');
         active_status <= (others => '0');
         active_reason <= (others => '0');
         active_guard_flags <= (others => '0');
@@ -379,11 +431,13 @@ begin
         frozen_crossing_count <= 0;
         frozen_sequence <= (others => '0');
         frozen_configuration_generation <= (others => '0');
+        frozen_configured_sample_rate <= (others => '0');
         frozen_boundary <= FREQUENCY_10S_BOUNDARY_RESET;
         frozen_status <= (others => '0');
         frozen_reason <= (others => '0');
         frozen_guard_flags <= (others => '0');
         frozen_observer_drops <= (others => '0');
+        crossing_high_word_data <= (others => '0');
         completed_count <= (others => '0');
         dropped_count <= (others => '0');
         overflow_count <= (others => '0');
@@ -397,6 +451,10 @@ begin
         end if;
 
         if packet_pending = '1' and m_axis_payload_tready = '1' then
+          if payload_index >= FREQUENCY_10S_METADATA_WORDS and
+             ((payload_index - FREQUENCY_10S_METADATA_WORDS) mod 2) = 0 then
+            crossing_high_word_data <= crossing_read_data;
+          end if;
           if payload_index = FREQUENCY_10S_PAYLOAD_WORDS - 1 then
             packet_pending <= '0';
             payload_index <= 0;
@@ -485,6 +543,7 @@ begin
                 conditioned_index >= unsigned(queued_boundary.start_sample) then
             active_boundary <= queued_boundary;
             active_configuration_generation <= config_generation_i;
+            active_configured_sample_rate <= configured_sample_rate_hz_i;
             active_interval <= '1';
             queued_boundary_valid <= '0';
             end_seen <= '0';
@@ -555,11 +614,24 @@ begin
             active_reason <= start_reason;
             active_observer_drops <= start_drops;
 
-            if have_latest_crossing = '1' then
+            -- Seed the interval with the most recent crossing only when it is
+            -- still at or before the requested end. A tuple delivered after
+            -- its end is already marked resynchronized/discontinuous above;
+            -- admitting an arbitrarily late crossing as an "after" guard
+            -- would misrepresent the bounded observation geometry.
+            if have_latest_crossing = '1' and
+               (latest_crossing_index <
+                  unsigned(queued_boundary.end_sample) or
+                (latest_crossing_index =
+                   unsigned(queued_boundary.end_sample) and
+                 latest_crossing_fraction = 0)) then
               latest_relative := relative_crossing_q16(
                 latest_crossing_index, latest_crossing_fraction,
                 unsigned(queued_boundary.start_sample));
-              crossing_memory(write_bank)(0) <= latest_relative;
+              crossing_write := true;
+              crossing_write_address :=
+                write_bank * FREQUENCY_10S_CROSSING_CAPACITY;
+              crossing_write_data := std_logic_vector(latest_relative);
               crossing_count <= 1;
               if latest_relative < 0 then
                 active_guard_flags(
@@ -567,6 +639,12 @@ begin
               elsif latest_relative = 0 then
                 active_guard_flags(
                   FREQUENCY_10S_GUARD_EXACT_START_BIT) <= '1';
+              end if;
+              if latest_crossing_index =
+                   unsigned(queued_boundary.end_sample) and
+                 latest_crossing_fraction = 0 then
+                active_guard_flags(
+                  FREQUENCY_10S_GUARD_EXACT_END_BIT) <= '1';
               end if;
             end if;
           end if;
@@ -603,7 +681,11 @@ begin
               relative_v := relative_crossing_q16(crossing_index_v,
                 crossing_fraction_v, interval_start_v);
               if crossing_count < FREQUENCY_10S_CROSSING_CAPACITY then
-                crossing_memory(write_bank)(crossing_count) <= relative_v;
+                crossing_write := true;
+                crossing_write_address :=
+                  write_bank * FREQUENCY_10S_CROSSING_CAPACITY +
+                  crossing_count;
+                crossing_write_data := std_logic_vector(relative_v);
                 crossing_count <= crossing_count + 1;
                 if relative_v < 0 then
                   active_guard_flags(
@@ -646,6 +728,7 @@ begin
             frozen_sequence <= std_logic_vector(interval_sequence);
             frozen_configuration_generation <=
               active_configuration_generation;
+            frozen_configured_sample_rate <= active_configured_sample_rate;
             frozen_boundary <= active_boundary;
             frozen_status <= active_status;
             frozen_reason <= active_reason;
@@ -666,6 +749,10 @@ begin
             interval_sequence <= interval_sequence + 1;
             queued_drop_pending <= '1';
           end if;
+        end if;
+
+        if crossing_write then
+          crossing_storage(crossing_write_address) <= crossing_write_data;
         end if;
       end if;
     end if;

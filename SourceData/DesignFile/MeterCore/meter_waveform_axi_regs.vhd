@@ -2,6 +2,9 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
+use work.metering_pkg.all;
+use work.meter_frequency_10s_pkg.all;
+
 -- Linux-owned control and time-correlation registers for the waveform path.
 --
 -- A write with CONTROL.LATCH=1 atomically snapshots the free-running PL tick
@@ -46,7 +49,15 @@ entity meter_waveform_axi_regs is
     -- observes the committed tuple with the next single-cycle result beat.
     ten_minute_target_sample_o : out std_logic_vector(63 downto 0);
     ten_minute_target_valid_o  : out std_logic;
-    ten_minute_target_update_o : out std_logic
+    ten_minute_target_update_o : out std_logic;
+
+    frequency_10s_boundary_o : out frequency_10s_boundary_t;
+    frequency_10s_boundary_update_o : out std_logic;
+    frequency_10s_status_i : in std_logic_vector(31 downto 0);
+    frequency_10s_completed_count_i : in std_logic_vector(31 downto 0);
+    frequency_10s_dropped_count_i : in std_logic_vector(31 downto 0);
+    frequency_10s_overflow_count_i : in std_logic_vector(31 downto 0);
+    frequency_10s_discontinuity_count_i : in std_logic_vector(31 downto 0)
   );
 end entity;
 
@@ -62,6 +73,9 @@ architecture rtl of meter_waveform_axi_regs is
   signal ten_minute_target : std_logic_vector(63 downto 0) := (others => '0');
   signal ten_minute_valid  : std_logic := '0';
   signal ten_minute_update : std_logic := '0';
+  signal frequency_10s_boundary : frequency_10s_boundary_t :=
+    FREQUENCY_10S_BOUNDARY_RESET;
+  signal frequency_10s_boundary_update : std_logic := '0';
   signal bvalid          : std_logic := '0';
   signal rvalid          : std_logic := '0';
   signal rdata           : std_logic_vector(31 downto 0) := (others => '0');
@@ -83,6 +97,8 @@ begin
   ten_minute_target_sample_o <= ten_minute_target;
   ten_minute_target_valid_o <= ten_minute_valid;
   ten_minute_target_update_o <= ten_minute_update;
+  frequency_10s_boundary_o <= frequency_10s_boundary;
+  frequency_10s_boundary_update_o <= frequency_10s_boundary_update;
 
   process (aclk)
     variable address_word : natural range 0 to 63;
@@ -99,6 +115,8 @@ begin
         ten_minute_target <= (others => '0');
         ten_minute_valid <= '0';
         ten_minute_update <= '0';
+        frequency_10s_boundary <= FREQUENCY_10S_BOUNDARY_RESET;
+        frequency_10s_boundary_update <= '0';
         bvalid <= '0';
         rvalid <= '0';
         rdata <= (others => '0');
@@ -146,6 +164,78 @@ begin
             if s_axi_wdata(1) = '1' then
               ten_minute_update <= not ten_minute_update;
             end if;
+          elsif address_word = FREQUENCY_10S_REG_START_SAMPLE_LOW / 4 then
+            frequency_10s_boundary.start_sample(31 downto 0) <=
+              apply_write_strobes(
+                frequency_10s_boundary.start_sample(31 downto 0),
+                s_axi_wdata, s_axi_wstrb);
+          elsif address_word = FREQUENCY_10S_REG_START_SAMPLE_HIGH / 4 then
+            frequency_10s_boundary.start_sample(63 downto 32) <=
+              apply_write_strobes(
+                frequency_10s_boundary.start_sample(63 downto 32),
+                s_axi_wdata, s_axi_wstrb);
+          elsif address_word = FREQUENCY_10S_REG_END_SAMPLE_LOW / 4 then
+            frequency_10s_boundary.end_sample(31 downto 0) <=
+              apply_write_strobes(
+                frequency_10s_boundary.end_sample(31 downto 0),
+                s_axi_wdata, s_axi_wstrb);
+          elsif address_word = FREQUENCY_10S_REG_END_SAMPLE_HIGH / 4 then
+            frequency_10s_boundary.end_sample(63 downto 32) <=
+              apply_write_strobes(
+                frequency_10s_boundary.end_sample(63 downto 32),
+                s_axi_wdata, s_axi_wstrb);
+          elsif address_word = FREQUENCY_10S_REG_UTC_START_LOW / 4 then
+            frequency_10s_boundary.utc_start_nanoseconds(31 downto 0) <=
+              apply_write_strobes(
+                frequency_10s_boundary.utc_start_nanoseconds(31 downto 0),
+                s_axi_wdata, s_axi_wstrb);
+          elsif address_word = FREQUENCY_10S_REG_UTC_START_HIGH / 4 then
+            frequency_10s_boundary.utc_start_nanoseconds(63 downto 32) <=
+              apply_write_strobes(
+                frequency_10s_boundary.utc_start_nanoseconds(63 downto 32),
+                s_axi_wdata, s_axi_wstrb);
+          elsif address_word = FREQUENCY_10S_REG_UTC_END_LOW / 4 then
+            frequency_10s_boundary.utc_end_nanoseconds(31 downto 0) <=
+              apply_write_strobes(
+                frequency_10s_boundary.utc_end_nanoseconds(31 downto 0),
+                s_axi_wdata, s_axi_wstrb);
+          elsif address_word = FREQUENCY_10S_REG_UTC_END_HIGH / 4 then
+            frequency_10s_boundary.utc_end_nanoseconds(63 downto 32) <=
+              apply_write_strobes(
+                frequency_10s_boundary.utc_end_nanoseconds(63 downto 32),
+                s_axi_wdata, s_axi_wstrb);
+          elsif address_word = FREQUENCY_10S_REG_UNCERTAINTY_LOW / 4 then
+            frequency_10s_boundary.utc_uncertainty_nanoseconds(31 downto 0) <=
+              apply_write_strobes(
+                frequency_10s_boundary.utc_uncertainty_nanoseconds(31 downto 0),
+                s_axi_wdata, s_axi_wstrb);
+          elsif address_word = FREQUENCY_10S_REG_UNCERTAINTY_HIGH / 4 then
+            frequency_10s_boundary.utc_uncertainty_nanoseconds(63 downto 32) <=
+              apply_write_strobes(
+                frequency_10s_boundary.utc_uncertainty_nanoseconds(63 downto 32),
+                s_axi_wdata, s_axi_wstrb);
+          elsif address_word = FREQUENCY_10S_REG_MEASURED_RATE_MILLIHZ / 4 then
+            frequency_10s_boundary.measured_sample_rate_millihz <=
+              apply_write_strobes(
+                frequency_10s_boundary.measured_sample_rate_millihz,
+                s_axi_wdata, s_axi_wstrb);
+          elsif address_word = FREQUENCY_10S_REG_BOUNDARY_GENERATION / 4 then
+            frequency_10s_boundary.boundary_generation <=
+              apply_write_strobes(
+                frequency_10s_boundary.boundary_generation,
+                s_axi_wdata, s_axi_wstrb);
+          elsif address_word = FREQUENCY_10S_REG_PROFILE / 4 then
+            frequency_10s_boundary.profile <= apply_write_strobes(
+              frequency_10s_boundary.profile, s_axi_wdata, s_axi_wstrb);
+          elsif address_word = FREQUENCY_10S_REG_CONTROL / 4 then
+            control_word := apply_write_strobes(
+              frequency_10s_boundary.control, s_axi_wdata, s_axi_wstrb);
+            frequency_10s_boundary.control <=
+              (31 downto 2 => '0') & control_word(1 downto 0);
+            if control_word(2) = '1' then
+              frequency_10s_boundary_update <=
+                not frequency_10s_boundary_update;
+            end if;
           end if;
           bvalid <= '1';
         end if;
@@ -176,6 +266,46 @@ begin
             when 17 => rdata <= ten_minute_target(63 downto 32);
             when 18 => rdata <= (31 downto 9 => '0') & ten_minute_update &
                               (7 downto 1 => '0') & ten_minute_valid;
+            when FREQUENCY_10S_REG_START_SAMPLE_LOW / 4 =>
+              rdata <= frequency_10s_boundary.start_sample(31 downto 0);
+            when FREQUENCY_10S_REG_START_SAMPLE_HIGH / 4 =>
+              rdata <= frequency_10s_boundary.start_sample(63 downto 32);
+            when FREQUENCY_10S_REG_END_SAMPLE_LOW / 4 =>
+              rdata <= frequency_10s_boundary.end_sample(31 downto 0);
+            when FREQUENCY_10S_REG_END_SAMPLE_HIGH / 4 =>
+              rdata <= frequency_10s_boundary.end_sample(63 downto 32);
+            when FREQUENCY_10S_REG_UTC_START_LOW / 4 =>
+              rdata <= frequency_10s_boundary.utc_start_nanoseconds(31 downto 0);
+            when FREQUENCY_10S_REG_UTC_START_HIGH / 4 =>
+              rdata <= frequency_10s_boundary.utc_start_nanoseconds(63 downto 32);
+            when FREQUENCY_10S_REG_UTC_END_LOW / 4 =>
+              rdata <= frequency_10s_boundary.utc_end_nanoseconds(31 downto 0);
+            when FREQUENCY_10S_REG_UTC_END_HIGH / 4 =>
+              rdata <= frequency_10s_boundary.utc_end_nanoseconds(63 downto 32);
+            when FREQUENCY_10S_REG_UNCERTAINTY_LOW / 4 =>
+              rdata <= frequency_10s_boundary.utc_uncertainty_nanoseconds(31 downto 0);
+            when FREQUENCY_10S_REG_UNCERTAINTY_HIGH / 4 =>
+              rdata <= frequency_10s_boundary.utc_uncertainty_nanoseconds(63 downto 32);
+            when FREQUENCY_10S_REG_MEASURED_RATE_MILLIHZ / 4 =>
+              rdata <= frequency_10s_boundary.measured_sample_rate_millihz;
+            when FREQUENCY_10S_REG_BOUNDARY_GENERATION / 4 =>
+              rdata <= frequency_10s_boundary.boundary_generation;
+            when FREQUENCY_10S_REG_PROFILE / 4 =>
+              rdata <= frequency_10s_boundary.profile;
+            when FREQUENCY_10S_REG_CONTROL / 4 =>
+              rdata <= (31 downto 9 => '0') & frequency_10s_boundary_update &
+                       (7 downto 2 => '0') &
+                       frequency_10s_boundary.control(1 downto 0);
+            when FREQUENCY_10S_REG_OBSERVER_STATUS / 4 =>
+              rdata <= frequency_10s_status_i;
+            when FREQUENCY_10S_REG_COMPLETED_COUNT / 4 =>
+              rdata <= frequency_10s_completed_count_i;
+            when FREQUENCY_10S_REG_DROPPED_COUNT / 4 =>
+              rdata <= frequency_10s_dropped_count_i;
+            when FREQUENCY_10S_REG_OVERFLOW_COUNT / 4 =>
+              rdata <= frequency_10s_overflow_count_i;
+            when FREQUENCY_10S_REG_DISCONTINUITY_COUNT / 4 =>
+              rdata <= frequency_10s_discontinuity_count_i;
             when others => rdata <= (others => '0');
           end case;
           rvalid <= '1';
