@@ -53,6 +53,7 @@ static const int MREC_BYTES = 256;
 //   0x001F aggregate harmonics
 //   0x0020..0x0023 open ten-minute preview family
 //   0x0024..0x0027 open two-hour preview family
+//   0x0028 frequency ten-second
 // ---------------------------------------------------------------------------
 // Plain integer constants so they can parameterize serialize_record<>.
 // Preserve the deployed legacy little-endian signature while using semantic
@@ -197,6 +198,11 @@ static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_V1        = 0x00240001u;
 static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_POWER_V1  = 0x00250001u;
 static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_PHASOR_V2 = 0x00260002u;
 static const uint32_t MREC_FORMAT_OPEN_TWO_HOUR_UNBAL_V2  = 0x00270002u;
+// FREQUENCY-10S v1 (M20): the R5C1 interval authority selects complete
+// positive-going cycles from one exact UTC ten-second FRQ1 observation and
+// emits this single fixed record. It is never derived from the 10/12-cycle,
+// ten-minute, or live-frequency products.
+static const uint32_t MREC_FORMAT_FREQUENCY_10S_V1 = 0x00280001u;
 // HARMONIC v1 (M16): one complete 10/12-cycle spectrum is a family of
 // channel/chunk records with one shared sequence and common envelope.  Each
 // record carries up to 24 consecutive orders as packed 64-bit entries.  The

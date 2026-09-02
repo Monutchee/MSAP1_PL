@@ -6,7 +6,7 @@
 #
 # Address map added by this script:
 #   0xB0060000  Waveform AXI DMA control registers
-#   0xB0070000  MeterCore waveform/time-correlation registers
+#   0xB0070000  MeterCore waveform stream-control registers
 
 set script_dir [file dirname [file normalize [info script]]]
 set repo_dir [file normalize [file join $script_dir ../../..]]

@@ -34,6 +34,7 @@ set vhdl2008_sources [list \
     [file join $design_dir MeterCommon grid_timing_pkg.vhd] \
     [file join $design_dir MeterCommon measurement_record_bus_pkg.vhd] \
     [file join $design_dir MeterProcessing meter_r5_power_quality_protocol_pkg.vhd] \
+    [file join $design_dir MeterProcessing meter_frequency_10s_pkg.vhd] \
     [file join $design_dir Ad7771Capture ad7771_receiver.vhd] \
     [file join $design_dir Ad7771Capture ad7771_axi_regs.vhd] \
     [file join $design_dir Ad7771Capture ad7771_dclk_meter.vhd] \
@@ -49,6 +50,8 @@ set vhdl2008_sources [list \
     [file join $design_dir MeterProcessing grid_cycle_timing.vhd] \
     [file join $design_dir MeterProcessing record_word_tap.vhd] \
     [file join $design_dir MeterProcessing meter_r5_aggregation_pkg.vhd] \
+    [file join $design_dir MeterProcessing meter_frequency_10s_conditioner.vhd] \
+    [file join $design_dir MeterProcessing meter_frequency_10s_observer.vhd] \
     [file join $design_dir MeterProcessing meter_r5_harmonic_pkg.vhd] \
     [file join $design_dir MeterProcessing meter_r5_harmonic_export.vhd] \
     [file join $design_dir MeterProcessing meter_axis_packet_arbiter_2to1.vhd] \
@@ -60,6 +63,7 @@ set vhdl2008_sources [list \
     [file join $design_dir MeterCore adc_simulator.vhd] \
     [file join $design_dir MeterCore adc_source_mux.vhd] \
     [file join $design_dir MeterCore meter_waveform_axi_regs.vhd] \
+    [file join $design_dir MeterCore meter_time_control_axi_regs.vhd] \
     [file join $design_dir MeterCore meter_waveform.vhd] \
     [file join $design_dir MeterCore meter_core.vhd]]
 foreach vhdl_source $vhdl2008_sources {
@@ -95,12 +99,15 @@ if {[llength $heartbeat_ip] != 1} {
 }
 update_module_reference $heartbeat_ip
 
-set meter_cell [get_bd_cells -quiet MeterLogic/MeterCore_Wrapper]
+set meter_cell [get_bd_cells -quiet \
+    MeterLogic/Data_Computation/MeterCore_Wrapper]
 if {[llength $meter_cell] != 1} {
     error "MeterCore module-reference cell was not found in TopDesign"
 }
-set meter_clock [get_bd_pins -quiet MeterLogic/MeterCore_Wrapper/aclk]
-set meter_reset [get_bd_pins -quiet MeterLogic/MeterCore_Wrapper/aresetn]
+set meter_clock [get_bd_pins -quiet \
+    MeterLogic/Data_Computation/MeterCore_Wrapper/aclk]
+set meter_reset [get_bd_pins -quiet \
+    MeterLogic/Data_Computation/MeterCore_Wrapper/aresetn]
 if {[llength $meter_clock] != 1 || [llength $meter_reset] != 1} {
     error "MeterCore clock/reset pins were not found"
 }
@@ -115,19 +122,22 @@ if {[llength [get_bd_nets -quiet -of_objects $meter_clock]] == 0 ||
 set ps_address_space [get_bd_addr_spaces \
     ZYNQ_System/zynq_ultra_ps_e_0/Data]
 set capture_segment [get_bd_addr_segs -quiet \
-    MeterLogic/MeterCore_Wrapper/S_AXI_CAPTURE/reg0]
+    MeterLogic/Data_Computation/MeterCore_Wrapper/S_AXI_CAPTURE/reg0]
 set conversion_segment [get_bd_addr_segs -quiet \
-    MeterLogic/MeterCore_Wrapper/S_AXI_CONVERSION/reg0]
+    MeterLogic/Data_Computation/MeterCore_Wrapper/S_AXI_CONVERSION/reg0]
 set processing_segment [get_bd_addr_segs -quiet \
-    MeterLogic/MeterCore_Wrapper/S_AXI_PROCESSING/reg0]
+    MeterLogic/Data_Computation/MeterCore_Wrapper/S_AXI_PROCESSING/reg0]
 set waveform_segment [get_bd_addr_segs -quiet \
-    MeterLogic/MeterCore_Wrapper/S_AXI_WAVEFORM/reg0]
+    MeterLogic/Data_Computation/MeterCore_Wrapper/S_AXI_WAVEFORM/reg0]
+set time_segment [get_bd_addr_segs -quiet \
+    MeterLogic/Data_Computation/MeterCore_Wrapper/S_AXI_TIME/reg0]
 set waveform_dma_segment [get_bd_addr_segs -quiet \
-    MeterLogic/Meter_DMA/Waveform_DMA/S_AXI_LITE/Reg]
+    MeterLogic/Meter_DMA/Waveform_AXI_grp/Waveform_DMA/S_AXI_LITE/Reg]
 if {[llength $capture_segment] != 1 ||
     [llength $conversion_segment] != 1 ||
     [llength $processing_segment] != 1 ||
     [llength $waveform_segment] != 1 ||
+    [llength $time_segment] != 1 ||
     [llength $waveform_dma_segment] != 1} {
     error "MeterCore or waveform DMA AXI-Lite address segments were not found"
 }
@@ -139,6 +149,8 @@ assign_bd_address -offset 0xB0050000 -range 64K \
     -target_address_space $ps_address_space $processing_segment -force
 assign_bd_address -offset 0xB0070000 -range 64K \
     -target_address_space $ps_address_space $waveform_segment -force
+assign_bd_address -offset 0xB00A0000 -range 64K \
+    -target_address_space $ps_address_space $time_segment -force
 assign_bd_address -offset 0xB0060000 -range 64K \
     -target_address_space $ps_address_space $waveform_dma_segment -force
 
