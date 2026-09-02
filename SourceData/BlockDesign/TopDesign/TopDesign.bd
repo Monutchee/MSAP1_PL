@@ -6424,6 +6424,9 @@
                 "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
                 "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
                 "parameters": {
+                  "MAX_BURST_LENGTH": {
+                    "value": "1"
+                  },
                   "NUM_READ_OUTSTANDING": {
                     "value": "8"
                   },
@@ -6437,6 +6440,9 @@
                     "value": "1"
                   },
                   "RUSER_BITS_PER_BYTE": {
+                    "value": "0"
+                  },
+                  "SUPPORTS_NARROW_BURST": {
                     "value": "0"
                   },
                   "WUSER_BITS_PER_BYTE": {
@@ -6455,6 +6461,9 @@
                 "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
                 "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
                 "parameters": {
+                  "MAX_BURST_LENGTH": {
+                    "value": "1"
+                  },
                   "NUM_READ_OUTSTANDING": {
                     "value": "8"
                   },
@@ -6468,6 +6477,9 @@
                     "value": "1"
                   },
                   "RUSER_BITS_PER_BYTE": {
+                    "value": "0"
+                  },
+                  "SUPPORTS_NARROW_BURST": {
                     "value": "0"
                   },
                   "WUSER_BITS_PER_BYTE": {
@@ -6486,6 +6498,9 @@
                 "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
                 "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
                 "parameters": {
+                  "MAX_BURST_LENGTH": {
+                    "value": "1"
+                  },
                   "NUM_READ_OUTSTANDING": {
                     "value": "8"
                   },
@@ -6499,6 +6514,9 @@
                     "value": "1"
                   },
                   "RUSER_BITS_PER_BYTE": {
+                    "value": "0"
+                  },
+                  "SUPPORTS_NARROW_BURST": {
                     "value": "0"
                   },
                   "WUSER_BITS_PER_BYTE": {
@@ -6517,6 +6535,9 @@
                 "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
                 "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
                 "parameters": {
+                  "MAX_BURST_LENGTH": {
+                    "value": "1"
+                  },
                   "NUM_READ_OUTSTANDING": {
                     "value": "8"
                   },
@@ -6530,6 +6551,9 @@
                     "value": "1"
                   },
                   "RUSER_BITS_PER_BYTE": {
+                    "value": "0"
+                  },
+                  "SUPPORTS_NARROW_BURST": {
                     "value": "0"
                   },
                   "WUSER_BITS_PER_BYTE": {
@@ -6548,6 +6572,9 @@
                 "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
                 "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
                 "parameters": {
+                  "MAX_BURST_LENGTH": {
+                    "value": "1"
+                  },
                   "NUM_READ_OUTSTANDING": {
                     "value": "8"
                   },
@@ -6561,6 +6588,9 @@
                     "value": "1"
                   },
                   "RUSER_BITS_PER_BYTE": {
+                    "value": "0"
+                  },
+                  "SUPPORTS_NARROW_BURST": {
                     "value": "0"
                   },
                   "WUSER_BITS_PER_BYTE": {
@@ -6579,6 +6609,9 @@
                 "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
                 "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
                 "parameters": {
+                  "MAX_BURST_LENGTH": {
+                    "value": "1"
+                  },
                   "NUM_READ_OUTSTANDING": {
                     "value": "8"
                   },
@@ -6592,6 +6625,9 @@
                     "value": "1"
                   },
                   "RUSER_BITS_PER_BYTE": {
+                    "value": "0"
+                  },
+                  "SUPPORTS_NARROW_BURST": {
                     "value": "0"
                   },
                   "WUSER_BITS_PER_BYTE": {
@@ -6610,6 +6646,9 @@
                 "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
                 "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
                 "parameters": {
+                  "MAX_BURST_LENGTH": {
+                    "value": "1"
+                  },
                   "NUM_READ_OUTSTANDING": {
                     "value": "8"
                   },
@@ -6623,6 +6662,9 @@
                     "value": "1"
                   },
                   "RUSER_BITS_PER_BYTE": {
+                    "value": "0"
+                  },
+                  "SUPPORTS_NARROW_BURST": {
                     "value": "0"
                   },
                   "WUSER_BITS_PER_BYTE": {
@@ -6641,6 +6683,9 @@
                 "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
                 "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
                 "parameters": {
+                  "MAX_BURST_LENGTH": {
+                    "value": "1"
+                  },
                   "NUM_READ_OUTSTANDING": {
                     "value": "8"
                   },
@@ -6654,6 +6699,9 @@
                     "value": "1"
                   },
                   "RUSER_BITS_PER_BYTE": {
+                    "value": "0"
+                  },
+                  "SUPPORTS_NARROW_BURST": {
                     "value": "0"
                   },
                   "WUSER_BITS_PER_BYTE": {
@@ -6672,6 +6720,9 @@
                 "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
                 "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
                 "parameters": {
+                  "MAX_BURST_LENGTH": {
+                    "value": "1"
+                  },
                   "NUM_READ_OUTSTANDING": {
                     "value": "8"
                   },
@@ -6685,6 +6736,9 @@
                     "value": "1"
                   },
                   "RUSER_BITS_PER_BYTE": {
+                    "value": "0"
+                  },
+                  "SUPPORTS_NARROW_BURST": {
                     "value": "0"
                   },
                   "WUSER_BITS_PER_BYTE": {
@@ -6703,6 +6757,9 @@
                 "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
                 "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
                 "parameters": {
+                  "MAX_BURST_LENGTH": {
+                    "value": "1"
+                  },
                   "NUM_READ_OUTSTANDING": {
                     "value": "8"
                   },
@@ -6716,6 +6773,9 @@
                     "value": "1"
                   },
                   "RUSER_BITS_PER_BYTE": {
+                    "value": "0"
+                  },
+                  "SUPPORTS_NARROW_BURST": {
                     "value": "0"
                   },
                   "WUSER_BITS_PER_BYTE": {
@@ -6734,6 +6794,9 @@
                 "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
                 "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
                 "parameters": {
+                  "MAX_BURST_LENGTH": {
+                    "value": "1"
+                  },
                   "NUM_READ_OUTSTANDING": {
                     "value": "8"
                   },
@@ -6747,6 +6810,9 @@
                     "value": "1"
                   },
                   "RUSER_BITS_PER_BYTE": {
+                    "value": "0"
+                  },
+                  "SUPPORTS_NARROW_BURST": {
                     "value": "0"
                   },
                   "WUSER_BITS_PER_BYTE": {
