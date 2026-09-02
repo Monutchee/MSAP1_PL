@@ -8,6 +8,7 @@ set project_root [file normalize [file join $script_dir ../..]]
 set project_file [file join $project_root vivado_gen MSAP1_PL.xpr]
 set processing_dir [file join $project_root SourceData DesignFile \
     MeterProcessing]
+set meter_core_dir [file join $project_root SourceData DesignFile MeterCore]
 
 set close_project_when_done false
 set open_now [current_project -quiet]
@@ -27,7 +28,8 @@ if {$open_now eq ""} {
 set vhdl_sources [list \
     [file join $processing_dir meter_frequency_10s_pkg.vhd] \
     [file join $processing_dir meter_frequency_10s_conditioner.vhd] \
-    [file join $processing_dir meter_frequency_10s_observer.vhd]]
+    [file join $processing_dir meter_frequency_10s_observer.vhd] \
+    [file join $meter_core_dir meter_time_control_axi_regs.vhd]]
 
 set missing_sources [list]
 foreach source $vhdl_sources {

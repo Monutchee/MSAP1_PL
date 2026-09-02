@@ -93,6 +93,7 @@ set vhdl2008_sources [list \
   [file join $design_root MeterCore adc_simulator.vhd] \
   [file join $design_root MeterCore adc_source_mux.vhd] \
   [file join $design_root MeterCore meter_waveform_axi_regs.vhd] \
+  [file join $design_root MeterCore meter_time_control_axi_regs.vhd] \
   [file join $design_root MeterCore meter_waveform.vhd]]
 set core_vhdl2008_sources [list \
   [file join $design_root MeterCore meter_core.vhd]]

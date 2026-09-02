@@ -58,7 +58,7 @@ package meter_frequency_10s_pkg is
   constant FREQUENCY_10S_GUARD_EXACT_START_BIT : natural := 2;
   constant FREQUENCY_10S_GUARD_EXACT_END_BIT : natural := 3;
 
-  -- Waveform AXI-Lite offsets (base 0xB0070000). The tuple is written to the
+  -- Meter-time AXI-Lite offsets (base assigned by TopDesign). The tuple is written to the
   -- shadow bank, then CONTROL.UPDATE toggles one coherent handoff.
   constant FREQUENCY_10S_REG_START_SAMPLE_LOW : natural := 16#50#;
   constant FREQUENCY_10S_REG_START_SAMPLE_HIGH : natural := 16#54#;

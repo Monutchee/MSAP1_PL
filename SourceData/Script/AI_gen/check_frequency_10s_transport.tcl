@@ -30,11 +30,11 @@ puts [exec $xvhdl --2008 \
   [file join $design_root MeterProcessing meter_frequency_10s_conditioner.vhd] \
   [file join $design_root MeterProcessing meter_frequency_10s_observer.vhd] \
   [file join $design_root MeterProcessing meter_r5_fixed_packet_export.vhd] \
-  [file join $design_root MeterCore meter_waveform_axi_regs.vhd] \
+  [file join $design_root MeterCore meter_time_control_axi_regs.vhd] \
   [file join $design_root MeterProcessing tb \
     meter_frequency_10s_transport_tb.vhd] \
   [file join $design_root MeterCore tb \
-    meter_waveform_frequency_10s_regs_tb.vhd] 2>@1]
+    meter_time_control_regs_tb.vhd] 2>@1]
 puts [exec $xelab -a --mt off -L xpm meter_frequency_10s_transport_tb \
   -s meter_frequency_10s_transport_tb_sim 2>@1]
 set axsim [file join $work_root xsim.dir \
@@ -48,15 +48,15 @@ if {[string match "*Failure:*" $simulation_log] ||
   error "frequency ten-second transport simulation did not report PASS"
 }
 
-puts [exec $xelab -a --mt off meter_waveform_frequency_10s_regs_tb \
-  -s meter_waveform_frequency_10s_regs_tb_sim 2>@1]
+puts [exec $xelab -a --mt off meter_time_control_regs_tb \
+  -s meter_time_control_regs_tb_sim 2>@1]
 set register_axsim [file join $work_root xsim.dir \
-  meter_waveform_frequency_10s_regs_tb_sim axsim]
+  meter_time_control_regs_tb_sim axsim]
 set register_log \
   [exec env "LD_LIBRARY_PATH=$simulator_libraries" $register_axsim 2>@1]
 puts $register_log
 if {[string match "*Failure:*" $register_log] ||
-    ![string match "*PASS: meter_waveform_frequency_10s_regs_tb*" \
+    ![string match "*PASS: meter_time_control_regs_tb*" \
       $register_log]} {
   error "frequency ten-second register simulation did not report PASS"
 }

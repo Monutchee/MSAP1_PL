@@ -72,7 +72,7 @@
   `TUSER[31:0]`, high word in `TUSER[105:74]`). It is the measurement
   timebase: never reset it on configuration apply and never step it for time
   synchronization. BASIC-v2 format `0x00010002` references it in words 60/61 and
-  the waveform correlation block latches it for Linux UTC mapping (the
+  the independent meter-time control block latches it for Linux UTC mapping (the
   BASIC-v4 record keeps those words).
 - The conversion stage also owns current-input normalization. Physical ADC
   CH0--CH3 retain their own scale calibration and polarity, then one atomically
@@ -195,13 +195,16 @@
   2048 AXI beats, or 8192 bytes per DMA packet.
 - AXI Quad SPI, capture, conversion, processing, and simulator AXI-Lite
   registers are RPU-owned. Linux exclusively owns both SG-enabled S2MM DMA
-  engines and the waveform correlation/control registers.
+  engines, the waveform stream-control registers, and the independent
+  meter-time control registers. Meter-time has no DMA channel.
 - Current addresses are AXI Quad SPI `0xB0010000`, capture `0xB0020000`, AXI
   meter DMA `0xB0030000`, conversion `0xB0040000`, processing `0xB0050000`,
-  waveform DMA `0xB0060000`, and waveform control `0xB0070000`. Address-map
-  The raw ADC simulator/source-selection register block is `0xB0080000`.
+  waveform DMA `0xB0060000`, waveform control `0xB0070000`, and raw ADC
+  simulator/source selection `0xB0080000`. The proposed Linux meter-time
+  window is `0xB00A0000` (64 KiB) and must match the block-design assignment
+  and device tree.
   Linux writes the coherent M20 ten-second boundary tuple and reads observer
-  health through the waveform-control window at offsets `0x50`--`0x98`;
+  health through the meter-time window at offsets `0x50`--`0x98`;
   `0x84[2]` toggles UPDATE, bits 0/1 carry valid/time-synchronized, and the
   momentary bit 3 cancels active/queued tuples during an orderly stop without
   creating a measurement record.
