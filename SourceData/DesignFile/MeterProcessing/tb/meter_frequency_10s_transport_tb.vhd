@@ -17,9 +17,13 @@ architecture tb of meter_frequency_10s_transport_tb is
   constant C_INTERVAL_SAMPLES : natural := C_SAMPLE_RATE_HZ * 10;
   constant C_INTERVAL_END : natural :=
     C_INTERVAL_START + C_INTERVAL_SAMPLES;
-  constant C_DRIVE_LAST_SAMPLE : natural := C_INTERVAL_END + 200;
+  constant C_SECOND_INTERVAL_START : natural := C_INTERVAL_END;
+  constant C_SECOND_INTERVAL_END : natural :=
+    C_SECOND_INTERVAL_START + C_INTERVAL_SAMPLES;
+  constant C_DRIVE_LAST_SAMPLE : natural := C_SECOND_INTERVAL_END + 200;
   constant C_WAVE_PERIOD_SAMPLES : positive := C_SAMPLE_RATE_HZ / 50;
   constant C_REQUIRED_STATUS : std_logic_vector(31 downto 0) := x"0000061F";
+  constant C_SECOND_FRAME_OFFSET : natural := FREQUENCY_10S_FRAME_WORDS;
 
   type word_array_t is array (natural range <>) of
     std_logic_vector(31 downto 0);
@@ -66,11 +70,14 @@ architecture tb of meter_frequency_10s_transport_tb is
   signal transmitted_packets : std_logic_vector(31 downto 0);
   signal framing_errors : std_logic_vector(31 downto 0);
 
-  signal observed_words : word_array_t(0 to FREQUENCY_10S_FRAME_WORDS - 1) :=
+  signal observed_words : word_array_t(
+    0 to 2 * FREQUENCY_10S_FRAME_WORDS - 1) :=
     (others => (others => '0'));
-  signal observed_last : bit_array_t(0 to FREQUENCY_10S_FRAME_WORDS - 1) :=
+  signal observed_last : bit_array_t(
+    0 to 2 * FREQUENCY_10S_FRAME_WORDS - 1) :=
     (others => '0');
-  signal observed_count : natural range 0 to FREQUENCY_10S_FRAME_WORDS + 1 := 0;
+  signal observed_count : natural range 0 to
+    2 * FREQUENCY_10S_FRAME_WORDS + 1 := 0;
 begin
   aclk <= not aclk after C_CLOCK_PERIOD / 2;
 
@@ -112,9 +119,9 @@ begin
       G_MAGIC => FREQUENCY_10S_MAGIC,
       G_CONTRACT_REVISION => FREQUENCY_10S_CONTRACT_REVISION,
       G_PAYLOAD_WORDS => FREQUENCY_10S_PAYLOAD_WORDS,
-      G_FIFO_DEPTH => 4096,
-      G_FIFO_COUNT_WIDTH => 13,
-      G_PACKET_SLOTS => 1)
+      G_FIFO_DEPTH => 8192,
+      G_FIFO_COUNT_WIDTH => 14,
+      G_PACKET_SLOTS => 3)
     port map (
       aclk => aclk,
       aresetn => aresetn,
@@ -139,13 +146,13 @@ begin
       if aresetn = '0' then
         observed_count <= 0;
       elsif frame_tvalid = '1' and frame_tready = '1' then
-        assert observed_count < FREQUENCY_10S_FRAME_WORDS
+        assert observed_count < 2 * FREQUENCY_10S_FRAME_WORDS
           report "FRQ1 packetizer emitted an extra word"
           severity failure;
         assert frame_tkeep = "1111"
           report "FRQ1 packetizer emitted partial TKEEP"
           severity failure;
-        if observed_count < FREQUENCY_10S_FRAME_WORDS then
+        if observed_count < 2 * FREQUENCY_10S_FRAME_WORDS then
           observed_words(observed_count) <= frame_tdata;
           observed_last(observed_count) <= frame_tlast;
           observed_count <= observed_count + 1;
@@ -242,6 +249,19 @@ begin
         TUSER_SAMPLE_INDEX_HIGH_LSB) := (others => '0');
 
       wait until falling_edge(aclk);
+      -- Linux always queues the following UTC interval while the current one
+      -- is active. The observer must rotate banks at the shared boundary,
+      -- without labelling its deliberate close/start handoff as a source gap.
+      if sample_index = C_INTERVAL_END - C_SAMPLE_RATE_HZ then
+        boundary.start_sample <= std_logic_vector(
+          to_unsigned(C_SECOND_INTERVAL_START, 64));
+        boundary.end_sample <= std_logic_vector(
+          to_unsigned(C_SECOND_INTERVAL_END, 64));
+        boundary.utc_start_nanoseconds <= x"00000006FC23AC00";
+        boundary.utc_end_nanoseconds <= x"00000009502F9000";
+        boundary.boundary_generation <= x"0000000A";
+        boundary_update <= not boundary_update;
+      end if;
       frame_data <= frame_data_v;
       frame_user <= frame_user_v;
       frame_accept <= '1';
@@ -252,12 +272,21 @@ begin
       end loop;
     end loop;
 
-    for timeout_cycle in 0 to 20000 loop
-      exit when observed_count = FREQUENCY_10S_FRAME_WORDS;
+    for timeout_cycle in 0 to 40000 loop
+      exit when observed_count = 2 * FREQUENCY_10S_FRAME_WORDS;
       wait until rising_edge(aclk);
     end loop;
-    assert observed_count = FREQUENCY_10S_FRAME_WORDS
-      report "timed out waiting for complete FRQ1 frame"
+    assert observed_count = 2 * FREQUENCY_10S_FRAME_WORDS
+      report "timed out waiting for two complete FRQ1 frames: words=" &
+        integer'image(observed_count) & ", completed=" &
+        integer'image(to_integer(unsigned(completed_count))) & ", dropped=" &
+        integer'image(to_integer(unsigned(dropped_count))) & ", accepted=" &
+        integer'image(to_integer(unsigned(accepted_packets))) &
+        ", packetizer_drops=" &
+        integer'image(to_integer(unsigned(packetizer_drops))) &
+        ", transmitted=" &
+        integer'image(to_integer(unsigned(transmitted_packets))) &
+        ", observer_status=" & to_hstring(observer_status)
       severity failure;
     wait until rising_edge(aclk);
 
@@ -363,13 +392,60 @@ begin
            observed_last(FREQUENCY_10S_FRAME_WORDS - 1) = '1'
       report "FRQ1 CRC32C or final TLAST is incorrect"
       severity failure;
-    assert completed_count = x"00000001" and
+
+    assert observed_words(C_SECOND_FRAME_OFFSET) = FREQUENCY_10S_MAGIC and
+           observed_words(C_SECOND_FRAME_OFFSET + 1) =
+             FREQUENCY_10S_CONTRACT_REVISION and
+           unsigned(observed_words(C_SECOND_FRAME_OFFSET + 2)) =
+             FREQUENCY_10S_PAYLOAD_WORDS and
+           observed_words(C_SECOND_FRAME_OFFSET + 3) = x"00000001" and
+           observed_words(C_SECOND_FRAME_OFFSET + 4) = x"00000001"
+      report "second FRQ1 fixed header or sequence mirror is incorrect"
+      severity failure;
+    assert (observed_words(C_SECOND_FRAME_OFFSET + 10) and
+              C_REQUIRED_STATUS) = C_REQUIRED_STATUS and
+           observed_words(C_SECOND_FRAME_OFFSET + 10)(
+             FREQUENCY_10S_STATUS_SOURCE_DISCONTINUITY_BIT) = '0' and
+           observed_words(C_SECOND_FRAME_OFFSET + 10)(
+             FREQUENCY_10S_STATUS_RESYNCHRONIZED_BIT) = '0' and
+           observed_words(C_SECOND_FRAME_OFFSET + 11) = x"00000000"
+      report "contiguous FRQ1 handoff was marked discontinuous/resynchronized"
+      severity failure;
+    assert unsigned(observed_words(C_SECOND_FRAME_OFFSET + 12)) =
+             C_SECOND_INTERVAL_START and
+           observed_words(C_SECOND_FRAME_OFFSET + 13) = x"00000000" and
+           unsigned(observed_words(C_SECOND_FRAME_OFFSET + 14)) =
+             C_SECOND_INTERVAL_END and
+           observed_words(C_SECOND_FRAME_OFFSET + 15) = x"00000000" and
+           unsigned(observed_words(C_SECOND_FRAME_OFFSET + 22)) = 10
+      report "second FRQ1 sample-boundary metadata is incorrect"
+      severity failure;
+    crossing_count_v := to_integer(unsigned(
+      observed_words(C_SECOND_FRAME_OFFSET + 23)));
+    assert crossing_count_v >= 500 and crossing_count_v <= 503
+      report "second FRQ1 crossing count is outside the expected 50 Hz bound"
+      severity failure;
+
+    crc := R5_AGG_CRC_INITIAL;
+    for word_index in C_SECOND_FRAME_OFFSET to
+        2 * FREQUENCY_10S_FRAME_WORDS - 2 loop
+      crc := crc32c_update_word(crc, observed_words(word_index));
+      assert observed_last(word_index) = '0'
+        report "second FRQ1 asserted TLAST before its CRC"
+        severity failure;
+    end loop;
+    assert observed_words(2 * FREQUENCY_10S_FRAME_WORDS - 1) = not crc and
+           observed_last(2 * FREQUENCY_10S_FRAME_WORDS - 1) = '1'
+      report "second FRQ1 CRC32C or final TLAST is incorrect"
+      severity failure;
+
+    assert completed_count = x"00000002" and
            dropped_count = x"00000000" and
            overflow_count = x"00000000" and
            discontinuity_count = x"00000000" and
-           accepted_packets = x"00000001" and
+           accepted_packets = x"00000002" and
            packetizer_drops = x"00000000" and
-           transmitted_packets = x"00000001" and
+           transmitted_packets = x"00000002" and
            framing_errors = x"00000000"
       report "FRQ1 observer/transport counters are incorrect"
       severity failure;

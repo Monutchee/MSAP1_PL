@@ -389,12 +389,18 @@ begin
       2 * FREQUENCY_10S_CROSSING_CAPACITY - 1;
     variable crossing_write_data : std_logic_vector(63 downto 0);
     variable cancel_update : boolean;
+    variable activate_queued_boundary : boolean;
+    variable continuous_handoff : boolean;
+    variable activation_bank : natural range 0 to 1;
   begin
     if rising_edge(aclk) then
       divider_start <= '0';
       crossing_write := false;
       crossing_write_address := 0;
       crossing_write_data := (others => '0');
+      activate_queued_boundary := false;
+      continuous_handoff := false;
+      activation_bank := write_bank;
       cancel_update := boundary_update_i /= boundary_update_seen and
         boundary_i.control(FREQUENCY_10S_CONTROL_CANCEL_BIT) = '1';
 
@@ -556,112 +562,7 @@ begin
             end if;
           elsif queued_boundary_valid = '1' and
                 conditioned_index >= unsigned(queued_boundary.start_sample) then
-            active_boundary <= queued_boundary;
-            active_configuration_generation <= config_generation_i;
-            active_configured_sample_rate <= configured_sample_rate_hz_i;
-            active_interval <= '1';
-            queued_boundary_valid <= '0';
-            end_seen <= '0';
-            finalize_pending <= '0';
-            crossing_count <= 0;
-            active_guard_flags <= (others => '0');
-            start_status := (others => '0');
-            start_reason := (others => '0');
-            start_drops := (others => '0');
-            if queued_drop_pending = '1' then
-              start_status(FREQUENCY_10S_STATUS_OBSERVER_DROP_BIT) := '1';
-              start_reason(FREQUENCY_10S_REASON_OBSERVER_DROP_BIT) := '1';
-              start_drops := to_unsigned(1, 32);
-              queued_drop_pending <= '0';
-            end if;
-            if boundary_geometry_valid(queued_boundary) and
-               queued_boundary.control(FREQUENCY_10S_CONTROL_VALID_BIT) = '1' then
-              start_status(FREQUENCY_10S_STATUS_BOUNDARY_VALID_BIT) := '1';
-            else
-              start_reason(FREQUENCY_10S_REASON_BOUNDARY_INVALID_BIT) := '1';
-            end if;
-            if queued_boundary.control(
-                 FREQUENCY_10S_CONTROL_TIME_SYNCHRONIZED_BIT) = '1' then
-              start_status(FREQUENCY_10S_STATUS_TIME_SYNCHRONIZED_BIT) := '1';
-            else
-              start_reason(FREQUENCY_10S_REASON_TIME_UNSYNCHRONIZED_BIT) := '1';
-            end if;
-            if unsigned(queued_boundary.utc_uncertainty_nanoseconds) >
-               to_unsigned(1000000, 64) then
-              start_reason(FREQUENCY_10S_REASON_TIME_UNCERTAINTY_BIT) := '1';
-            end if;
-            if sample_rate_valid(queued_boundary,
-                 configured_sample_rate_hz_i, measured_frame_rate_hz_i,
-                 measured_frame_rate_valid_i) then
-              start_status(FREQUENCY_10S_STATUS_SAMPLE_RATE_VALID_BIT) := '1';
-            else
-              start_reason(FREQUENCY_10S_REASON_SAMPLE_RATE_INVALID_BIT) := '1';
-            end if;
-            if conditioner_ready = '1' then
-              start_status(FREQUENCY_10S_STATUS_FILTER_READY_BIT) := '1';
-            else
-              start_reason(FREQUENCY_10S_REASON_FILTER_WARMUP_BIT) := '1';
-            end if;
-            if conditioner_reference_valid = '1' then
-              start_status(FREQUENCY_10S_STATUS_REFERENCE_VALID_BIT) := '1';
-            else
-              start_reason(FREQUENCY_10S_REASON_REFERENCE_INVALID_BIT) := '1';
-            end if;
-            if unsigned(queued_boundary.profile(31 downto 24)) =
-               FREQUENCY_10S_CALIBRATION_PROFILE then
-              start_status(FREQUENCY_10S_STATUS_CALIBRATION_VALID_BIT) := '1';
-            else
-              start_reason(FREQUENCY_10S_REASON_CALIBRATION_INVALID_BIT) := '1';
-            end if;
-            if profile_supported(queued_boundary,
-                 configured_sample_rate_hz_i) then
-              start_status(FREQUENCY_10S_STATUS_PROFILE_SUPPORTED_BIT) := '1';
-            else
-              start_reason(FREQUENCY_10S_REASON_UNSUPPORTED_PROFILE_BIT) := '1';
-            end if;
-            if conditioned_index > unsigned(queued_boundary.start_sample) +
-                 G_DECIMATION then
-              start_status(FREQUENCY_10S_STATUS_RESYNCHRONIZED_BIT) := '1';
-              start_status(FREQUENCY_10S_STATUS_SOURCE_DISCONTINUITY_BIT) := '1';
-              start_reason(FREQUENCY_10S_REASON_DISCONTINUITY_BIT) := '1';
-            end if;
-            active_status <= start_status;
-            active_reason <= start_reason;
-            active_observer_drops <= start_drops;
-
-            -- Seed the interval with the most recent crossing only when it is
-            -- still at or before the requested end. A tuple delivered after
-            -- its end is already marked resynchronized/discontinuous above;
-            -- admitting an arbitrarily late crossing as an "after" guard
-            -- would misrepresent the bounded observation geometry.
-            if have_latest_crossing = '1' and
-               (latest_crossing_index <
-                  unsigned(queued_boundary.end_sample) or
-                (latest_crossing_index =
-                   unsigned(queued_boundary.end_sample) and
-                 latest_crossing_fraction = 0)) then
-              latest_relative := relative_crossing_q16(
-                latest_crossing_index, latest_crossing_fraction,
-                unsigned(queued_boundary.start_sample));
-              crossing_write := true;
-              crossing_write_address :=
-                write_bank * FREQUENCY_10S_CROSSING_CAPACITY;
-              crossing_write_data := std_logic_vector(latest_relative);
-              crossing_count <= 1;
-              if latest_relative < 0 then
-                active_guard_flags(
-                  FREQUENCY_10S_GUARD_BEFORE_START_BIT) <= '1';
-              elsif latest_relative = 0 then
-                active_guard_flags(
-                  FREQUENCY_10S_GUARD_EXACT_START_BIT) <= '1';
-              end if;
-              if latest_crossing_index =
-                   unsigned(queued_boundary.end_sample) and
-                 latest_crossing_fraction = 0 then
-                active_guard_flags(
-                  FREQUENCY_10S_GUARD_EXACT_END_BIT) <= '1';
-              end if;
-            end if;
+            activate_queued_boundary := true;
           end if;
         end if;
 
@@ -756,13 +657,147 @@ begin
             completed_count <= saturating_increment(completed_count);
             if write_bank = 0 then
               write_bank <= 1;
+              activation_bank := 1;
             else
               write_bank <= 0;
+              activation_bank := 0;
+            end if;
+            -- The conditioner never stops between adjacent UTC intervals.
+            -- Start an already-reached queued tuple while rotating the two
+            -- crossing banks, using the same conditioned sample that closed
+            -- the prior tuple. Waiting for another decimated output creates
+            -- an artificial one-output gap and used to set RESYNCHRONIZED on
+            -- every interval after the first.
+            if queued_boundary_valid = '1' and
+               conditioned_index >=
+                 unsigned(queued_boundary.start_sample) then
+              activate_queued_boundary := true;
+              -- A UTC-contiguous tuple can inherit the retained guard
+              -- crossing when the close/start latency is shorter than one
+              -- 70 Hz period. At most one rising crossing can occur in this
+              -- bounded handoff, so no observation is lost and it is not a
+              -- source resynchronization.
+              continuous_handoff :=
+                queued_boundary.utc_start_nanoseconds =
+                  active_boundary.utc_end_nanoseconds and
+                conditioned_index <=
+                  unsigned(queued_boundary.start_sample) +
+                    G_CERTIFIED_SAMPLE_RATE_HZ / 70;
             end if;
           else
             dropped_count <= saturating_increment(dropped_count);
             interval_sequence <= interval_sequence + 1;
             queued_drop_pending <= '1';
+          end if;
+        end if;
+
+        if activate_queued_boundary and not cancel_update then
+          active_boundary <= queued_boundary;
+          active_configuration_generation <= config_generation_i;
+          active_configured_sample_rate <= configured_sample_rate_hz_i;
+          active_interval <= '1';
+          queued_boundary_valid <= '0';
+          end_seen <= '0';
+          finalize_pending <= '0';
+          write_bank <= activation_bank;
+          crossing_count <= 0;
+          active_guard_flags <= (others => '0');
+          start_status := (others => '0');
+          start_reason := (others => '0');
+          start_drops := (others => '0');
+          if queued_drop_pending = '1' then
+            start_status(FREQUENCY_10S_STATUS_OBSERVER_DROP_BIT) := '1';
+            start_reason(FREQUENCY_10S_REASON_OBSERVER_DROP_BIT) := '1';
+            start_drops := to_unsigned(1, 32);
+            queued_drop_pending <= '0';
+          end if;
+          if boundary_geometry_valid(queued_boundary) and
+             queued_boundary.control(FREQUENCY_10S_CONTROL_VALID_BIT) = '1' then
+            start_status(FREQUENCY_10S_STATUS_BOUNDARY_VALID_BIT) := '1';
+          else
+            start_reason(FREQUENCY_10S_REASON_BOUNDARY_INVALID_BIT) := '1';
+          end if;
+          if queued_boundary.control(
+               FREQUENCY_10S_CONTROL_TIME_SYNCHRONIZED_BIT) = '1' then
+            start_status(FREQUENCY_10S_STATUS_TIME_SYNCHRONIZED_BIT) := '1';
+          else
+            start_reason(FREQUENCY_10S_REASON_TIME_UNSYNCHRONIZED_BIT) := '1';
+          end if;
+          if unsigned(queued_boundary.utc_uncertainty_nanoseconds) >
+             to_unsigned(1000000, 64) then
+            start_reason(FREQUENCY_10S_REASON_TIME_UNCERTAINTY_BIT) := '1';
+          end if;
+          if sample_rate_valid(queued_boundary,
+               configured_sample_rate_hz_i, measured_frame_rate_hz_i,
+               measured_frame_rate_valid_i) then
+            start_status(FREQUENCY_10S_STATUS_SAMPLE_RATE_VALID_BIT) := '1';
+          else
+            start_reason(FREQUENCY_10S_REASON_SAMPLE_RATE_INVALID_BIT) := '1';
+          end if;
+          if conditioner_ready = '1' then
+            start_status(FREQUENCY_10S_STATUS_FILTER_READY_BIT) := '1';
+          else
+            start_reason(FREQUENCY_10S_REASON_FILTER_WARMUP_BIT) := '1';
+          end if;
+          if conditioner_reference_valid = '1' then
+            start_status(FREQUENCY_10S_STATUS_REFERENCE_VALID_BIT) := '1';
+          else
+            start_reason(FREQUENCY_10S_REASON_REFERENCE_INVALID_BIT) := '1';
+          end if;
+          if unsigned(queued_boundary.profile(31 downto 24)) =
+             FREQUENCY_10S_CALIBRATION_PROFILE then
+            start_status(FREQUENCY_10S_STATUS_CALIBRATION_VALID_BIT) := '1';
+          else
+            start_reason(FREQUENCY_10S_REASON_CALIBRATION_INVALID_BIT) := '1';
+          end if;
+          if profile_supported(queued_boundary,
+               configured_sample_rate_hz_i) then
+            start_status(FREQUENCY_10S_STATUS_PROFILE_SUPPORTED_BIT) := '1';
+          else
+            start_reason(FREQUENCY_10S_REASON_UNSUPPORTED_PROFILE_BIT) := '1';
+          end if;
+          if conditioned_index > unsigned(queued_boundary.start_sample) +
+               G_DECIMATION and not continuous_handoff then
+            start_status(FREQUENCY_10S_STATUS_RESYNCHRONIZED_BIT) := '1';
+            start_status(FREQUENCY_10S_STATUS_SOURCE_DISCONTINUITY_BIT) := '1';
+            start_reason(FREQUENCY_10S_REASON_DISCONTINUITY_BIT) := '1';
+          end if;
+          active_status <= start_status;
+          active_reason <= start_reason;
+          active_observer_drops <= start_drops;
+
+          -- Seed the interval with the most recent crossing only when it is
+          -- still at or before the requested end. A tuple delivered after
+          -- its end is already marked resynchronized/discontinuous above;
+          -- admitting an arbitrarily late crossing as an "after" guard
+          -- would misrepresent the bounded observation geometry.
+          if have_latest_crossing = '1' and
+             (latest_crossing_index <
+                unsigned(queued_boundary.end_sample) or
+              (latest_crossing_index =
+                 unsigned(queued_boundary.end_sample) and
+               latest_crossing_fraction = 0)) then
+            latest_relative := relative_crossing_q16(
+              latest_crossing_index, latest_crossing_fraction,
+              unsigned(queued_boundary.start_sample));
+            crossing_write := true;
+            crossing_write_address :=
+              activation_bank * FREQUENCY_10S_CROSSING_CAPACITY;
+            crossing_write_data := std_logic_vector(latest_relative);
+            crossing_count <= 1;
+            if latest_relative < 0 then
+              active_guard_flags(
+                FREQUENCY_10S_GUARD_BEFORE_START_BIT) <= '1';
+            elsif latest_relative = 0 then
+              active_guard_flags(
+                FREQUENCY_10S_GUARD_EXACT_START_BIT) <= '1';
+            end if;
+            if latest_crossing_index =
+                 unsigned(queued_boundary.end_sample) and
+               latest_crossing_fraction = 0 then
+              active_guard_flags(
+                FREQUENCY_10S_GUARD_EXACT_END_BIT) <= '1';
+            end if;
           end if;
         end if;
 
